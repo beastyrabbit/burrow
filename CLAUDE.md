@@ -23,29 +23,12 @@
    - Test the actual feature you changed (type in search, verify results, test keyboard nav)
    - Page loads alone are NOT sufficient — interact with the UI
 
-### Test-First Development (TDD)
-
-**Every new feature MUST have tests written BEFORE the implementation code. No exceptions.**
-
-1. Write failing tests that describe the expected behavior
-2. Implement the minimum code to make tests pass
-3. Refactor if needed, keeping tests green
-
 ### When Adding New Features
 
 - Add Rust unit tests for any new backend logic (commands, parsing, search)
 - Add Playwright e2e tests for any new UI behavior
 - If a new provider is added, add tests for: empty query, matching query, no-match query, edge cases
 - Mock new Tauri commands in `src/mock-tauri.ts` so Playwright tests work without Tauri runtime
-
-### Test Types
-
-| Type | Location | Runner | Purpose |
-|------|----------|--------|---------|
-| Unit tests | `#[cfg(test)]` in each `.rs` file | `cargo test` | Pure function logic, parsing, edge cases |
-| Doc tests | `///` comments with code blocks | `cargo test` | API usage examples that stay in sync |
-| Integration tests | `src-tauri/tests/` | `cargo test` | Cross-module interactions |
-| E2E tests | `e2e/` | `npx playwright test` | Full UI flows via browser |
 
 ## Configuration
 
@@ -78,8 +61,8 @@
 
 | Command | Purpose |
 |---------|---------|
-| `cd src-tauri && cargo test` | Run all Rust unit tests |
-| `npx playwright test` | Run all e2e tests |
+| `cd src-tauri && cargo test` | Run all Rust unit tests (130 tests) |
+| `npx playwright test` | Run all e2e tests (28 tests) |
 | `pnpm dev` | Start Vite dev server on :1420 (mock backend) |
 | `pnpm tauri dev` | Start full Tauri app (real backend) |
 | `pnpm build` | Build frontend for production |

@@ -139,7 +139,12 @@ mod tests {
     #[test]
     fn limits_to_10_results() {
         let items: Vec<String> = (0..20)
-            .map(|i| format!(r#"{{"id": "id{}", "title": "Item {}", "category": "LOGIN"}}"#, i, i))
+            .map(|i| {
+                format!(
+                    r#"{{"id": "id{}", "title": "Item {}", "category": "LOGIN"}}"#,
+                    i, i
+                )
+            })
             .collect();
         let json = format!("[{}]", items.join(","));
         let results = parse_op_items(json.as_bytes(), "item").unwrap();

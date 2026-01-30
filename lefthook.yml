@@ -1,0 +1,22 @@
+output:
+  - summary
+  - failure
+  - execution_out
+
+pre-commit:
+  parallel: true
+  commands:
+    gitleaks:
+      run: gitleaks git --pre-commit --no-banner
+    tsc:
+      glob: "**/*.{ts,tsx}"
+      run: npx tsc --noEmit
+    clippy:
+      glob: "**/*.rs"
+      run: cargo clippy --manifest-path src-tauri/Cargo.toml -- -D warnings
+    rustfmt:
+      glob: "**/*.rs"
+      run: cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
+    rust-test:
+      glob: "**/*.rs"
+      run: cargo test --manifest-path src-tauri/Cargo.toml --quiet

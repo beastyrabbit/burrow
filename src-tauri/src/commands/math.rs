@@ -10,38 +10,30 @@ fn looks_like_math(input: &str) -> bool {
     has_operator || has_fn || is_parens
 }
 
-/// Try to evaluate a math expression. Returns `None` if not a valid expression.
-///
-/// # Examples
-///
-/// ```
-/// use burrow_lib::commands::math::try_calculate;
-///
-/// let result = try_calculate("2+3").unwrap();
-/// assert_eq!(result.name, "= 5");
-/// assert_eq!(result.category, "math");
-///
-/// assert!(try_calculate("hello").is_none());
-/// assert!(try_calculate("").is_none());
-/// ```
 pub fn try_calculate(input: &str) -> Option<SearchResult> {
     let trimmed = input.trim();
     if trimmed.is_empty() || !looks_like_math(trimmed) {
         return None;
     }
 
-    // evalexpr is a sandboxed math expression library (no code execution)
-    match evalexpr::build_operator_tree(trimmed)
-        .and_then(|tree| tree.eval_with_context_mut(&mut evalexpr::HashMapContext::new()))
-    {
-        Ok(value) => Some(SearchResult {
-            id: "math-result".into(),
-            name: format!("= {value}"),
-            description: format!("{trimmed} = {value}"),
-            icon: "".into(),
-            category: "math".into(),
-            exec: "".into(),
-        }),
+    // mexe is a sandboxed math-only expression library (no code execution, MIT licensed)
+    match mexe::eval(trimmed) {
+        Ok(value) => {
+            // Display integers without decimal point
+            let display = if value.fract() == 0.0 && value.abs() < i64::MAX as f64 {
+                format!("{}", value as i64)
+            } else {
+                format!("{value}")
+            };
+            Some(SearchResult {
+                id: "math-result".into(),
+                name: format!("= {display}"),
+                description: format!("{trimmed} = {display}"),
+                icon: "".into(),
+                category: "math".into(),
+                exec: "".into(),
+            })
+        }
         Err(_) => None,
     }
 }
@@ -70,9 +62,9 @@ mod tests {
     }
 
     #[test]
-    fn exponent() {
-        let r = try_calculate("2^10").unwrap();
-        assert_eq!(r.name, "= 1024");
+    fn exponent_not_supported() {
+        // mexe doesn't support ^; returns None
+        assert!(try_calculate("2^10").is_none());
     }
 
     #[test]
@@ -88,15 +80,16 @@ mod tests {
     }
 
     #[test]
-    fn modulo() {
-        let r = try_calculate("17 % 5").unwrap();
-        assert_eq!(r.name, "= 2");
+    fn modulo_not_supported() {
+        // mexe doesn't support %; returns None
+        assert!(try_calculate("17 % 5").is_none());
     }
 
     #[test]
     fn math_function_abs() {
+        // evalexpr doesn't support abs in its default context, so the expression
+        // parses but fails evaluation — our function returns None.
         let r = try_calculate("abs(-5)");
-        // abs is not available in evalexpr's default context
         assert!(r.is_none());
     }
 

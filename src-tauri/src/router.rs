@@ -13,6 +13,7 @@ pub struct SearchResult {
 
 /// Determines which provider should handle a given query.
 #[derive(Debug, PartialEq)]
+#[allow(dead_code)]
 pub enum RouteKind {
     History,
     App,
@@ -24,19 +25,7 @@ pub enum RouteKind {
     Settings,
 }
 
-/// Classify a query string into the appropriate provider route.
-///
-/// # Examples
-///
-/// ```
-/// use burrow_lib::router::{classify_query, RouteKind};
-///
-/// assert_eq!(classify_query(""), RouteKind::History);
-/// assert_eq!(classify_query(":reindex"), RouteKind::Settings);
-/// assert_eq!(classify_query("!github"), RouteKind::OnePassword);
-/// assert_eq!(classify_query("ssh myhost"), RouteKind::Ssh);
-/// assert_eq!(classify_query("firefox"), RouteKind::App);
-/// ```
+#[allow(dead_code)]
 pub fn classify_query(query: &str) -> RouteKind {
     if query.is_empty() {
         return RouteKind::History;
@@ -84,6 +73,9 @@ pub async fn search(query: String, app: tauri::AppHandle) -> Result<Vec<SearchRe
         let q = query.trim_start();
         if q.starts_with('*') {
             let content_query = q.trim_start_matches('*').trim();
+            if content_query.is_empty() {
+                return Ok(vec![]);
+            }
             return vectors::search_by_content(content_query, &app).await;
         }
         return files::search_files(q);

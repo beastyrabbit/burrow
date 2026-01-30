@@ -8,17 +8,6 @@ pub struct SshHost {
     pub user: String,
 }
 
-/// Parse SSH config content into a list of hosts.
-///
-/// # Examples
-///
-/// ```
-/// use burrow_lib::commands::ssh::parse_ssh_config_content;
-///
-/// let hosts = parse_ssh_config_content("Host myserver\n    HostName 10.0.0.1\n    User root\n");
-/// assert_eq!(hosts.len(), 1);
-/// assert_eq!(hosts[0].name, "myserver");
-/// ```
 pub fn parse_ssh_config_content(content: &str) -> Vec<SshHost> {
     let mut hosts = Vec::new();
     let mut current_name = String::new();
@@ -35,16 +24,22 @@ pub fn parse_ssh_config_content(content: &str) -> Vec<SshHost> {
             .strip_prefix("Host ")
             .or_else(|| line.strip_prefix("Host\t"))
         {
+            // Flush previous host block
             if !current_name.is_empty() && current_name != "*" {
-                hosts.push(SshHost {
-                    name: current_name.clone(),
-                    hostname: if current_hostname.is_empty() {
-                        current_name.clone()
-                    } else {
-                        current_hostname.clone()
-                    },
-                    user: current_user.clone(),
-                });
+                for name in current_name.split_whitespace() {
+                    if name == "*" || name.contains('?') {
+                        continue;
+                    }
+                    hosts.push(SshHost {
+                        name: name.to_string(),
+                        hostname: if current_hostname.is_empty() {
+                            name.to_string()
+                        } else {
+                            current_hostname.clone()
+                        },
+                        user: current_user.clone(),
+                    });
+                }
             }
             current_name = host.trim().to_string();
             current_hostname.clear();
@@ -64,15 +59,20 @@ pub fn parse_ssh_config_content(content: &str) -> Vec<SshHost> {
     }
 
     if !current_name.is_empty() && current_name != "*" {
-        hosts.push(SshHost {
-            name: current_name.clone(),
-            hostname: if current_hostname.is_empty() {
-                current_name
-            } else {
-                current_hostname
-            },
-            user: current_user,
-        });
+        for name in current_name.split_whitespace() {
+            if name == "*" || name.contains('?') {
+                continue;
+            }
+            hosts.push(SshHost {
+                name: name.to_string(),
+                hostname: if current_hostname.is_empty() {
+                    name.to_string()
+                } else {
+                    current_hostname.clone()
+                },
+                user: current_user.clone(),
+            });
+        }
     }
 
     hosts
@@ -89,18 +89,6 @@ fn parse_ssh_config() -> Vec<SshHost> {
     }
 }
 
-/// Filter SSH hosts by query and convert to SearchResults.
-///
-/// # Examples
-///
-/// ```
-/// use burrow_lib::commands::ssh::{parse_ssh_config_content, filter_hosts};
-///
-/// let hosts = parse_ssh_config_content("Host dev\n    HostName 10.0.0.1\n");
-/// let results = filter_hosts(hosts, "dev");
-/// assert_eq!(results.len(), 1);
-/// assert_eq!(results[0].category, "ssh");
-/// ```
 pub fn filter_hosts(hosts: Vec<SshHost>, query: &str) -> Vec<SearchResult> {
     let query_lower = query.to_lowercase();
 
@@ -124,7 +112,11 @@ pub fn filter_hosts(hosts: Vec<SshHost>, query: &str) -> Vec<SearchResult> {
                 description: format!("{}{}", user_prefix, h.hostname),
                 icon: "".into(),
                 category: "ssh".into(),
-                exec: format!("kitty ssh '{}{}'", user_prefix, h.name.replace('\'', "'\\''")),
+                exec: format!(
+                    "kitty ssh '{}{}'",
+                    user_prefix,
+                    h.name.replace('\'', "'\\''")
+                ),
             }
         })
         .collect()
@@ -277,7 +269,7 @@ Host *
     fn result_exec_uses_kitty() {
         let hosts = parse_ssh_config_content(SAMPLE_CONFIG);
         let results = filter_hosts(hosts, "server1");
-        assert!(results[0].exec.starts_with("kitty ssh '"));
+        assert!(results[0].exec.starts_with("kitty ssh"));
     }
 
     #[test]

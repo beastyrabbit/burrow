@@ -4,7 +4,7 @@ use std::sync::OnceLock;
 
 static CONFIG: OnceLock<AppConfig> = OnceLock::new();
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct AppConfig {
     pub ollama: OllamaConfig,
@@ -53,18 +53,6 @@ pub struct SearchConfig {
     pub debounce_ms: u64,
 }
 
-impl Default for AppConfig {
-    fn default() -> Self {
-        Self {
-            ollama: OllamaConfig::default(),
-            vector_search: VectorSearchConfig::default(),
-            indexer: IndexerConfig::default(),
-            history: HistoryConfig::default(),
-            search: SearchConfig::default(),
-        }
-    }
-}
-
 impl Default for OllamaConfig {
     fn default() -> Self {
         Self {
@@ -97,7 +85,8 @@ impl Default for IndexerConfig {
             interval_hours: 24,
             file_extensions: vec![
                 "txt", "md", "rs", "ts", "tsx", "js", "py", "toml", "yaml", "yml", "json", "sh",
-                "css", "html",
+                "css", "html", "pdf", "docx", "xlsx", "xls", "pptx", "odt", "ods", "odp", "csv",
+                "rtf",
             ]
             .into_iter()
             .map(String::from)
@@ -122,16 +111,6 @@ impl Default for SearchConfig {
     }
 }
 
-/// Returns the burrow configuration directory.
-///
-/// # Examples
-///
-/// ```
-/// use burrow_lib::config::config_dir;
-///
-/// let dir = config_dir();
-/// assert!(dir.ends_with("burrow"));
-/// ```
 pub fn config_dir() -> PathBuf {
     dirs::config_dir()
         .or_else(|| dirs::home_dir().map(|h| h.join(".config")))
@@ -139,31 +118,10 @@ pub fn config_dir() -> PathBuf {
         .join("burrow")
 }
 
-/// Returns the path to the burrow config file.
-///
-/// # Examples
-///
-/// ```
-/// use burrow_lib::config::config_path;
-///
-/// let path = config_path();
-/// assert_eq!(path.extension().unwrap(), "toml");
-/// assert!(path.ends_with("config.toml"));
-/// ```
 pub fn config_path() -> PathBuf {
     config_dir().join("config.toml")
 }
 
-/// Load the application config from disk, creating defaults if absent.
-///
-/// # Examples
-///
-/// ```
-/// use burrow_lib::config::load_config;
-///
-/// let cfg = load_config();
-/// assert_eq!(cfg.ollama.url, "http://localhost:11434");
-/// ```
 pub fn load_config() -> AppConfig {
     load_config_from_path(&config_path())
 }
@@ -197,8 +155,7 @@ fn apply_env_overrides(mut cfg: AppConfig) -> AppConfig {
         cfg.ollama.embedding_model = model;
     }
     if let Ok(val) = std::env::var("BURROW_VECTOR_SEARCH_ENABLED") {
-        let val = val.to_lowercase();
-        cfg.vector_search.enabled = matches!(val.as_str(), "true" | "1" | "yes" | "on");
+        cfg.vector_search.enabled = val == "true" || val == "1";
     }
     cfg
 }

@@ -16,6 +16,7 @@ function App() {
   const [results, setResults] = useState<SearchResult[]>([]);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [notification, setNotification] = useState("");
+  const notificationTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const doSearch = useCallback(async (q: string) => {
@@ -50,11 +51,13 @@ function App() {
         setNotification("Running...");
         const msg = await invoke<string>("run_setting", { action: item.id });
         setNotification(msg);
-        setTimeout(() => setNotification(""), 4000);
+        if (notificationTimer.current) clearTimeout(notificationTimer.current);
+        notificationTimer.current = setTimeout(() => setNotification(""), 4000);
       } catch (e) {
         const errMsg = e instanceof Error ? e.message : String(e);
         setNotification(`Error: ${errMsg}`);
-        setTimeout(() => setNotification(""), 4000);
+        if (notificationTimer.current) clearTimeout(notificationTimer.current);
+        notificationTimer.current = setTimeout(() => setNotification(""), 4000);
       }
       return;
     }

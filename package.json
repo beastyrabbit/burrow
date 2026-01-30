@@ -9,20 +9,28 @@
     "preview": "vite preview",
     "tauri": "tauri",
     "test": "playwright test",
-    "test:rust": "cd src-tauri && cargo test"
+    "test:rust": "cd src-tauri && cargo test",
+    "prepare": "lefthook install"
   },
   "dependencies": {
-    "@tauri-apps/api": "^2",
-    "react": "^19.1.0",
-    "react-dom": "^19.1.0"
+    "@tauri-apps/api": "^2.9.1",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild",
+      "lefthook"
+    ]
   },
   "devDependencies": {
     "@playwright/test": "^1.58.0",
-    "@tauri-apps/cli": "^2",
-    "@types/react": "^19.1.8",
-    "@types/react-dom": "^19.1.6",
-    "@vitejs/plugin-react": "^4.6.0",
+    "@tauri-apps/cli": "^2.9.6",
+    "@types/react": "^19.2.10",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^4.7.0",
+    "lefthook": "^2.0.16",
     "typescript": "~5.8.3",
-    "vite": "^7.0.4"
+    "vite": "^7.3.1"
   }
 }

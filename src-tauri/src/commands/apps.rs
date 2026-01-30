@@ -60,14 +60,38 @@ fn load_desktop_entries() -> Vec<DesktopEntry> {
 
 fn parse_desktop_file(path: &PathBuf) -> Option<DesktopEntry> {
     let entry = parse_entry(path).ok()?;
-    let section = entry.section("Desktop Entry");
+    let section = entry.section("Desktop Entry")?;
 
-    let name = section.attr("Name")?.to_string();
-    let exec_raw = section.attr("Exec").unwrap_or("").to_string();
-    let icon = section.attr("Icon").unwrap_or("").to_string();
-    let comment = section.attr("Comment").unwrap_or("").to_string();
-    let no_display = section.attr("NoDisplay").unwrap_or("false") == "true";
-    let entry_type = section.attr("Type").unwrap_or("Application");
+    let name = section.attr("Name").first()?.to_string();
+    let exec_raw = section
+        .attr("Exec")
+        .first()
+        .map(|s| s.as_str())
+        .unwrap_or("")
+        .to_string();
+    let icon = section
+        .attr("Icon")
+        .first()
+        .map(|s| s.as_str())
+        .unwrap_or("")
+        .to_string();
+    let comment = section
+        .attr("Comment")
+        .first()
+        .map(|s| s.as_str())
+        .unwrap_or("")
+        .to_string();
+    let no_display = section
+        .attr("NoDisplay")
+        .first()
+        .map(|s| s.as_str())
+        .unwrap_or("false")
+        == "true";
+    let entry_type = section
+        .attr("Type")
+        .first()
+        .map(|s| s.as_str())
+        .unwrap_or("Application");
 
     if entry_type != "Application" {
         return None;
@@ -94,6 +118,30 @@ fn parse_desktop_file(path: &PathBuf) -> Option<DesktopEntry> {
 fn strip_field_codes(exec: &str) -> String {
     exec.split_whitespace()
         .filter(|s| !s.starts_with('%'))
+        .map(|s| {
+            // Remove embedded field codes like --class=%c → --class=
+            // But preserve literal %% as %
+            if s.contains('%') {
+                let mut result = String::new();
+                let mut chars = s.chars().peekable();
+                while let Some(c) = chars.next() {
+                    if c == '%' {
+                        if chars.peek() == Some(&'%') {
+                            result.push('%');
+                            chars.next();
+                        } else {
+                            // Skip the field code letter
+                            chars.next();
+                        }
+                    } else {
+                        result.push(c);
+                    }
+                }
+                result
+            } else {
+                s.to_string()
+            }
+        })
         .collect::<Vec<_>>()
         .join(" ")
 }

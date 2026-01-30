@@ -11,8 +11,10 @@ fn match_files_in_dirs(dirs: &[PathBuf], query: &str, limit: usize) -> Vec<Searc
                 let name = entry.file_name().to_string_lossy().to_string();
                 if name.to_lowercase().contains(&query_lower) {
                     let path = entry.path();
-                    let escaped = path.display().to_string().replace('\'', "'\\''");
-                    let open_cmd = format!("xdg-open '{}'", escaped);
+                    let open_cmd = format!(
+                        "xdg-open '{}'",
+                        path.display().to_string().replace('\'', "'\\''")
+                    );
                     results.push(SearchResult {
                         id: path.display().to_string(),
                         name: name.clone(),
@@ -40,10 +42,7 @@ pub fn search_files(query: &str) -> Result<Vec<SearchResult>, String> {
         return Ok(vec![]);
     }
 
-    let home = match dirs::home_dir() {
-        Some(h) => h,
-        None => return Ok(vec![]),
-    };
+    let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("/"));
     let search_dirs = vec![
         home.join("Documents"),
         home.join("Downloads"),
