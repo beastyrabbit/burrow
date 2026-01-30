@@ -1,0 +1,406 @@
+use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
+use std::sync::OnceLock;
+
+static CONFIG: OnceLock<AppConfig> = OnceLock::new();
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct AppConfig {
+    pub ollama: OllamaConfig,
+    pub vector_search: VectorSearchConfig,
+    pub indexer: IndexerConfig,
+    pub history: HistoryConfig,
+    pub search: SearchConfig,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct OllamaConfig {
+    pub url: String,
+    pub embedding_model: String,
+    pub timeout_secs: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct VectorSearchConfig {
+    pub enabled: bool,
+    pub top_k: usize,
+    pub min_score: f32,
+    pub max_file_size_bytes: u64,
+    pub index_dirs: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct IndexerConfig {
+    pub interval_hours: u64,
+    pub file_extensions: Vec<String>,
+    pub max_content_chars: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct HistoryConfig {
+    pub max_results: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SearchConfig {
+    pub max_results: usize,
+    pub debounce_ms: u64,
+}
+
+impl Default for AppConfig {
+    fn default() -> Self {
+        Self {
+            ollama: OllamaConfig::default(),
+            vector_search: VectorSearchConfig::default(),
+            indexer: IndexerConfig::default(),
+            history: HistoryConfig::default(),
+            search: SearchConfig::default(),
+        }
+    }
+}
+
+impl Default for OllamaConfig {
+    fn default() -> Self {
+        Self {
+            url: "http://localhost:11434".into(),
+            embedding_model: "qwen3-embedding:8b".into(),
+            timeout_secs: 30,
+        }
+    }
+}
+
+impl Default for VectorSearchConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            top_k: 10,
+            min_score: 0.3,
+            max_file_size_bytes: 1_000_000,
+            index_dirs: vec![
+                "~/Documents".into(),
+                "~/Projects".into(),
+                "~/Downloads".into(),
+            ],
+        }
+    }
+}
+
+impl Default for IndexerConfig {
+    fn default() -> Self {
+        Self {
+            interval_hours: 24,
+            file_extensions: vec![
+                "txt", "md", "rs", "ts", "tsx", "js", "py", "toml", "yaml", "yml", "json", "sh",
+                "css", "html",
+            ]
+            .into_iter()
+            .map(String::from)
+            .collect(),
+            max_content_chars: 4096,
+        }
+    }
+}
+
+impl Default for HistoryConfig {
+    fn default() -> Self {
+        Self { max_results: 10 }
+    }
+}
+
+impl Default for SearchConfig {
+    fn default() -> Self {
+        Self {
+            max_results: 10,
+            debounce_ms: 80,
+        }
+    }
+}
+
+/// Returns the burrow configuration directory.
+///
+/// # Examples
+///
+/// ```
+/// use burrow_lib::config::config_dir;
+///
+/// let dir = config_dir();
+/// assert!(dir.ends_with("burrow"));
+/// ```
+pub fn config_dir() -> PathBuf {
+    dirs::config_dir()
+        .or_else(|| dirs::home_dir().map(|h| h.join(".config")))
+        .unwrap_or_else(|| PathBuf::from("/tmp"))
+        .join("burrow")
+}
+
+/// Returns the path to the burrow config file.
+///
+/// # Examples
+///
+/// ```
+/// use burrow_lib::config::config_path;
+///
+/// let path = config_path();
+/// assert_eq!(path.extension().unwrap(), "toml");
+/// assert!(path.ends_with("config.toml"));
+/// ```
+pub fn config_path() -> PathBuf {
+    config_dir().join("config.toml")
+}
+
+/// Load the application config from disk, creating defaults if absent.
+///
+/// # Examples
+///
+/// ```
+/// use burrow_lib::config::load_config;
+///
+/// let cfg = load_config();
+/// assert_eq!(cfg.ollama.url, "http://localhost:11434");
+/// ```
+pub fn load_config() -> AppConfig {
+    load_config_from_path(&config_path())
+}
+
+fn load_config_from_path(path: &PathBuf) -> AppConfig {
+    match std::fs::read_to_string(path) {
+        Ok(content) => parse_config(&content),
+        Err(_) => {
+            // Create default config file if dir exists or can be created
+            let cfg = AppConfig::default();
+            if let Some(dir) = path.parent() {
+                std::fs::create_dir_all(dir).ok();
+            }
+            if let Ok(toml_str) = toml::to_string_pretty(&cfg) {
+                std::fs::write(path, &toml_str).ok();
+            }
+            cfg
+        }
+    }
+}
+
+fn parse_config(content: &str) -> AppConfig {
+    toml::from_str(content).unwrap_or_default()
+}
+
+fn apply_env_overrides(mut cfg: AppConfig) -> AppConfig {
+    if let Ok(url) = std::env::var("BURROW_OLLAMA_URL") {
+        cfg.ollama.url = url;
+    }
+    if let Ok(model) = std::env::var("BURROW_OLLAMA_EMBEDDING_MODEL") {
+        cfg.ollama.embedding_model = model;
+    }
+    if let Ok(val) = std::env::var("BURROW_VECTOR_SEARCH_ENABLED") {
+        let val = val.to_lowercase();
+        cfg.vector_search.enabled = matches!(val.as_str(), "true" | "1" | "yes" | "on");
+    }
+    cfg
+}
+
+pub fn init_config() -> &'static AppConfig {
+    CONFIG.get_or_init(|| {
+        let cfg = load_config();
+        apply_env_overrides(cfg)
+    })
+}
+
+pub fn get_config() -> &'static AppConfig {
+    CONFIG
+        .get()
+        .expect("Config not initialized. Call init_config() first.")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_config_has_sane_values() {
+        let cfg = AppConfig::default();
+        assert_eq!(cfg.ollama.url, "http://localhost:11434");
+        assert_eq!(cfg.ollama.embedding_model, "qwen3-embedding:8b");
+        assert_eq!(cfg.ollama.timeout_secs, 30);
+        assert!(cfg.vector_search.enabled);
+        assert_eq!(cfg.vector_search.top_k, 10);
+        assert_eq!(cfg.history.max_results, 10);
+        assert_eq!(cfg.search.max_results, 10);
+    }
+
+    #[test]
+    fn parse_empty_string_returns_defaults() {
+        let cfg = parse_config("");
+        assert_eq!(cfg.ollama.url, "http://localhost:11434");
+    }
+
+    #[test]
+    fn parse_partial_config_fills_defaults() {
+        let cfg = parse_config(
+            r#"
+[ollama]
+url = "http://192.168.10.120:11434"
+"#,
+        );
+        assert_eq!(cfg.ollama.url, "http://192.168.10.120:11434");
+        assert_eq!(cfg.ollama.embedding_model, "qwen3-embedding:8b"); // default preserved
+    }
+
+    #[test]
+    fn parse_full_config() {
+        let cfg = parse_config(
+            r#"
+[ollama]
+url = "http://myserver:11434"
+embedding_model = "nomic-embed-text"
+timeout_secs = 60
+
+[vector_search]
+enabled = false
+top_k = 5
+min_score = 0.5
+max_file_size_bytes = 500000
+index_dirs = ["~/Documents", "~/Code"]
+
+[history]
+max_results = 20
+
+[search]
+max_results = 15
+debounce_ms = 100
+"#,
+        );
+        assert_eq!(cfg.ollama.url, "http://myserver:11434");
+        assert_eq!(cfg.ollama.embedding_model, "nomic-embed-text");
+        assert_eq!(cfg.ollama.timeout_secs, 60);
+        assert!(!cfg.vector_search.enabled);
+        assert_eq!(cfg.vector_search.top_k, 5);
+        assert_eq!(cfg.vector_search.index_dirs.len(), 2);
+        assert_eq!(cfg.history.max_results, 20);
+        assert_eq!(cfg.search.max_results, 15);
+        assert_eq!(cfg.search.debounce_ms, 100);
+    }
+
+    #[test]
+    fn parse_invalid_toml_returns_defaults() {
+        let cfg = parse_config("this is not valid toml {{{}}}");
+        assert_eq!(cfg.ollama.url, "http://localhost:11434");
+    }
+
+    #[test]
+    fn config_dir_ends_with_burrow() {
+        let dir = config_dir();
+        assert!(dir.ends_with("burrow"));
+    }
+
+    #[test]
+    fn config_path_ends_with_toml() {
+        let path = config_path();
+        assert_eq!(path.extension().unwrap(), "toml");
+    }
+
+    #[test]
+    fn load_nonexistent_returns_defaults() {
+        let cfg = load_config_from_path(&PathBuf::from("/tmp/nonexistent_burrow_test/config.toml"));
+        assert_eq!(cfg.ollama.url, "http://localhost:11434");
+    }
+
+    #[test]
+    fn env_override_ollama_url() {
+        let mut cfg = AppConfig::default();
+        std::env::set_var("BURROW_OLLAMA_URL", "http://custom:11434");
+        cfg = apply_env_overrides(cfg);
+        assert_eq!(cfg.ollama.url, "http://custom:11434");
+        std::env::remove_var("BURROW_OLLAMA_URL");
+    }
+
+    #[test]
+    fn env_override_embedding_model() {
+        let mut cfg = AppConfig::default();
+        std::env::set_var("BURROW_OLLAMA_EMBEDDING_MODEL", "custom-model");
+        cfg = apply_env_overrides(cfg);
+        assert_eq!(cfg.ollama.embedding_model, "custom-model");
+        std::env::remove_var("BURROW_OLLAMA_EMBEDDING_MODEL");
+    }
+
+    #[test]
+    fn env_override_vector_enabled() {
+        let mut cfg = AppConfig::default();
+        std::env::set_var("BURROW_VECTOR_SEARCH_ENABLED", "false");
+        cfg = apply_env_overrides(cfg);
+        assert!(!cfg.vector_search.enabled);
+        std::env::remove_var("BURROW_VECTOR_SEARCH_ENABLED");
+    }
+
+    #[test]
+    fn serializes_to_valid_toml() {
+        let cfg = AppConfig::default();
+        let toml_str = toml::to_string_pretty(&cfg).unwrap();
+        assert!(toml_str.contains("[ollama]"));
+        assert!(toml_str.contains("url = "));
+        // Round-trip
+        let parsed: AppConfig = toml::from_str(&toml_str).unwrap();
+        assert_eq!(parsed.ollama.url, cfg.ollama.url);
+    }
+
+    #[test]
+    fn min_score_is_reasonable() {
+        let cfg = AppConfig::default();
+        assert!(cfg.vector_search.min_score > 0.0);
+        assert!(cfg.vector_search.min_score < 1.0);
+    }
+
+    #[test]
+    fn max_file_size_is_1mb() {
+        let cfg = AppConfig::default();
+        assert_eq!(cfg.vector_search.max_file_size_bytes, 1_000_000);
+    }
+
+    #[test]
+    fn default_index_dirs_has_entries() {
+        let cfg = AppConfig::default();
+        assert!(!cfg.vector_search.index_dirs.is_empty());
+    }
+
+    #[test]
+    fn default_indexer_config() {
+        let cfg = AppConfig::default();
+        assert_eq!(cfg.indexer.interval_hours, 24);
+        assert_eq!(cfg.indexer.max_content_chars, 4096);
+        assert!(cfg.indexer.file_extensions.contains(&"rs".to_string()));
+        assert!(cfg.indexer.file_extensions.contains(&"md".to_string()));
+        assert!(cfg.indexer.file_extensions.len() >= 10);
+    }
+
+    #[test]
+    fn parse_indexer_config() {
+        let cfg = parse_config(
+            r#"
+[indexer]
+interval_hours = 12
+file_extensions = ["rs", "py"]
+max_content_chars = 2048
+"#,
+        );
+        assert_eq!(cfg.indexer.interval_hours, 12);
+        assert_eq!(cfg.indexer.file_extensions, vec!["rs", "py"]);
+        assert_eq!(cfg.indexer.max_content_chars, 2048);
+    }
+
+    #[test]
+    fn partial_indexer_config_fills_defaults() {
+        let cfg = parse_config(
+            r#"
+[indexer]
+interval_hours = 6
+"#,
+        );
+        assert_eq!(cfg.indexer.interval_hours, 6);
+        assert_eq!(cfg.indexer.max_content_chars, 4096); // default
+        assert!(!cfg.indexer.file_extensions.is_empty()); // default
+    }
+}

@@ -1,7 +1,7 @@
-use crate::commands::{apps, files, history, math, onepass, ssh};
+use crate::commands::{apps, files, history, math, onepass, settings, ssh, vectors};
 use serde::Serialize;
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, PartialEq)]
 pub struct SearchResult {
     pub id: String,
     pub name: String,
@@ -11,23 +11,80 @@ pub struct SearchResult {
     pub exec: String,
 }
 
+/// Determines which provider should handle a given query.
+#[derive(Debug, PartialEq)]
+pub enum RouteKind {
+    History,
+    App,
+    FileSearch,
+    VectorSearch,
+    OnePassword,
+    Ssh,
+    Math,
+    Settings,
+}
+
+/// Classify a query string into the appropriate provider route.
+///
+/// # Examples
+///
+/// ```
+/// use burrow_lib::router::{classify_query, RouteKind};
+///
+/// assert_eq!(classify_query(""), RouteKind::History);
+/// assert_eq!(classify_query(":reindex"), RouteKind::Settings);
+/// assert_eq!(classify_query("!github"), RouteKind::OnePassword);
+/// assert_eq!(classify_query("ssh myhost"), RouteKind::Ssh);
+/// assert_eq!(classify_query("firefox"), RouteKind::App);
+/// ```
+pub fn classify_query(query: &str) -> RouteKind {
+    if query.is_empty() {
+        return RouteKind::History;
+    }
+
+    if query.starts_with(':') {
+        return RouteKind::Settings;
+    }
+
+    if query.starts_with(' ') {
+        let q = query.trim_start();
+        if q.starts_with('*') {
+            return RouteKind::VectorSearch;
+        }
+        return RouteKind::FileSearch;
+    }
+
+    if query.starts_with('!') {
+        return RouteKind::OnePassword;
+    }
+
+    if query.starts_with("ssh ") || query == "ssh" {
+        return RouteKind::Ssh;
+    }
+
+    if math::try_calculate(query).is_some() {
+        return RouteKind::Math;
+    }
+
+    RouteKind::App
+}
+
 #[tauri::command]
 pub async fn search(query: String, app: tauri::AppHandle) -> Result<Vec<SearchResult>, String> {
     if query.is_empty() {
         return history::get_frecent(&app).map_err(|e| e.to_string());
     }
 
+    if query.starts_with(':') {
+        let cmd = query.trim_start_matches(':').trim();
+        return settings::search_settings(cmd);
+    }
+
     if query.starts_with(' ') {
         let q = query.trim_start();
         if q.starts_with('*') {
-            return Ok(vec![SearchResult {
-                id: "vector-placeholder".into(),
-                name: "Content search not yet available".into(),
-                description: "Ollama integration pending".into(),
-                icon: "".into(),
-                category: "info".into(),
-                exec: "".into(),
-            }]);
+            let content_query = q.trim_start_matches('*').trim();
+            return vectors::search_by_content(content_query, &app).await;
         }
         return files::search_files(q);
     }
@@ -47,4 +104,98 @@ pub async fn search(query: String, app: tauri::AppHandle) -> Result<Vec<SearchRe
     }
 
     apps::search_apps(&query)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // --- classify_query ---
+
+    #[test]
+    fn empty_query_routes_to_history() {
+        assert_eq!(classify_query(""), RouteKind::History);
+    }
+
+    #[test]
+    fn plain_text_routes_to_app() {
+        assert_eq!(classify_query("firefox"), RouteKind::App);
+    }
+
+    #[test]
+    fn space_prefix_routes_to_file_search() {
+        assert_eq!(classify_query(" readme"), RouteKind::FileSearch);
+    }
+
+    #[test]
+    fn space_star_prefix_routes_to_vector() {
+        assert_eq!(classify_query(" *hello"), RouteKind::VectorSearch);
+    }
+
+    #[test]
+    fn bang_prefix_routes_to_onepass() {
+        assert_eq!(classify_query("!github"), RouteKind::OnePassword);
+    }
+
+    #[test]
+    fn ssh_prefix_routes_to_ssh() {
+        assert_eq!(classify_query("ssh myserver"), RouteKind::Ssh);
+    }
+
+    #[test]
+    fn ssh_alone_routes_to_ssh() {
+        assert_eq!(classify_query("ssh"), RouteKind::Ssh);
+    }
+
+    #[test]
+    fn math_expression_routes_to_math() {
+        assert_eq!(classify_query("1+3"), RouteKind::Math);
+    }
+
+    #[test]
+    fn complex_math_routes_to_math() {
+        assert_eq!(classify_query("(2+3)*4"), RouteKind::Math);
+    }
+
+    #[test]
+    fn ssh_in_app_name_routes_to_app() {
+        // "sshfs" should NOT match ssh prefix
+        assert_eq!(classify_query("sshfs"), RouteKind::App);
+    }
+
+    #[test]
+    fn bang_empty_routes_to_onepass() {
+        assert_eq!(classify_query("!"), RouteKind::OnePassword);
+    }
+
+    #[test]
+    fn space_only_routes_to_file_search() {
+        // " " trimmed to "" → file search with empty query
+        assert_eq!(classify_query(" "), RouteKind::FileSearch);
+    }
+
+    #[test]
+    fn multiple_spaces_then_text() {
+        assert_eq!(classify_query("   myfile"), RouteKind::FileSearch);
+    }
+
+    #[test]
+    fn text_with_numbers_routes_to_app() {
+        assert_eq!(classify_query("libreoffice7"), RouteKind::App);
+    }
+
+    #[test]
+    fn colon_prefix_routes_to_settings() {
+        assert_eq!(classify_query(":reindex"), RouteKind::Settings);
+    }
+
+    #[test]
+    fn colon_alone_routes_to_settings() {
+        assert_eq!(classify_query(":"), RouteKind::Settings);
+    }
+
+    #[test]
+    fn colon_with_text_routes_to_settings() {
+        assert_eq!(classify_query(":config"), RouteKind::Settings);
+    }
 }

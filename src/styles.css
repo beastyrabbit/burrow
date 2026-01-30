@@ -34,6 +34,14 @@ body {
   color: #565f89;
 }
 
+.notification {
+  padding: 8px 20px;
+  font-size: 13px;
+  background: #1f2335;
+  color: #9ece6a;
+  border-bottom: 1px solid #3b4261;
+}
+
 .results-list {
   list-style: none;
   flex: 1;

@@ -14,8 +14,7 @@ fn db_path() -> PathBuf {
     dir.join("history.db")
 }
 
-pub fn init_db(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
-    let conn = Connection::open(db_path())?;
+fn create_table(conn: &Connection) -> Result<(), rusqlite::Error> {
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS launches (
             id TEXT PRIMARY KEY,
@@ -26,23 +25,22 @@ pub fn init_db(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
             count INTEGER NOT NULL DEFAULT 0,
             last_used REAL NOT NULL DEFAULT 0
         )",
-    )?;
+    )
+}
+
+pub fn init_db(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
+    let conn = Connection::open(db_path())?;
+    create_table(&conn)?;
     app.manage(DbState(Mutex::new(conn)));
     Ok(())
 }
 
-pub fn get_frecent(app: &AppHandle) -> Result<Vec<SearchResult>, String> {
-    let state = app.state::<DbState>();
-    let conn = state.0.lock().map_err(|e| e.to_string())?;
-
-    // Frecency: score = count * decay_factor where decay_factor favors recent usage
-    let mut stmt = conn
-        .prepare(
-            "SELECT id, name, exec, icon, description FROM launches
-             ORDER BY count * (1.0 / (1.0 + (julianday('now') - last_used))) DESC
-             LIMIT 10",
-        )
-        .map_err(|e| e.to_string())?;
+fn query_frecent(conn: &Connection) -> Result<Vec<SearchResult>, rusqlite::Error> {
+    let mut stmt = conn.prepare(
+        "SELECT id, name, exec, icon, description FROM launches
+         ORDER BY count * (1.0 / (1.0 + (julianday('now') - last_used))) DESC
+         LIMIT 10",
+    )?;
 
     let results = stmt
         .query_map([], |row| {
@@ -54,12 +52,37 @@ pub fn get_frecent(app: &AppHandle) -> Result<Vec<SearchResult>, String> {
                 description: row.get(4)?,
                 category: "history".into(),
             })
-        })
-        .map_err(|e| e.to_string())?
+        })?
         .filter_map(|r| r.ok())
         .collect();
 
     Ok(results)
+}
+
+pub fn get_frecent(app: &AppHandle) -> Result<Vec<SearchResult>, String> {
+    let state = app.state::<DbState>();
+    let conn = state.0.lock().map_err(|e| e.to_string())?;
+    query_frecent(&conn).map_err(|e| e.to_string())
+}
+
+fn insert_launch(
+    conn: &Connection,
+    id: &str,
+    name: &str,
+    exec: &str,
+    icon: &str,
+    description: &str,
+) -> Result<(), rusqlite::Error> {
+    conn.execute(
+        "INSERT INTO launches (id, name, exec, icon, description, count, last_used)
+         VALUES (?1, ?2, ?3, ?4, ?5, 1, julianday('now'))
+         ON CONFLICT(id) DO UPDATE SET
+           count = count + 1,
+           last_used = julianday('now'),
+           name = ?2, exec = ?3, icon = ?4, description = ?5",
+        rusqlite::params![id, name, exec, icon, description],
+    )?;
+    Ok(())
 }
 
 #[tauri::command]
@@ -73,15 +96,139 @@ pub fn record_launch(
 ) -> Result<(), String> {
     let state = app.state::<DbState>();
     let conn = state.0.lock().map_err(|e| e.to_string())?;
-    conn.execute(
-        "INSERT INTO launches (id, name, exec, icon, description, count, last_used)
-         VALUES (?1, ?2, ?3, ?4, ?5, 1, julianday('now'))
-         ON CONFLICT(id) DO UPDATE SET
-           count = count + 1,
-           last_used = julianday('now'),
-           name = ?2, exec = ?3, icon = ?4, description = ?5",
-        rusqlite::params![id, name, exec, icon, description],
-    )
-    .map_err(|e| e.to_string())?;
-    Ok(())
+    insert_launch(&conn, &id, &name, &exec, &icon, &description).map_err(|e| e.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn test_db() -> Connection {
+        let conn = Connection::open_in_memory().unwrap();
+        create_table(&conn).unwrap();
+        conn
+    }
+
+    #[test]
+    fn create_table_succeeds() {
+        let conn = Connection::open_in_memory().unwrap();
+        assert!(create_table(&conn).is_ok());
+    }
+
+    #[test]
+    fn create_table_idempotent() {
+        let conn = Connection::open_in_memory().unwrap();
+        create_table(&conn).unwrap();
+        assert!(create_table(&conn).is_ok());
+    }
+
+    #[test]
+    fn insert_and_query() {
+        let conn = test_db();
+        insert_launch(
+            &conn,
+            "firefox",
+            "Firefox",
+            "firefox",
+            "firefox-icon",
+            "Web Browser",
+        )
+        .unwrap();
+        let results = query_frecent(&conn).unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].id, "firefox");
+        assert_eq!(results[0].name, "Firefox");
+    }
+
+    #[test]
+    fn insert_increments_count() {
+        let conn = test_db();
+        insert_launch(&conn, "ff", "Firefox", "firefox", "", "").unwrap();
+        insert_launch(&conn, "ff", "Firefox", "firefox", "", "").unwrap();
+        insert_launch(&conn, "ff", "Firefox", "firefox", "", "").unwrap();
+
+        let count: i64 = conn
+            .query_row("SELECT count FROM launches WHERE id = 'ff'", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(count, 3);
+    }
+
+    #[test]
+    fn upsert_updates_metadata() {
+        let conn = test_db();
+        insert_launch(
+            &conn, "app1", "Old Name", "old-exec", "old-icon", "old desc",
+        )
+        .unwrap();
+        insert_launch(
+            &conn, "app1", "New Name", "new-exec", "new-icon", "new desc",
+        )
+        .unwrap();
+
+        let results = query_frecent(&conn).unwrap();
+        assert_eq!(results[0].name, "New Name");
+        assert_eq!(results[0].exec, "new-exec");
+    }
+
+    #[test]
+    fn empty_db_returns_empty() {
+        let conn = test_db();
+        let results = query_frecent(&conn).unwrap();
+        assert!(results.is_empty());
+    }
+
+    #[test]
+    fn results_have_history_category() {
+        let conn = test_db();
+        insert_launch(&conn, "a", "App", "app", "", "").unwrap();
+        let results = query_frecent(&conn).unwrap();
+        assert_eq!(results[0].category, "history");
+    }
+
+    #[test]
+    fn frecency_ordering() {
+        let conn = test_db();
+        // Launch "rare" once
+        insert_launch(&conn, "rare", "Rare App", "rare", "", "").unwrap();
+        // Launch "frequent" many times
+        for _ in 0..10 {
+            insert_launch(&conn, "freq", "Frequent App", "freq", "", "").unwrap();
+        }
+
+        let results = query_frecent(&conn).unwrap();
+        assert_eq!(results[0].id, "freq");
+        assert_eq!(results[1].id, "rare");
+    }
+
+    #[test]
+    fn limit_to_10_results() {
+        let conn = test_db();
+        for i in 0..20 {
+            insert_launch(
+                &conn,
+                &format!("app{i}"),
+                &format!("App {i}"),
+                "exec",
+                "",
+                "",
+            )
+            .unwrap();
+        }
+        let results = query_frecent(&conn).unwrap();
+        assert_eq!(results.len(), 10);
+    }
+
+    #[test]
+    fn stores_all_fields() {
+        let conn = test_db();
+        insert_launch(&conn, "id1", "Name1", "exec1", "icon1", "desc1").unwrap();
+        let results = query_frecent(&conn).unwrap();
+        assert_eq!(results[0].id, "id1");
+        assert_eq!(results[0].name, "Name1");
+        assert_eq!(results[0].exec, "exec1");
+        assert_eq!(results[0].icon, "icon1");
+        assert_eq!(results[0].description, "desc1");
+    }
 }

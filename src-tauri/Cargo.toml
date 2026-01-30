@@ -23,3 +23,9 @@ dirs = "6"
 freedesktop_entry_parser = "1"
 glob = "0.3"
 tokio = { version = "1", features = ["rt-multi-thread", "process"] }
+toml = "0.8"
+reqwest = { version = "0.12", features = ["json"] }
+walkdir = "2"
+
+[dev-dependencies]
+tempfile = "3"
