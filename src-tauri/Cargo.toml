@@ -29,6 +29,7 @@ pdf-extract = "0.10"
 calamine = "0.32"
 zip = "7"
 mexe = "0.2.0"
+tempfile = "3"
 
 [dev-dependencies]
 tempfile = "3"

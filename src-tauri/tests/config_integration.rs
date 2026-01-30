@@ -39,7 +39,7 @@ fn load_config_from_nonexistent_creates_file() {
     // We can't call load_config_from_path directly (private), but load_config
     // works from the real path. Just verify defaults are sane.
     let cfg = config::load_config();
-    assert_eq!(cfg.ollama.url, "http://localhost:11434");
+    assert_eq!(cfg.ollama.url, "http://192.168.10.243:11434");
 }
 
 #[test]

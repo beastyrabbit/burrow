@@ -1,0 +1,5 @@
+{
+  "setup": [
+    "ln -sfn \"$ROOT_WORKTREE_PATH/examples\" examples"
+  ]
+}

@@ -56,7 +56,7 @@ pub struct SearchConfig {
 impl Default for OllamaConfig {
     fn default() -> Self {
         Self {
-            url: "http://localhost:11434".into(),
+            url: "http://192.168.10.243:11434".into(),
             embedding_model: "qwen3-embedding:8b".into(),
             timeout_secs: 30,
         }
@@ -85,8 +85,8 @@ impl Default for IndexerConfig {
             interval_hours: 24,
             file_extensions: vec![
                 "txt", "md", "rs", "ts", "tsx", "js", "py", "toml", "yaml", "yml", "json", "sh",
-                "css", "html", "pdf", "docx", "xlsx", "xls", "pptx", "odt", "ods", "odp", "csv",
-                "rtf",
+                "css", "html", "pdf", "doc", "docx", "xlsx", "xls", "pptx", "odt", "ods", "odp",
+                "csv", "rtf",
             ]
             .into_iter()
             .map(String::from)
@@ -180,7 +180,7 @@ mod tests {
     #[test]
     fn default_config_has_sane_values() {
         let cfg = AppConfig::default();
-        assert_eq!(cfg.ollama.url, "http://localhost:11434");
+        assert_eq!(cfg.ollama.url, "http://192.168.10.243:11434");
         assert_eq!(cfg.ollama.embedding_model, "qwen3-embedding:8b");
         assert_eq!(cfg.ollama.timeout_secs, 30);
         assert!(cfg.vector_search.enabled);
@@ -192,7 +192,7 @@ mod tests {
     #[test]
     fn parse_empty_string_returns_defaults() {
         let cfg = parse_config("");
-        assert_eq!(cfg.ollama.url, "http://localhost:11434");
+        assert_eq!(cfg.ollama.url, "http://192.168.10.243:11434");
     }
 
     #[test]
@@ -245,7 +245,7 @@ debounce_ms = 100
     #[test]
     fn parse_invalid_toml_returns_defaults() {
         let cfg = parse_config("this is not valid toml {{{}}}");
-        assert_eq!(cfg.ollama.url, "http://localhost:11434");
+        assert_eq!(cfg.ollama.url, "http://192.168.10.243:11434");
     }
 
     #[test]
@@ -263,7 +263,7 @@ debounce_ms = 100
     #[test]
     fn load_nonexistent_returns_defaults() {
         let cfg = load_config_from_path(&PathBuf::from("/tmp/nonexistent_burrow_test/config.toml"));
-        assert_eq!(cfg.ollama.url, "http://localhost:11434");
+        assert_eq!(cfg.ollama.url, "http://192.168.10.243:11434");
     }
 
     #[test]
