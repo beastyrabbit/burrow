@@ -35,7 +35,7 @@
 - **Config file:** `~/.config/burrow/config.toml` (TOML format, auto-created with defaults on first run)
 - **Override priority:** env vars (`BURROW_*`) > config.toml > defaults
 - **Config module:** `src-tauri/src/config.rs` — loaded once at startup via `OnceLock`
-- **Key env vars:** `BURROW_OLLAMA_URL`, `BURROW_OLLAMA_EMBEDDING_MODEL`, `BURROW_VECTOR_SEARCH_ENABLED`
+- **Key env vars:** `BURROW_OLLAMA_URL`, `BURROW_OLLAMA_EMBEDDING_MODEL`, `BURROW_VECTOR_SEARCH_ENABLED`, `BURROW_OPENROUTER_API_KEY`, `OPENROUTER_API_KEY`
 
 ### Default Config Values
 
@@ -55,6 +55,8 @@
 | `history.max_results` | Frecent results shown | `10` |
 | `search.max_results` | Max search results | `10` |
 | `search.debounce_ms` | Input debounce | `80` |
+| `openrouter.api_key` | OpenRouter API key | `""` (empty) |
+| `openrouter.model` | Chat model | `google/gemini-2.5-flash-preview` |
 
 ## Architecture
 
@@ -67,8 +69,8 @@
 
 | Command | Purpose |
 |---------|---------|
-| `cd src-tauri && cargo test` | Run all Rust unit tests (221 tests) |
-| `npx playwright test` | Run all e2e tests (43 tests) |
+| `cd src-tauri && cargo test` | Run all Rust unit tests (236 tests) |
+| `npx playwright test` | Run all e2e tests (52 tests) |
 | `pnpm dev` | Start Vite dev server on :1420 (mock backend) |
 | `pnpm tauri dev` | Start full Tauri app (real backend) |
 | `pnpm build` | Build frontend for production |
@@ -77,7 +79,8 @@
 
 - `src-tauri/src/config.rs` — TOML config loading, env overrides, defaults
 - `src-tauri/src/ollama.rs` — Ollama HTTP client, cosine similarity, embedding serialization
-- `src-tauri/src/commands/` — Backend providers (apps, history, math, ssh, onepass, files, vectors)
+- `src-tauri/src/commands/` — Backend providers (apps, history, math, ssh, onepass, files, vectors, chat, health, settings)
+- `src-tauri/src/chat.rs` — OpenRouter AI chat client, RAG prompt building
 - `src-tauri/src/text_extract.rs` — Document text extraction (PDF, DOC via external LibreOffice, DOCX, XLSX, ODS, etc.)
 - `src-tauri/src/router.rs` — Input classification and dispatch
 - `src/App.tsx` — Main UI component
@@ -101,6 +104,10 @@
 - Use in-memory SQLite (`Connection::open_in_memory()`) for DB tests
 - Config uses `OnceLock` for thread-safe singleton; tests use `parse_config()` directly
 - Configure your Ollama instance URL and embedding model in `~/.config/burrow/config.toml`
+- When adding a new settings action: add `SettingDef` in `commands/settings.rs`, add match arm in `run_setting()` in `lib.rs`, update settings count in tests
+- Pre-commit hooks run rustfmt — always run `cargo fmt` before staging, or stage after the first failed commit attempt
+- Health indicator checks only core services (Ollama, vector DB), not optional features (API key) to avoid false alarms
+- `e2e/launcher.spec.ts` and `e2e/edge-cases.spec.ts` have hardcoded settings count — update when adding new settings
 - Ollama server defaults to `localhost:11434` — existing user configs override all defaults
 - When new config keys are added, regenerate config (`rm ~/.config/burrow/config.toml`) or manually add new keys
 - When defaults change (values only), existing configs continue working with their current values

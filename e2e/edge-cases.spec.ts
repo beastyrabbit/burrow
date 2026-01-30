@@ -45,7 +45,7 @@ test.describe("Edge Cases", () => {
     await input.fill(":");
     await page.waitForTimeout(200);
     const settingsItems = page.locator(".result-item:not(.empty)");
-    await expect(settingsItems).toHaveCount(5);
+    await expect(settingsItems).toHaveCount(6);
 
     // Switch to math
     await input.fill("2+2");

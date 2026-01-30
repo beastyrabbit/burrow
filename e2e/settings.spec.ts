@@ -5,13 +5,13 @@ test.describe("Settings Actions", () => {
     await page.goto("/");
   });
 
-  test(": prefix shows all 5 settings actions", async ({ page }) => {
+  test(": prefix shows all 6 settings actions", async ({ page }) => {
     const input = page.locator(".search-input");
     await input.fill(":");
     await page.waitForTimeout(200);
 
     const items = page.locator(".result-item:not(.empty)");
-    await expect(items).toHaveCount(5);
+    await expect(items).toHaveCount(6);
   });
 
   test(":reindex filters to reindex action", async ({ page }) => {

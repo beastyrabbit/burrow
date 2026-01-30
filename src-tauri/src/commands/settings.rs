@@ -32,6 +32,11 @@ const SETTINGS: &[SettingDef] = &[
         name: ":progress",
         description: "Show indexer progress",
     },
+    SettingDef {
+        id: "health",
+        name: ":health",
+        description: "Check system health (Ollama, DB, API key)",
+    },
 ];
 
 pub fn search_settings(query: &str) -> Result<Vec<SearchResult>, String> {
@@ -63,7 +68,7 @@ mod tests {
     #[test]
     fn empty_query_returns_all() {
         let results = search_settings("").unwrap();
-        assert_eq!(results.len(), 5);
+        assert_eq!(results.len(), 6);
     }
 
     #[test]
