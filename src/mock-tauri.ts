@@ -41,14 +41,24 @@ function mockSearch(args: Record<string, unknown>): SearchResult[] {
   if (query.startsWith(" ")) {
     const q = query.trimStart();
     if (q.startsWith("*")) {
+      const contentQuery = q.slice(1).trim();
+      if (!contentQuery) return [];
       return [
         {
-          id: "vector-placeholder",
-          name: "Content search not yet available",
-          description: "Ollama integration pending",
+          id: "/home/user/docs/rust-guide.md",
+          name: "rust-guide.md",
+          description: `87% — A guide to ${contentQuery}`,
           icon: "",
-          category: "info",
-          exec: "",
+          category: "vector",
+          exec: "xdg-open /home/user/docs/rust-guide.md",
+        },
+        {
+          id: "/home/user/notes/setup.txt",
+          name: "setup.txt",
+          description: `62% — Notes about ${contentQuery}`,
+          icon: "",
+          category: "vector",
+          exec: "xdg-open /home/user/notes/setup.txt",
         },
       ];
     }

@@ -44,15 +44,13 @@ fn search_vectors(
     query_embedding: &[f32],
     top_k: usize,
     min_score: f32,
-    model: &str,
 ) -> Result<Vec<SearchResult>, rusqlite::Error> {
-    let dim = query_embedding.len() as i32;
     let mut stmt = conn.prepare(
-        "SELECT file_path, content_preview, embedding FROM vectors WHERE model = ?1 AND dimension = ?2",
+        "SELECT file_path, content_preview, embedding FROM vectors",
     )?;
 
     let mut scored: Vec<(f32, String, String)> = stmt
-        .query_map(rusqlite::params![model, dim], |row| {
+        .query_map([], |row| {
             let path: String = row.get(0)?;
             let preview: String = row.get(1)?;
             let blob: Vec<u8> = row.get(2)?;
@@ -80,8 +78,7 @@ fn search_vectors(
                 .file_name()
                 .map(|f| f.to_string_lossy().to_string())
                 .unwrap_or_else(|| path.clone());
-            let escaped = path.replace('\'', "'\\''");
-            let open_cmd = format!("xdg-open '{}'", escaped);
+            let open_cmd = format!("xdg-open {}", path);
             SearchResult {
                 id: path.clone(),
                 name,
@@ -94,7 +91,10 @@ fn search_vectors(
         .collect())
 }
 
-pub async fn search_by_content(query: &str, app: &AppHandle) -> Result<Vec<SearchResult>, String> {
+pub async fn search_by_content(
+    query: &str,
+    app: &AppHandle,
+) -> Result<Vec<SearchResult>, String> {
     let cfg = crate::config::get_config();
     if !cfg.vector_search.enabled {
         return Ok(vec![SearchResult {
@@ -116,7 +116,6 @@ pub async fn search_by_content(query: &str, app: &AppHandle) -> Result<Vec<Searc
         &query_embedding,
         cfg.vector_search.top_k,
         cfg.vector_search.min_score,
-        &cfg.ollama.embedding_model,
     )
     .map_err(|e| e.to_string())
 }
@@ -175,18 +174,10 @@ mod tests {
     fn insert_and_search() {
         let conn = test_db();
         let emb = vec![1.0, 0.0, 0.0];
-        insert_vector(
-            &conn,
-            "/home/user/doc.txt",
-            "hello world",
-            &emb,
-            "test-model",
-            0.0,
-        )
-        .unwrap();
+        insert_vector(&conn, "/home/user/doc.txt", "hello world", &emb, "test-model", 0.0).unwrap();
 
         let query_emb = vec![1.0, 0.0, 0.0]; // identical
-        let results = search_vectors(&conn, &query_emb, 10, 0.0, "test-model").unwrap();
+        let results = search_vectors(&conn, &query_emb, 10, 0.0).unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].id, "/home/user/doc.txt");
         assert_eq!(results[0].name, "doc.txt");
@@ -200,7 +191,7 @@ mod tests {
         insert_vector(&conn, "/path/a.txt", "a", &emb, "m", 0.0).unwrap();
 
         let query = vec![0.0, 1.0, 0.0]; // orthogonal → score ≈ 0
-        let results = search_vectors(&conn, &query, 10, 0.5, "m").unwrap();
+        let results = search_vectors(&conn, &query, 10, 0.5).unwrap();
         assert!(results.is_empty());
     }
 
@@ -209,18 +200,11 @@ mod tests {
         let conn = test_db();
         for i in 0..20 {
             let emb = vec![1.0, i as f32 * 0.01, 0.0];
-            insert_vector(
-                &conn,
-                &format!("/path/f{i}.txt"),
-                &format!("file {i}"),
-                &emb,
-                "m",
-                0.0,
-            )
-            .unwrap();
+            insert_vector(&conn, &format!("/path/f{i}.txt"), &format!("file {i}"), &emb, "m", 0.0)
+                .unwrap();
         }
         let query = vec![1.0, 0.0, 0.0];
-        let results = search_vectors(&conn, &query, 5, 0.0, "m").unwrap();
+        let results = search_vectors(&conn, &query, 5, 0.0).unwrap();
         assert_eq!(results.len(), 5);
     }
 
@@ -233,7 +217,7 @@ mod tests {
         insert_vector(&conn, "/far.txt", "far", &[0.5, 0.8, 0.3], "m", 0.0).unwrap();
 
         let query = vec![1.0, 0.0, 0.0];
-        let results = search_vectors(&conn, &query, 10, 0.0, "m").unwrap();
+        let results = search_vectors(&conn, &query, 10, 0.0).unwrap();
         assert_eq!(results.len(), 2);
         assert_eq!(results[0].id, "/close.txt");
     }
@@ -263,23 +247,15 @@ mod tests {
     #[test]
     fn empty_db_returns_empty() {
         let conn = test_db();
-        let results = search_vectors(&conn, &[1.0, 0.0], 10, 0.0, "m").unwrap();
+        let results = search_vectors(&conn, &[1.0, 0.0], 10, 0.0).unwrap();
         assert!(results.is_empty());
     }
 
     #[test]
     fn result_description_contains_score_and_preview() {
         let conn = test_db();
-        insert_vector(
-            &conn,
-            "/doc.txt",
-            "important document",
-            &[1.0, 0.0],
-            "m",
-            0.0,
-        )
-        .unwrap();
-        let results = search_vectors(&conn, &[1.0, 0.0], 10, 0.0, "m").unwrap();
+        insert_vector(&conn, "/doc.txt", "important document", &[1.0, 0.0], "m", 0.0).unwrap();
+        let results = search_vectors(&conn, &[1.0, 0.0], 10, 0.0).unwrap();
         assert!(results[0].description.contains("important document"));
         assert!(results[0].description.contains("%"));
     }
@@ -289,11 +265,7 @@ mod tests {
         let conn = test_db();
         insert_vector(&conn, "/doc.txt", "x", &[1.0; 384], "m", 0.0).unwrap();
         let dim: i32 = conn
-            .query_row(
-                "SELECT dimension FROM vectors WHERE file_path = '/doc.txt'",
-                [],
-                |r| r.get(0),
-            )
+            .query_row("SELECT dimension FROM vectors WHERE file_path = '/doc.txt'", [], |r| r.get(0))
             .unwrap();
         assert_eq!(dim, 384);
     }
@@ -303,11 +275,7 @@ mod tests {
         let conn = test_db();
         insert_vector(&conn, "/doc.txt", "x", &[1.0], "qwen3-embedding:8b", 0.0).unwrap();
         let model: String = conn
-            .query_row(
-                "SELECT model FROM vectors WHERE file_path = '/doc.txt'",
-                [],
-                |r| r.get(0),
-            )
+            .query_row("SELECT model FROM vectors WHERE file_path = '/doc.txt'", [], |r| r.get(0))
             .unwrap();
         assert_eq!(model, "qwen3-embedding:8b");
     }
@@ -319,11 +287,7 @@ mod tests {
         insert_vector(&conn, "/doc.txt", "x", &original, "m", 0.0).unwrap();
 
         let blob: Vec<u8> = conn
-            .query_row(
-                "SELECT embedding FROM vectors WHERE file_path = '/doc.txt'",
-                [],
-                |r| r.get(0),
-            )
+            .query_row("SELECT embedding FROM vectors WHERE file_path = '/doc.txt'", [], |r| r.get(0))
             .unwrap();
         let recovered = ollama::deserialize_embedding(&blob);
         assert_eq!(original, recovered);

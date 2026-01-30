@@ -9,7 +9,6 @@ static CONFIG: OnceLock<AppConfig> = OnceLock::new();
 pub struct AppConfig {
     pub ollama: OllamaConfig,
     pub vector_search: VectorSearchConfig,
-    pub indexer: IndexerConfig,
     pub history: HistoryConfig,
     pub search: SearchConfig,
 }
@@ -34,14 +33,6 @@ pub struct VectorSearchConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
-pub struct IndexerConfig {
-    pub interval_hours: u64,
-    pub file_extensions: Vec<String>,
-    pub max_content_chars: usize,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(default)]
 pub struct HistoryConfig {
     pub max_results: usize,
 }
@@ -58,7 +49,6 @@ impl Default for AppConfig {
         Self {
             ollama: OllamaConfig::default(),
             vector_search: VectorSearchConfig::default(),
-            indexer: IndexerConfig::default(),
             history: HistoryConfig::default(),
             search: SearchConfig::default(),
         }
@@ -91,22 +81,6 @@ impl Default for VectorSearchConfig {
     }
 }
 
-impl Default for IndexerConfig {
-    fn default() -> Self {
-        Self {
-            interval_hours: 24,
-            file_extensions: vec![
-                "txt", "md", "rs", "ts", "tsx", "js", "py", "toml", "yaml", "yml", "json", "sh",
-                "css", "html",
-            ]
-            .into_iter()
-            .map(String::from)
-            .collect(),
-            max_content_chars: 4096,
-        }
-    }
-}
-
 impl Default for HistoryConfig {
     fn default() -> Self {
         Self { max_results: 10 }
@@ -122,48 +96,16 @@ impl Default for SearchConfig {
     }
 }
 
-/// Returns the burrow configuration directory.
-///
-/// # Examples
-///
-/// ```
-/// use burrow_lib::config::config_dir;
-///
-/// let dir = config_dir();
-/// assert!(dir.ends_with("burrow"));
-/// ```
 pub fn config_dir() -> PathBuf {
     dirs::config_dir()
-        .or_else(|| dirs::home_dir().map(|h| h.join(".config")))
-        .unwrap_or_else(|| PathBuf::from("/tmp"))
+        .unwrap_or_else(|| PathBuf::from("~/.config"))
         .join("burrow")
 }
 
-/// Returns the path to the burrow config file.
-///
-/// # Examples
-///
-/// ```
-/// use burrow_lib::config::config_path;
-///
-/// let path = config_path();
-/// assert_eq!(path.extension().unwrap(), "toml");
-/// assert!(path.ends_with("config.toml"));
-/// ```
 pub fn config_path() -> PathBuf {
     config_dir().join("config.toml")
 }
 
-/// Load the application config from disk, creating defaults if absent.
-///
-/// # Examples
-///
-/// ```
-/// use burrow_lib::config::load_config;
-///
-/// let cfg = load_config();
-/// assert_eq!(cfg.ollama.url, "http://localhost:11434");
-/// ```
 pub fn load_config() -> AppConfig {
     load_config_from_path(&config_path())
 }
@@ -197,8 +139,7 @@ fn apply_env_overrides(mut cfg: AppConfig) -> AppConfig {
         cfg.ollama.embedding_model = model;
     }
     if let Ok(val) = std::env::var("BURROW_VECTOR_SEARCH_ENABLED") {
-        let val = val.to_lowercase();
-        cfg.vector_search.enabled = matches!(val.as_str(), "true" | "1" | "yes" | "on");
+        cfg.vector_search.enabled = val == "true" || val == "1";
     }
     cfg
 }
@@ -211,9 +152,7 @@ pub fn init_config() -> &'static AppConfig {
 }
 
 pub fn get_config() -> &'static AppConfig {
-    CONFIG
-        .get()
-        .expect("Config not initialized. Call init_config() first.")
+    CONFIG.get().expect("Config not initialized. Call init_config() first.")
 }
 
 #[cfg(test)]
@@ -364,43 +303,5 @@ debounce_ms = 100
     fn default_index_dirs_has_entries() {
         let cfg = AppConfig::default();
         assert!(!cfg.vector_search.index_dirs.is_empty());
-    }
-
-    #[test]
-    fn default_indexer_config() {
-        let cfg = AppConfig::default();
-        assert_eq!(cfg.indexer.interval_hours, 24);
-        assert_eq!(cfg.indexer.max_content_chars, 4096);
-        assert!(cfg.indexer.file_extensions.contains(&"rs".to_string()));
-        assert!(cfg.indexer.file_extensions.contains(&"md".to_string()));
-        assert!(cfg.indexer.file_extensions.len() >= 10);
-    }
-
-    #[test]
-    fn parse_indexer_config() {
-        let cfg = parse_config(
-            r#"
-[indexer]
-interval_hours = 12
-file_extensions = ["rs", "py"]
-max_content_chars = 2048
-"#,
-        );
-        assert_eq!(cfg.indexer.interval_hours, 12);
-        assert_eq!(cfg.indexer.file_extensions, vec!["rs", "py"]);
-        assert_eq!(cfg.indexer.max_content_chars, 2048);
-    }
-
-    #[test]
-    fn partial_indexer_config_fills_defaults() {
-        let cfg = parse_config(
-            r#"
-[indexer]
-interval_hours = 6
-"#,
-        );
-        assert_eq!(cfg.indexer.interval_hours, 6);
-        assert_eq!(cfg.indexer.max_content_chars, 4096); // default
-        assert!(!cfg.indexer.file_extensions.is_empty()); // default
     }
 }
