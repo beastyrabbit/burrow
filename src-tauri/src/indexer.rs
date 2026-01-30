@@ -63,7 +63,7 @@ impl IndexerState {
 #[cfg(test)]
 const DEFAULT_EXTENSIONS: &[&str] = &[
     "txt", "md", "rs", "ts", "tsx", "js", "py", "toml", "yaml", "yml", "json", "sh", "css",
-    "html",
+    "html", "pdf", "docx", "xlsx", "xls", "pptx", "odt", "ods", "odp", "csv", "rtf",
 ];
 
 pub fn is_indexable_file(path: &Path, max_size: u64, extensions: &[String]) -> bool {
@@ -285,12 +285,11 @@ async fn index_single_file(
     model: &str,
     max_content_chars: usize,
 ) -> Result<(), String> {
-    let content = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
-    let truncated: String = content.chars().take(max_content_chars).collect();
+    let content = crate::text_extract::extract_text(path, max_content_chars)?;
 
-    let embedding = ollama::generate_embedding(&truncated).await?;
+    let embedding = ollama::generate_embedding(&content).await?;
 
-    let preview: String = truncated.chars().take(200).collect();
+    let preview: String = content.chars().take(200).collect();
     let mtime = file_mtime(path);
     let path_str = path.to_string_lossy().to_string();
 

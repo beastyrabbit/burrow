@@ -3,6 +3,7 @@ mod config;
 mod indexer;
 mod ollama;
 mod router;
+mod text_extract;
 
 use commands::{apps, history, vectors};
 use tauri::Manager;

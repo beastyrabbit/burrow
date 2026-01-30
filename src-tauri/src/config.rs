@@ -97,7 +97,8 @@ impl Default for IndexerConfig {
             interval_hours: 24,
             file_extensions: vec![
                 "txt", "md", "rs", "ts", "tsx", "js", "py", "toml", "yaml", "yml", "json", "sh",
-                "css", "html",
+                "css", "html", "pdf", "docx", "xlsx", "xls", "pptx", "odt", "ods", "odp", "csv",
+                "rtf",
             ]
             .into_iter()
             .map(String::from)
