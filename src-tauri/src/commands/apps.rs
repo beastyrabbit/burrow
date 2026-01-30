@@ -1,3 +1,4 @@
+use crate::icons;
 use crate::router::SearchResult;
 use freedesktop_entry_parser::parse_entry;
 use nucleo::pattern::{CaseMatching, Normalization, Pattern};
@@ -38,17 +39,29 @@ fn desktop_dirs() -> Vec<PathBuf> {
     if let Some(home) = dirs::data_dir() {
         dirs.push(home.join("applications"));
     }
+
+    // Explicit Flatpak/Snap dirs ensure coverage on systems where
+    // XDG_DATA_DIRS doesn't include them. Dedup in load_desktop_entries() handles overlap.
+    if let Some(home) = dirs::home_dir() {
+        dirs.push(home.join(".local/share/flatpak/exports/share/applications"));
+    }
+    dirs.push(PathBuf::from("/var/lib/flatpak/exports/share/applications"));
+
+    // Snap application dir
+    dirs.push(PathBuf::from("/var/lib/snapd/desktop/applications"));
+
     dirs
 }
 
 fn load_desktop_entries() -> Vec<DesktopEntry> {
     let mut entries = Vec::new();
+    let mut seen_ids = std::collections::HashSet::new();
     for dir in desktop_dirs() {
         let pattern = dir.join("*.desktop");
         if let Ok(paths) = glob::glob(pattern.to_str().unwrap_or("")) {
             for path in paths.flatten() {
                 if let Some(entry) = parse_desktop_file(&path) {
-                    if !entry.no_display {
+                    if !entry.no_display && seen_ids.insert(entry.id.clone()) {
                         entries.push(entry);
                     }
                 }
@@ -175,7 +188,7 @@ fn fuzzy_search(entries: &[DesktopEntry], query: &str) -> Vec<SearchResult> {
             id: app.id.clone(),
             name: app.name.clone(),
             description: app.comment.clone(),
-            icon: app.icon.clone(),
+            icon: icons::resolve_icon(&app.icon),
             category: "app".into(),
             exec: app.exec.clone(),
         })
@@ -203,6 +216,7 @@ pub fn launch_app(exec: String) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use base64::Engine;
 
     fn make_entry(id: &str, name: &str, exec: &str) -> DesktopEntry {
         DesktopEntry {
@@ -354,6 +368,32 @@ mod tests {
         }
     }
 
+    #[test]
+    fn desktop_dirs_includes_flatpak_system() {
+        let dirs = desktop_dirs();
+        let has_flatpak = dirs.iter().any(|d| d.to_string_lossy().contains("flatpak"));
+        assert!(has_flatpak, "Expected flatpak dir in desktop_dirs");
+    }
+
+    #[test]
+    fn desktop_dirs_includes_snap() {
+        let dirs = desktop_dirs();
+        let has_snap = dirs.iter().any(|d| d.to_string_lossy().contains("snapd"));
+        assert!(has_snap, "Expected snap dir in desktop_dirs");
+    }
+
+    // --- fuzzy_search resolves icons ---
+
+    #[test]
+    fn fuzzy_search_result_icon_is_resolved() {
+        // An entry with empty icon should produce empty resolved icon
+        let entries = vec![make_entry("ff", "Firefox", "firefox")];
+        let results = fuzzy_search(&entries, "Firefox");
+        assert!(!results.is_empty());
+        // Empty icon input -> empty resolved output
+        assert_eq!(results[0].icon, "");
+    }
+
     // --- parse_desktop_file with real files ---
 
     #[test]
@@ -368,6 +408,116 @@ mod tests {
                 // exec should not contain % field codes
                 assert!(!e.exec.contains('%'));
             }
+        }
+    }
+
+    // --- dedup ---
+
+    #[test]
+    fn load_desktop_entries_has_no_duplicate_ids() {
+        let entries = load_desktop_entries();
+        let mut seen = std::collections::HashSet::new();
+        for e in &entries {
+            assert!(seen.insert(&e.id), "Duplicate desktop entry id: {}", e.id);
+        }
+    }
+
+    // --- real system icon resolution (data URIs) ---
+
+    /// Apps known to be installed. Each must resolve to a data URI.
+    /// If an app is not installed the assertion is skipped, but at least
+    /// 3 of these must resolve — otherwise the test environment is broken.
+    #[test]
+    fn real_apps_resolve_to_data_uris() {
+        let known_icons = [
+            "1password",
+            "google-chrome",
+            "chromium",
+            "com.fastmail.Fastmail",
+            "com.bambulab.BambuStudio",
+            "firefox",
+        ];
+
+        let mut resolved_count = 0;
+        for icon_name in known_icons {
+            let result = icons::resolve_icon(icon_name);
+            if result.is_empty() {
+                eprintln!("[skip] {icon_name}: not installed");
+                continue;
+            }
+            resolved_count += 1;
+            assert!(
+                result.starts_with("data:image/"),
+                "{icon_name}: expected data URI, got: {}",
+                &result[..60.min(result.len())]
+            );
+            // Verify the base64 payload is non-trivial (> 100 bytes decoded)
+            let b64 = result.split(',').nth(1).unwrap();
+            let decoded = base64::engine::general_purpose::STANDARD
+                .decode(b64)
+                .unwrap();
+            assert!(
+                decoded.len() > 100,
+                "{icon_name}: decoded icon is only {} bytes — too small",
+                decoded.len()
+            );
+            eprintln!("[ok] {icon_name}: data URI ({} bytes encoded)", b64.len());
+        }
+        assert!(
+            resolved_count >= 3,
+            "Only {resolved_count}/6 icons resolved — check installed apps"
+        );
+    }
+
+    /// Full pipeline: load real .desktop files, search, verify results
+    /// contain data URI icons that a browser <img> tag can render.
+    #[test]
+    fn real_search_results_have_data_uri_icons() {
+        let entries = load_desktop_entries();
+        let queries = ["firefox", "chrome", "1password", "fastmail", "bambu"];
+        let mut icons_found = 0;
+
+        for query in queries {
+            let results = fuzzy_search(&entries, query);
+            let Some(first) = results.first() else {
+                eprintln!("[skip] search '{query}': no results");
+                continue;
+            };
+            if first.icon.is_empty() {
+                eprintln!("[skip] search '{query}' -> {} (no icon)", first.name);
+                continue;
+            }
+            icons_found += 1;
+            assert!(
+                first.icon.starts_with("data:image/"),
+                "search '{query}' -> {}: expected data URI, got: {}",
+                first.name,
+                &first.icon[..60.min(first.icon.len())]
+            );
+            eprintln!(
+                "[ok] search '{query}' -> {} (icon {} bytes)",
+                first.name,
+                first.icon.len()
+            );
+        }
+        assert!(
+            icons_found >= 3,
+            "Only {icons_found}/5 searches returned icons"
+        );
+    }
+
+    /// Unique results: no duplicate app IDs after dedup.
+    #[test]
+    fn real_search_no_duplicates() {
+        let entries = load_desktop_entries();
+        let results = fuzzy_search(&entries, "fast");
+        let mut seen = std::collections::HashSet::new();
+        for r in &results {
+            assert!(
+                seen.insert(&r.id),
+                "Duplicate result id in search: {}",
+                r.id
+            );
         }
     }
 }
