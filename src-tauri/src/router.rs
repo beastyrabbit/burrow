@@ -1,7 +1,7 @@
 use crate::commands::{apps, files, history, math, onepass, ssh};
 use serde::Serialize;
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, PartialEq)]
 pub struct SearchResult {
     pub id: String,
     pub name: String,
@@ -9,6 +9,46 @@ pub struct SearchResult {
     pub icon: String,
     pub category: String,
     pub exec: String,
+}
+
+/// Determines which provider should handle a given query.
+#[derive(Debug, PartialEq)]
+pub enum RouteKind {
+    History,
+    App,
+    FileSearch,
+    VectorSearch,
+    OnePassword,
+    Ssh,
+    Math,
+}
+
+pub fn classify_query(query: &str) -> RouteKind {
+    if query.is_empty() {
+        return RouteKind::History;
+    }
+
+    if query.starts_with(' ') {
+        let q = query.trim_start();
+        if q.starts_with('*') {
+            return RouteKind::VectorSearch;
+        }
+        return RouteKind::FileSearch;
+    }
+
+    if query.starts_with('!') {
+        return RouteKind::OnePassword;
+    }
+
+    if query.starts_with("ssh ") || query == "ssh" {
+        return RouteKind::Ssh;
+    }
+
+    if math::try_calculate(query).is_some() {
+        return RouteKind::Math;
+    }
+
+    RouteKind::App
 }
 
 #[tauri::command]
@@ -47,4 +87,83 @@ pub async fn search(query: String, app: tauri::AppHandle) -> Result<Vec<SearchRe
     }
 
     apps::search_apps(&query)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // --- classify_query ---
+
+    #[test]
+    fn empty_query_routes_to_history() {
+        assert_eq!(classify_query(""), RouteKind::History);
+    }
+
+    #[test]
+    fn plain_text_routes_to_app() {
+        assert_eq!(classify_query("firefox"), RouteKind::App);
+    }
+
+    #[test]
+    fn space_prefix_routes_to_file_search() {
+        assert_eq!(classify_query(" readme"), RouteKind::FileSearch);
+    }
+
+    #[test]
+    fn space_star_prefix_routes_to_vector() {
+        assert_eq!(classify_query(" *hello"), RouteKind::VectorSearch);
+    }
+
+    #[test]
+    fn bang_prefix_routes_to_onepass() {
+        assert_eq!(classify_query("!github"), RouteKind::OnePassword);
+    }
+
+    #[test]
+    fn ssh_prefix_routes_to_ssh() {
+        assert_eq!(classify_query("ssh myserver"), RouteKind::Ssh);
+    }
+
+    #[test]
+    fn ssh_alone_routes_to_ssh() {
+        assert_eq!(classify_query("ssh"), RouteKind::Ssh);
+    }
+
+    #[test]
+    fn math_expression_routes_to_math() {
+        assert_eq!(classify_query("1+3"), RouteKind::Math);
+    }
+
+    #[test]
+    fn complex_math_routes_to_math() {
+        assert_eq!(classify_query("(2+3)*4"), RouteKind::Math);
+    }
+
+    #[test]
+    fn ssh_in_app_name_routes_to_app() {
+        // "sshfs" should NOT match ssh prefix
+        assert_eq!(classify_query("sshfs"), RouteKind::App);
+    }
+
+    #[test]
+    fn bang_empty_routes_to_onepass() {
+        assert_eq!(classify_query("!"), RouteKind::OnePassword);
+    }
+
+    #[test]
+    fn space_only_routes_to_file_search() {
+        // " " trimmed to "" → file search with empty query
+        assert_eq!(classify_query(" "), RouteKind::FileSearch);
+    }
+
+    #[test]
+    fn multiple_spaces_then_text() {
+        assert_eq!(classify_query("   myfile"), RouteKind::FileSearch);
+    }
+
+    #[test]
+    fn text_with_numbers_routes_to_app() {
+        assert_eq!(classify_query("libreoffice7"), RouteKind::App);
+    }
 }

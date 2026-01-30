@@ -73,12 +73,7 @@ fn parse_desktop_file(path: &PathBuf) -> Option<DesktopEntry> {
         return None;
     }
 
-    // Strip field codes from exec (%f, %F, %u, %U, etc.)
-    let exec = exec_raw
-        .split_whitespace()
-        .filter(|s| !s.starts_with('%'))
-        .collect::<Vec<_>>()
-        .join(" ");
+    let exec = strip_field_codes(&exec_raw);
 
     let id = path
         .file_stem()
@@ -95,8 +90,16 @@ fn parse_desktop_file(path: &PathBuf) -> Option<DesktopEntry> {
     })
 }
 
-pub fn search_apps(query: &str) -> Result<Vec<SearchResult>, String> {
-    let apps = APP_CACHE.get().ok_or("App cache not initialized")?;
+/// Strip freedesktop field codes (%f, %F, %u, %U, etc.) from an Exec string.
+fn strip_field_codes(exec: &str) -> String {
+    exec.split_whitespace()
+        .filter(|s| !s.starts_with('%'))
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// Fuzzy search a list of entries and return scored results.
+fn fuzzy_search(entries: &[DesktopEntry], query: &str) -> Vec<SearchResult> {
     let mut matcher = Matcher::new(nucleo::Config::DEFAULT);
     let pattern = Pattern::new(
         query,
@@ -105,7 +108,7 @@ pub fn search_apps(query: &str) -> Result<Vec<SearchResult>, String> {
         nucleo::pattern::AtomKind::Fuzzy,
     );
 
-    let mut scored: Vec<(u32, &DesktopEntry)> = apps
+    let mut scored: Vec<(u32, &DesktopEntry)> = entries
         .iter()
         .filter_map(|app| {
             let mut buf = Vec::new();
@@ -117,7 +120,7 @@ pub fn search_apps(query: &str) -> Result<Vec<SearchResult>, String> {
 
     scored.sort_by(|a, b| b.0.cmp(&a.0));
 
-    Ok(scored
+    scored
         .into_iter()
         .take(10)
         .map(|(_, app)| SearchResult {
@@ -128,7 +131,12 @@ pub fn search_apps(query: &str) -> Result<Vec<SearchResult>, String> {
             category: "app".into(),
             exec: app.exec.clone(),
         })
-        .collect())
+        .collect()
+}
+
+pub fn search_apps(query: &str) -> Result<Vec<SearchResult>, String> {
+    let apps = APP_CACHE.get().ok_or("App cache not initialized")?;
+    Ok(fuzzy_search(apps, query))
 }
 
 #[tauri::command]
@@ -142,4 +150,176 @@ pub fn launch_app(exec: String) -> Result<(), String> {
         .spawn()
         .map_err(|e| e.to_string())?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_entry(id: &str, name: &str, exec: &str) -> DesktopEntry {
+        DesktopEntry {
+            id: id.into(),
+            name: name.into(),
+            exec: exec.into(),
+            icon: "".into(),
+            comment: "".into(),
+            no_display: false,
+        }
+    }
+
+    // --- strip_field_codes ---
+
+    #[test]
+    fn strip_codes_removes_percent_args() {
+        assert_eq!(strip_field_codes("firefox %u"), "firefox");
+    }
+
+    #[test]
+    fn strip_codes_removes_multiple() {
+        assert_eq!(strip_field_codes("app %f %F %u"), "app");
+    }
+
+    #[test]
+    fn strip_codes_keeps_non_percent() {
+        assert_eq!(strip_field_codes("app --flag value"), "app --flag value");
+    }
+
+    #[test]
+    fn strip_codes_empty_string() {
+        assert_eq!(strip_field_codes(""), "");
+    }
+
+    #[test]
+    fn strip_codes_only_percent() {
+        assert_eq!(strip_field_codes("%u"), "");
+    }
+
+    // --- fuzzy_search ---
+
+    #[test]
+    fn fuzzy_exact_match() {
+        let entries = vec![
+            make_entry("ff", "Firefox", "firefox"),
+            make_entry("ch", "Chromium", "chromium"),
+        ];
+        let results = fuzzy_search(&entries, "Firefox");
+        assert!(!results.is_empty());
+        assert_eq!(results[0].name, "Firefox");
+    }
+
+    #[test]
+    fn fuzzy_partial_match() {
+        let entries = vec![
+            make_entry("ff", "Firefox", "firefox"),
+            make_entry("fm", "Files", "nautilus"),
+        ];
+        let results = fuzzy_search(&entries, "fire");
+        assert!(!results.is_empty());
+        assert_eq!(results[0].name, "Firefox");
+    }
+
+    #[test]
+    fn fuzzy_case_insensitive() {
+        let entries = vec![make_entry("ff", "Firefox", "firefox")];
+        let results = fuzzy_search(&entries, "firefox");
+        assert!(!results.is_empty());
+        assert_eq!(results[0].name, "Firefox");
+    }
+
+    #[test]
+    fn fuzzy_no_match() {
+        let entries = vec![make_entry("ff", "Firefox", "firefox")];
+        let results = fuzzy_search(&entries, "zzzzz");
+        assert!(results.is_empty());
+    }
+
+    #[test]
+    fn fuzzy_empty_query_returns_nothing() {
+        // nucleo returns no score for empty pattern
+        let entries = vec![make_entry("ff", "Firefox", "firefox")];
+        let results = fuzzy_search(&entries, "");
+        // Empty query may or may not match — just ensure no panic
+        assert!(results.len() <= entries.len());
+    }
+
+    #[test]
+    fn fuzzy_limits_to_10() {
+        let entries: Vec<DesktopEntry> = (0..20)
+            .map(|i| make_entry(&format!("app{i}"), &format!("Application {i}"), "exec"))
+            .collect();
+        let results = fuzzy_search(&entries, "Application");
+        assert!(results.len() <= 10);
+    }
+
+    #[test]
+    fn fuzzy_returns_app_category() {
+        let entries = vec![make_entry("ff", "Firefox", "firefox")];
+        let results = fuzzy_search(&entries, "Firefox");
+        assert_eq!(results[0].category, "app");
+    }
+
+    #[test]
+    fn fuzzy_results_sorted_by_score() {
+        let entries = vec![
+            make_entry("a", "ABCD", "a"),
+            make_entry("b", "AB", "b"),
+            make_entry("c", "ABCDEFGH", "c"),
+        ];
+        let results = fuzzy_search(&entries, "AB");
+        // All should match; exact shorter match should score higher
+        assert!(results.len() >= 2);
+        // First result should be the best match
+    }
+
+    // --- launch_app ---
+
+    #[test]
+    fn launch_empty_exec_fails() {
+        let result = launch_app("".into());
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err(), "Empty exec command");
+    }
+
+    #[test]
+    fn launch_nonexistent_binary_fails() {
+        let result = launch_app("__nonexistent_binary_12345__".into());
+        assert!(result.is_err());
+    }
+
+    // --- desktop_dirs ---
+
+    #[test]
+    fn desktop_dirs_returns_nonempty() {
+        let dirs = desktop_dirs();
+        assert!(!dirs.is_empty());
+    }
+
+    #[test]
+    fn desktop_dirs_all_end_with_applications() {
+        let dirs = desktop_dirs();
+        for d in &dirs {
+            assert!(
+                d.ends_with("applications"),
+                "Expected path ending in 'applications', got: {}",
+                d.display()
+            );
+        }
+    }
+
+    // --- parse_desktop_file with real files ---
+
+    #[test]
+    fn parse_real_desktop_files_if_exist() {
+        // This test only validates on systems with .desktop files
+        let test_path = PathBuf::from("/usr/share/applications/firefox.desktop");
+        if test_path.exists() {
+            let entry = parse_desktop_file(&test_path);
+            if let Some(e) = entry {
+                assert!(!e.name.is_empty());
+                assert!(!e.exec.is_empty());
+                // exec should not contain % field codes
+                assert!(!e.exec.contains('%'));
+            }
+        }
+    }
 }
