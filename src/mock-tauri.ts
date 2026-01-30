@@ -1,282 +1,40 @@
-// Mock Tauri invoke for browser-only testing (Playwright).
-// Simulates backend responses for each command.
+// Tauri invoke bridge — always aliased from @tauri-apps/api/core by Vite.
+// If running inside the Tauri webview, delegates to the real IPC runtime.
+// If running in a plain browser (Playwright), forwards calls to the axum
+// HTTP bridge on port 3001 started by Tauri in debug builds.
 
-interface SearchResult {
-  id: string;
-  name: string;
-  description: string;
-  icon: string;
-  category: string;
-  exec: string;
-}
-
-type MockHandler = (args: Record<string, unknown>) => unknown;
-
-const MATH_RE = /[+\-*/^%()]/;
-
-function mockSearch(args: Record<string, unknown>): SearchResult[] {
-  const query = (args.query as string) || "";
-
-  if (query === "") {
-    return [
-      // History (frecent) items first
-      { id: "firefox", name: "Firefox", description: "Web Browser", icon: "firefox", category: "history", exec: "firefox" },
-      { id: "kitty", name: "Kitty", description: "Terminal Emulator", icon: "kitty", category: "history", exec: "kitty" },
-      { id: "code", name: "VS Code", description: "Code Editor", icon: "code", category: "history", exec: "code" },
-      // Alphabetical apps without history
-      { id: "blender", name: "Blender", description: "3D Modelling", icon: "blender", category: "app", exec: "blender" },
-      { id: "chromium", name: "Chromium", description: "Web Browser", icon: "chromium", category: "app", exec: "chromium" },
-      { id: "discord", name: "Discord", description: "Chat App", icon: "discord", category: "app", exec: "discord" },
-      { id: "evince", name: "Evince", description: "Document Viewer", icon: "evince", category: "app", exec: "evince" },
-      { id: "nautilus", name: "Files", description: "File Manager", icon: "nautilus", category: "app", exec: "nautilus" },
-      { id: "gimp", name: "GIMP", description: "Image Editor", icon: "gimp", category: "app", exec: "gimp" },
-      { id: "inkscape", name: "Inkscape", description: "Vector Graphics", icon: "inkscape", category: "app", exec: "inkscape" },
-      { id: "libreoffice", name: "LibreOffice", description: "Office Suite", icon: "libreoffice", category: "app", exec: "libreoffice" },
-      { id: "mpv", name: "mpv", description: "Media Player", icon: "mpv", category: "app", exec: "mpv" },
-      { id: "obs", name: "OBS Studio", description: "Screen Recording", icon: "obs", category: "app", exec: "obs" },
-      { id: "steam", name: "Steam", description: "Game Launcher", icon: "steam", category: "app", exec: "steam" },
-      { id: "thunar", name: "Thunar", description: "File Manager", icon: "thunar", category: "app", exec: "thunar" },
-      { id: "vlc", name: "VLC", description: "Media Player", icon: "vlc", category: "app", exec: "vlc" },
-    ];
-  }
-
-  if (query.startsWith("#")) {
-    const q = query.slice(1).trim().toLowerCase();
-    const specials = [
-      {
-        id: "special-cowork",
-        name: "cowork",
-        description: "Open kitty in ~/cowork and run cc",
-        icon: "",
-        category: "special" as const,
-        exec: "kitty sh -c 'cd ~/cowork && cc'",
-      },
-    ];
-    return specials.filter((s) => !q || s.name.includes(q));
-  }
-
-  if (query.startsWith("?")) {
-    const q = query.slice(1).trim();
-    if (!q) {
-      return [
-        {
-          id: "chat-hint",
-          name: "Type a question after ?",
-          description: "Press Enter to ask AI",
-          icon: "",
-          category: "info",
-          exec: "",
-        },
-      ];
-    }
-    return [
-      {
-        id: "chat-ask",
-        name: `Ask: ${q}`,
-        description: "Press Enter to get an AI answer",
-        icon: "",
-        category: "chat",
-        exec: "",
-      },
-    ];
-  }
-
-  if (query.startsWith(":")) {
-    const cmd = query.slice(1).trim().toLowerCase();
-    const settings = [
-      { id: "reindex", name: ":reindex", description: "Reindex all files (full rebuild)" },
-      { id: "update", name: ":update", description: "Update index (incremental)" },
-      { id: "config", name: ":config", description: "Open config file" },
-      { id: "stats", name: ":stats", description: "Index statistics" },
-      { id: "progress", name: ":progress", description: "Show indexer progress" },
-      { id: "health", name: ":health", description: "Check system health (Ollama, DB, API key)" },
-    ];
-    return settings
-      .filter((s) => !cmd || s.id.includes(cmd) || s.name.includes(cmd) || s.description.toLowerCase().includes(cmd))
-      .map((s) => ({
-        id: s.id,
-        name: s.name,
-        description: s.description,
-        icon: "",
-        category: "action",
-        exec: "",
-      }));
-  }
-
-  if (query.startsWith(" ")) {
-    const q = query.trimStart();
-    if (q.startsWith("*")) {
-      const contentQuery = q.slice(1).trim();
-      if (!contentQuery) return [];
-      return [
-        {
-          id: "/home/user/docs/rust-guide.md",
-          name: "rust-guide.md",
-          description: `87% — A guide to ${contentQuery}`,
-          icon: "",
-          category: "vector",
-          exec: "xdg-open /home/user/docs/rust-guide.md",
-        },
-        {
-          id: "/home/user/notes/setup.txt",
-          name: "setup.txt",
-          description: `62% — Notes about ${contentQuery}`,
-          icon: "",
-          category: "vector",
-          exec: "xdg-open /home/user/notes/setup.txt",
-        },
-      ];
-    }
-    // File search mock
-    if (q) {
-      return [
-        {
-          id: `/home/user/Documents/${q}.txt`,
-          name: `${q}.txt`,
-          description: "/home/user/Documents",
-          icon: "",
-          category: "file",
-          exec: `xdg-open /home/user/Documents/${q}.txt`,
-        },
-      ];
-    }
-    return [];
-  }
-
-  if (query.startsWith("!")) {
-    const q = query.slice(1).trim();
-    if (!q) return [];
-    return [
-      {
-        id: `op-${q}`,
-        name: q,
-        description: "Login",
-        icon: "",
-        category: "onepass",
-        exec: `op item get ${q}`,
-      },
-    ];
-  }
-
-  if (query.startsWith("ssh ") || query === "ssh") {
-    const q = query.replace(/^ssh\s*/, "");
-    return [
-      {
-        id: "ssh-devbox",
-        name: "devbox",
-        description: "admin@10.0.0.5",
-        icon: "",
-        category: "ssh",
-        exec: "kitty ssh admin@devbox",
-      },
-    ].filter((h) => !q || h.name.includes(q));
-  }
-
-  // Math detection
-  if (MATH_RE.test(query)) {
-    try {
-      // Simple math for mock purposes
-      const result = Function(`"use strict"; return (${query})`)();
-      if (typeof result === "number" && isFinite(result)) {
-        return [
-          {
-            id: "math-result",
-            name: `= ${result}`,
-            description: `${query} = ${result}`,
-            icon: "",
-            category: "math",
-            exec: "",
-          },
-        ];
-      }
-    } catch {
-      // Not valid math
-    }
-  }
-
-  // App search mock — mirrors real desktop entries found on typical Linux systems
-  const apps = [
-    { id: "firefox", name: "Firefox", desc: "Web Browser", exec: "firefox" },
-    { id: "google-chrome", name: "Google Chrome", desc: "Web Browser", exec: "google-chrome-stable" },
-    { id: "chromium", name: "Chromium", desc: "Web Browser", exec: "chromium" },
-    { id: "kitty", name: "Kitty", desc: "Terminal Emulator", exec: "kitty" },
-    { id: "code", name: "VS Code", desc: "Code Editor", exec: "code" },
-    { id: "jetbrains-pycharm", name: "PyCharm", desc: "Python IDE", exec: "pycharm" },
-    { id: "jetbrains-idea", name: "IntelliJ IDEA", desc: "Java IDE", exec: "idea" },
-    { id: "1password", name: "1Password", desc: "Password Manager", exec: "1password" },
-    { id: "nautilus", name: "Files", desc: "File Manager", exec: "nautilus" },
-    { id: "spotify", name: "Spotify", desc: "Music Player", exec: "spotify" },
-    { id: "slack", name: "Slack", desc: "Team Messaging", exec: "slack" },
-    { id: "discord", name: "Discord", desc: "Voice & Text Chat", exec: "discord" },
-    { id: "obsidian", name: "Obsidian", desc: "Knowledge Base", exec: "obsidian" },
-    { id: "thunar", name: "Thunar", desc: "File Manager", exec: "thunar" },
-    { id: "org.gnome.Calculator", name: "Calculator", desc: "GNOME Calculator", exec: "gnome-calculator" },
-  ];
-
-  const q = query.toLowerCase();
-  return apps
-    .filter((a) => a.name.toLowerCase().includes(q) || a.id.toLowerCase().includes(q))
-    .map((a) => ({
-      id: a.id,
-      name: a.name,
-      description: a.desc,
-      icon: "", // mock mode has no backend icon resolution; category fallback shows
-      category: "app",
-      exec: a.exec,
-    }));
-}
-
-function mockRunSetting(args: Record<string, unknown>): string {
-  const action = args.action as string;
-  switch (action) {
-    case "reindex":
-      return "Reindexing started in background...";
-    case "update":
-      return "Incremental update started in background...";
-    case "config":
-      return "Opened ~/.config/burrow/config.toml";
-    case "stats":
-      return "Content indexed: 0 files | Apps tracked: 0 launches | Last indexed: never";
-    case "progress":
-      return "Idle | No indexing has run yet";
-    case "health":
-      return "Ollama: OK | Vector DB: OK | API Key: OK";
-    default:
-      throw new Error(`Unknown setting action: ${action}`);
-  }
-}
-
-function mockChatAsk(args: Record<string, unknown>): string {
-  const query = (args.query as string) || "";
-  const q = query.replace(/^\?/, "").trim();
-  return `This is a mock AI answer to your question: "${q}". In production, this would use OpenRouter to generate a real answer using your indexed file context.`;
-}
-
-function mockHealthCheck(): { ollama: boolean; vector_db: boolean; api_key: boolean; issues: string[] } {
-  return { ollama: true, vector_db: true, api_key: true, issues: [] };
-}
-
-function mockExecuteAction(args: Record<string, unknown>): null {
-  const result = args.result as SearchResult;
-  const modifier = (args.modifier as string) || "none";
-  console.log(`[mock] execute_action: category=${result.category}, modifier=${modifier}`);
-  return null;
-}
-
-const handlers: Record<string, MockHandler> = {
-  search: mockSearch,
-  record_launch: () => null,
-  launch_app: () => null,
-  run_setting: mockRunSetting,
-  chat_ask: mockChatAsk,
-  health_check: mockHealthCheck,
-  execute_action: mockExecuteAction,
-};
+const DEV_API = "http://127.0.0.1:3001/api";
 
 export async function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
-  const handler = handlers[cmd];
-  if (!handler) {
-    throw new Error(`Unknown mock command: ${cmd}`);
+  // Tauri injects __TAURI_INTERNALS__ into its webview at startup.
+  // Check at call time (not module load) in case of late injection.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const tauriInternals = (window as any).__TAURI_INTERNALS__;
+  if (tauriInternals) {
+    return tauriInternals.invoke(cmd, args);
   }
-  return handler(args || {}) as T;
+
+  let res: Response;
+  try {
+    res = await fetch(`${DEV_API}/${cmd}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(args ?? {}),
+    });
+  } catch (err) {
+    throw new Error(
+      `[mock-tauri] Cannot reach dev server at ${DEV_API}/${cmd}. ` +
+        `Is "pnpm tauri dev" running? (${err})`,
+    );
+  }
+  if (!res.ok) {
+    const body = await res.text().catch(() => "(no response body)");
+    throw new Error(`[mock-tauri] ${cmd} failed (${res.status}): ${body}`);
+  }
+  const text = await res.text();
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new Error(`[mock-tauri] ${cmd} returned invalid JSON: ${text.slice(0, 200)}`);
+  }
 }

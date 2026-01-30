@@ -2,6 +2,8 @@ pub mod actions;
 pub(crate) mod chat;
 pub mod commands;
 pub mod config;
+#[cfg(debug_assertions)]
+pub mod dev_server;
 pub mod icons;
 pub mod indexer;
 pub mod ollama;
@@ -141,6 +143,8 @@ pub fn run() {
             apps::init_app_cache();
             app.manage(indexer::IndexerState::new());
             indexer::start_background_indexer(app.handle().clone());
+            #[cfg(debug_assertions)]
+            dev_server::start(app.handle().clone());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
