@@ -16,6 +16,9 @@ function App() {
   const [results, setResults] = useState<SearchResult[]>([]);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [notification, setNotification] = useState("");
+  const [chatAnswer, setChatAnswer] = useState("");
+  const [chatLoading, setChatLoading] = useState(false);
+  const [healthOk, setHealthOk] = useState(true);
   const notificationTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -31,6 +34,7 @@ function App() {
   }, []);
 
   useEffect(() => {
+    setChatAnswer("");
     const timer = setTimeout(() => doSearch(query), query ? 80 : 0);
     return () => clearTimeout(timer);
   }, [query, doSearch]);
@@ -40,11 +44,42 @@ function App() {
     doSearch("");
   }, [doSearch]);
 
+  // Health check on mount + poll every 30s
+  useEffect(() => {
+    const checkHealth = async () => {
+      try {
+        const status = await invoke<{ ollama: boolean; vector_db: boolean; api_key: boolean }>("health_check");
+        setHealthOk(status.ollama && status.vector_db);
+      } catch (e) {
+        console.error("Health check failed:", e);
+        setHealthOk(false);
+      }
+    };
+    checkHealth();
+    const interval = setInterval(checkHealth, 30000);
+    return () => clearInterval(interval);
+  }, []);
+
   const launchSelected = useCallback(async () => {
     const item = results[selectedIndex];
     if (!item) return;
 
     if (item.category === "math" || item.category === "info") return;
+
+    if (item.category === "chat") {
+      setChatLoading(true);
+      setChatAnswer("");
+      try {
+        const answer = await invoke<string>("chat_ask", { query });
+        setChatAnswer(answer);
+      } catch (e) {
+        const errMsg = e instanceof Error ? e.message : String(e);
+        setChatAnswer(`Error: ${errMsg}`);
+      } finally {
+        setChatLoading(false);
+      }
+      return;
+    }
 
     if (item.category === "action") {
       try {
@@ -74,7 +109,7 @@ function App() {
     } catch (e) {
       console.error("Launch failed:", e);
     }
-  }, [results, selectedIndex]);
+  }, [results, selectedIndex, query]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -111,6 +146,7 @@ function App() {
       onepass: "1Pass",
       math: "Calc",
       vector: "Content",
+      chat: "Chat",
       info: "Info",
       action: "Action",
     };
@@ -119,18 +155,33 @@ function App() {
 
   return (
     <div className="launcher" onKeyDown={handleKeyDown}>
-      <input
-        ref={inputRef}
-        className="search-input"
-        type="text"
-        value={query}
-        onChange={(e) => setQuery(e.target.value)}
-        placeholder="Search apps, files, SSH hosts..."
-        autoFocus
-        spellCheck={false}
-      />
+      <div className="search-container">
+        <input
+          ref={inputRef}
+          className="search-input"
+          type="text"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Search apps, files, SSH hosts..."
+          autoFocus
+          spellCheck={false}
+        />
+        {!healthOk && (
+          <span
+            className="health-indicator"
+            title="System health issue — click to check"
+            onClick={() => setQuery(":health")}
+          >!</span>
+        )}
+      </div>
       {notification && (
         <div className="notification">{notification}</div>
+      )}
+      {chatLoading && (
+        <div className="chat-answer chat-loading">Thinking...</div>
+      )}
+      {chatAnswer && !chatLoading && (
+        <div className="chat-answer">{chatAnswer}</div>
       )}
       <ul className="results-list">
         {results.map((item, i) => (

@@ -1,5 +1,7 @@
 pub mod apps;
+pub mod chat;
 pub mod files;
+pub mod health;
 pub mod history;
 pub mod math;
 pub mod onepass;

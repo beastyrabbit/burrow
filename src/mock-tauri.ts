@@ -38,6 +38,32 @@ function mockSearch(args: Record<string, unknown>): SearchResult[] {
     ];
   }
 
+  if (query.startsWith("?")) {
+    const q = query.slice(1).trim();
+    if (!q) {
+      return [
+        {
+          id: "chat-hint",
+          name: "Type a question after ?",
+          description: "Press Enter to ask AI",
+          icon: "",
+          category: "info",
+          exec: "",
+        },
+      ];
+    }
+    return [
+      {
+        id: "chat-ask",
+        name: `Ask: ${q}`,
+        description: "Press Enter to get an AI answer",
+        icon: "",
+        category: "chat",
+        exec: "",
+      },
+    ];
+  }
+
   if (query.startsWith(":")) {
     const cmd = query.slice(1).trim().toLowerCase();
     const settings = [
@@ -46,6 +72,7 @@ function mockSearch(args: Record<string, unknown>): SearchResult[] {
       { id: "config", name: ":config", description: "Open config file" },
       { id: "stats", name: ":stats", description: "Index statistics" },
       { id: "progress", name: ":progress", description: "Show indexer progress" },
+      { id: "health", name: ":health", description: "Check system health (Ollama, DB, API key)" },
     ];
     return settings
       .filter((s) => !cmd || s.id.includes(cmd) || s.name.includes(cmd) || s.description.toLowerCase().includes(cmd))
@@ -195,9 +222,21 @@ function mockRunSetting(args: Record<string, unknown>): string {
       return "Content indexed: 0 files | Apps tracked: 0 launches | Last indexed: never";
     case "progress":
       return "Idle | No indexing has run yet";
+    case "health":
+      return "Ollama: OK | Vector DB: OK | API Key: OK";
     default:
       throw new Error(`Unknown setting action: ${action}`);
   }
+}
+
+function mockChatAsk(args: Record<string, unknown>): string {
+  const query = (args.query as string) || "";
+  const q = query.replace(/^\?/, "").trim();
+  return `This is a mock AI answer to your question: "${q}". In production, this would use OpenRouter to generate a real answer using your indexed file context.`;
+}
+
+function mockHealthCheck(): { ollama: boolean; vector_db: boolean; api_key: boolean; issues: string[] } {
+  return { ollama: true, vector_db: true, api_key: true, issues: [] };
 }
 
 const handlers: Record<string, MockHandler> = {
@@ -205,6 +244,8 @@ const handlers: Record<string, MockHandler> = {
   record_launch: () => null,
   launch_app: () => null,
   run_setting: mockRunSetting,
+  chat_ask: mockChatAsk,
+  health_check: mockHealthCheck,
 };
 
 export async function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {

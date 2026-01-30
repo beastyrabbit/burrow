@@ -288,7 +288,7 @@ test.describe("Launcher UI", () => {
     await page.waitForTimeout(200);
 
     const items = page.locator(".result-item:not(.empty)");
-    await expect(items).toHaveCount(5);
+    await expect(items).toHaveCount(6);
   });
 
   test(":rei matches reindex", async ({ page }) => {

@@ -23,12 +23,17 @@ pub enum RouteKind {
     Ssh,
     Math,
     Settings,
+    Chat,
 }
 
 #[allow(dead_code)]
 pub fn classify_query(query: &str) -> RouteKind {
     if query.is_empty() {
         return RouteKind::History;
+    }
+
+    if query.starts_with('?') {
+        return RouteKind::Chat;
     }
 
     if query.starts_with(':') {
@@ -62,6 +67,28 @@ pub fn classify_query(query: &str) -> RouteKind {
 pub async fn search(query: String, app: tauri::AppHandle) -> Result<Vec<SearchResult>, String> {
     if query.is_empty() {
         return history::get_frecent(&app).map_err(|e| e.to_string());
+    }
+
+    if query.starts_with('?') {
+        let q = query.trim_start_matches('?').trim();
+        if q.is_empty() {
+            return Ok(vec![SearchResult {
+                id: "chat-hint".into(),
+                name: "Type a question after ?".into(),
+                description: "Press Enter to ask AI".into(),
+                icon: "".into(),
+                category: "info".into(),
+                exec: "".into(),
+            }]);
+        }
+        return Ok(vec![SearchResult {
+            id: "chat-ask".into(),
+            name: format!("Ask: {q}"),
+            description: "Press Enter to get an AI answer".into(),
+            icon: "".into(),
+            category: "chat".into(),
+            exec: "".into(),
+        }]);
     }
 
     if query.starts_with(':') {
@@ -189,5 +216,15 @@ mod tests {
     #[test]
     fn colon_with_text_routes_to_settings() {
         assert_eq!(classify_query(":config"), RouteKind::Settings);
+    }
+
+    #[test]
+    fn question_mark_routes_to_chat() {
+        assert_eq!(classify_query("?what is rust"), RouteKind::Chat);
+    }
+
+    #[test]
+    fn question_mark_alone_routes_to_chat() {
+        assert_eq!(classify_query("?"), RouteKind::Chat);
     }
 }

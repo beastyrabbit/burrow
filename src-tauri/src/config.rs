@@ -8,6 +8,7 @@ static CONFIG: OnceLock<AppConfig> = OnceLock::new();
 #[serde(default)]
 pub struct AppConfig {
     pub ollama: OllamaConfig,
+    pub openrouter: OpenRouterConfig,
     pub vector_search: VectorSearchConfig,
     pub indexer: IndexerConfig,
     pub history: HistoryConfig,
@@ -51,6 +52,15 @@ pub struct HistoryConfig {
 pub struct SearchConfig {
     pub max_results: usize,
     pub debounce_ms: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct OpenRouterConfig {
+    /// Never serialize back to config.toml to avoid leaking secrets to disk.
+    #[serde(skip_serializing)]
+    pub api_key: String,
+    pub model: String,
 }
 
 impl Default for OllamaConfig {
@@ -111,6 +121,15 @@ impl Default for SearchConfig {
     }
 }
 
+impl Default for OpenRouterConfig {
+    fn default() -> Self {
+        Self {
+            api_key: String::new(),
+            model: "anthropic/claude-sonnet-4".into(),
+        }
+    }
+}
+
 pub fn config_dir() -> PathBuf {
     dirs::config_dir()
         .or_else(|| dirs::home_dir().map(|h| h.join(".config")))
@@ -156,6 +175,11 @@ fn apply_env_overrides(mut cfg: AppConfig) -> AppConfig {
     }
     if let Ok(val) = std::env::var("BURROW_VECTOR_SEARCH_ENABLED") {
         cfg.vector_search.enabled = val == "true" || val == "1";
+    }
+    if let Ok(key) = std::env::var("BURROW_OPENROUTER_API_KEY") {
+        cfg.openrouter.api_key = key;
+    } else if let Ok(key) = std::env::var("OPENROUTER_API_KEY") {
+        cfg.openrouter.api_key = key;
     }
     cfg
 }
@@ -285,6 +309,30 @@ debounce_ms = 100
     }
 
     #[test]
+    fn env_override_openrouter_api_key() {
+        let mut cfg = AppConfig::default();
+        std::env::set_var("BURROW_OPENROUTER_API_KEY", "sk-burrow-test");
+        cfg = apply_env_overrides(cfg);
+        assert_eq!(cfg.openrouter.api_key, "sk-burrow-test");
+        std::env::remove_var("BURROW_OPENROUTER_API_KEY");
+    }
+
+    #[test]
+    fn env_override_openrouter_fallback() {
+        let saved = std::env::var("OPENROUTER_API_KEY").ok();
+        let mut cfg = AppConfig::default();
+        std::env::remove_var("BURROW_OPENROUTER_API_KEY");
+        std::env::set_var("OPENROUTER_API_KEY", "sk-fallback-test");
+        cfg = apply_env_overrides(cfg);
+        assert_eq!(cfg.openrouter.api_key, "sk-fallback-test");
+        // Restore original value
+        match saved {
+            Some(v) => std::env::set_var("OPENROUTER_API_KEY", v),
+            None => std::env::remove_var("OPENROUTER_API_KEY"),
+        }
+    }
+
+    #[test]
     fn env_override_vector_enabled() {
         let mut cfg = AppConfig::default();
         std::env::set_var("BURROW_VECTOR_SEARCH_ENABLED", "false");
@@ -346,6 +394,26 @@ max_content_chars = 2048
         assert_eq!(cfg.indexer.interval_hours, 12);
         assert_eq!(cfg.indexer.file_extensions, vec!["rs", "py"]);
         assert_eq!(cfg.indexer.max_content_chars, 2048);
+    }
+
+    #[test]
+    fn default_openrouter_config() {
+        let cfg = AppConfig::default();
+        assert!(cfg.openrouter.api_key.is_empty());
+        assert_eq!(cfg.openrouter.model, "anthropic/claude-sonnet-4");
+    }
+
+    #[test]
+    fn parse_openrouter_config() {
+        let cfg = parse_config(
+            r#"
+[openrouter]
+api_key = "sk-test-key"
+model = "google/gemini-2.5-flash"
+"#,
+        );
+        assert_eq!(cfg.openrouter.api_key, "sk-test-key");
+        assert_eq!(cfg.openrouter.model, "google/gemini-2.5-flash");
     }
 
     #[test]

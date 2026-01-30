@@ -1,3 +1,4 @@
+pub(crate) mod chat;
 pub mod commands;
 pub mod config;
 pub mod indexer;
@@ -117,6 +118,12 @@ async fn run_setting(action: String, app: tauri::AppHandle) -> Result<String, St
                 Ok("Idle | No indexing has run yet".into())
             }
         }
+        "health" => {
+            let status = commands::health::health_check(app)
+                .await
+                .map_err(|e| e.to_string())?;
+            Ok(commands::health::format_health(&status))
+        }
         _ => Err(format!("Unknown setting action: {action}")),
     }
 }
@@ -138,6 +145,8 @@ pub fn run() {
             router::search,
             history::record_launch,
             apps::launch_app,
+            commands::chat::chat_ask,
+            commands::health::health_check,
             run_setting,
         ])
         .run(tauri::generate_context!())
