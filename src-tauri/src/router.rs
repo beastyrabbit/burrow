@@ -21,29 +21,11 @@ pub enum RouteKind {
     OnePassword,
     Ssh,
     Math,
-    Settings,
 }
 
-/// Classify a query string into the appropriate provider route.
-///
-/// # Examples
-///
-/// ```
-/// use burrow_lib::router::{classify_query, RouteKind};
-///
-/// assert_eq!(classify_query(""), RouteKind::History);
-/// assert_eq!(classify_query(":reindex"), RouteKind::Settings);
-/// assert_eq!(classify_query("!github"), RouteKind::OnePassword);
-/// assert_eq!(classify_query("ssh myhost"), RouteKind::Ssh);
-/// assert_eq!(classify_query("firefox"), RouteKind::App);
-/// ```
 pub fn classify_query(query: &str) -> RouteKind {
     if query.is_empty() {
         return RouteKind::History;
-    }
-
-    if query.starts_with(':') {
-        return RouteKind::Settings;
     }
 
     if query.starts_with(' ') {
@@ -182,20 +164,5 @@ mod tests {
     #[test]
     fn text_with_numbers_routes_to_app() {
         assert_eq!(classify_query("libreoffice7"), RouteKind::App);
-    }
-
-    #[test]
-    fn colon_prefix_routes_to_settings() {
-        assert_eq!(classify_query(":reindex"), RouteKind::Settings);
-    }
-
-    #[test]
-    fn colon_alone_routes_to_settings() {
-        assert_eq!(classify_query(":"), RouteKind::Settings);
-    }
-
-    #[test]
-    fn colon_with_text_routes_to_settings() {
-        assert_eq!(classify_query(":config"), RouteKind::Settings);
     }
 }

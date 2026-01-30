@@ -164,44 +164,13 @@ test.describe("Launcher UI", () => {
     await expect(list).toBeVisible();
   });
 
-  test("space * prefix triggers vector content search", async ({ page }) => {
+  test("space * prefix shows vector search placeholder", async ({ page }) => {
     const input = page.locator(".search-input");
-    await input.fill(" *rust");
+    await input.fill(" *test");
     await page.waitForTimeout(200);
 
-    const items = page.locator(".result-item");
-    await expect(items.first()).toBeVisible();
     const resultName = page.locator(".result-name").first();
-    await expect(resultName).toContainText("rust-guide.md");
-  });
-
-  test("vector search results have Content badge", async ({ page }) => {
-    const input = page.locator(".search-input");
-    await input.fill(" *rust");
-    await page.waitForTimeout(200);
-
-    const badge = page.locator(".result-badge").first();
-    await expect(badge).toHaveText("Content");
-  });
-
-  test("vector search description shows score", async ({ page }) => {
-    const input = page.locator(".search-input");
-    await input.fill(" *rust");
-    await page.waitForTimeout(200);
-
-    const desc = page.locator(".result-desc").first();
-    await expect(desc).toContainText("%");
-  });
-
-  test("vector search with empty content returns no results", async ({
-    page,
-  }) => {
-    const input = page.locator(".search-input");
-    await input.fill(" *");
-    await page.waitForTimeout(200);
-
-    const items = page.locator(".result-item:not(.empty)");
-    await expect(items).toHaveCount(0);
+    await expect(resultName).toContainText("Content search not yet available");
   });
 
   // --- Result item structure ---
@@ -279,55 +248,6 @@ test.describe("Launcher UI", () => {
       expect(bg).toBe("rgb(41, 46, 66)");
     }
   });
-
-  // --- Settings prefix ---
-
-  test(": prefix shows all settings commands", async ({ page }) => {
-    const input = page.locator(".search-input");
-    await input.fill(":");
-    await page.waitForTimeout(200);
-
-    const items = page.locator(".result-item:not(.empty)");
-    await expect(items).toHaveCount(5);
-  });
-
-  test(":rei matches reindex", async ({ page }) => {
-    const input = page.locator(".search-input");
-    await input.fill(":rei");
-    await page.waitForTimeout(200);
-
-    const resultName = page.locator(".result-name").first();
-    await expect(resultName).toContainText(":reindex");
-  });
-
-  test(":config shows config action", async ({ page }) => {
-    const input = page.locator(".search-input");
-    await input.fill(":config");
-    await page.waitForTimeout(200);
-
-    const resultName = page.locator(".result-name").first();
-    await expect(resultName).toContainText(":config");
-  });
-
-  test("settings results have Action badge", async ({ page }) => {
-    const input = page.locator(".search-input");
-    await input.fill(":");
-    await page.waitForTimeout(200);
-
-    const badge = page.locator(".result-badge").first();
-    await expect(badge).toHaveText("Action");
-  });
-
-  test(":zzz returns no results", async ({ page }) => {
-    const input = page.locator(".search-input");
-    await input.fill(":zzz");
-    await page.waitForTimeout(200);
-
-    const empty = page.locator(".result-item.empty");
-    await expect(empty).toBeVisible();
-  });
-
-  // --- Styling ---
 
   test("badge has correct styling", async ({ page }) => {
     const input = page.locator(".search-input");

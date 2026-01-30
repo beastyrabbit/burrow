@@ -13,7 +13,6 @@ interface SearchResult {
 type MockHandler = (args: Record<string, unknown>) => unknown;
 
 const MATH_RE = /[+\-*/^%()]/;
-const SAFE_MATH_RE = /^[0-9+\-*/^%().\s]+$/;
 
 function mockSearch(args: Record<string, unknown>): SearchResult[] {
   const query = (args.query as string) || "";
@@ -39,48 +38,17 @@ function mockSearch(args: Record<string, unknown>): SearchResult[] {
     ];
   }
 
-  if (query.startsWith(":")) {
-    const cmd = query.slice(1).trim().toLowerCase();
-    const settings = [
-      { id: "reindex", name: ":reindex", description: "Reindex all files (full rebuild)" },
-      { id: "update", name: ":update", description: "Update index (incremental)" },
-      { id: "config", name: ":config", description: "Open config file" },
-      { id: "stats", name: ":stats", description: "Index statistics" },
-      { id: "progress", name: ":progress", description: "Show indexer progress" },
-    ];
-    return settings
-      .filter((s) => !cmd || s.id.includes(cmd) || s.name.includes(cmd) || s.description.toLowerCase().includes(cmd))
-      .map((s) => ({
-        id: s.id,
-        name: s.name,
-        description: s.description,
-        icon: "",
-        category: "action",
-        exec: "",
-      }));
-  }
-
   if (query.startsWith(" ")) {
     const q = query.trimStart();
     if (q.startsWith("*")) {
-      const contentQuery = q.slice(1).trim();
-      if (!contentQuery) return [];
       return [
         {
-          id: "/home/user/docs/rust-guide.md",
-          name: "rust-guide.md",
-          description: `87% — A guide to ${contentQuery}`,
+          id: "vector-placeholder",
+          name: "Content search not yet available",
+          description: "Ollama integration pending",
           icon: "",
-          category: "vector",
-          exec: "xdg-open /home/user/docs/rust-guide.md",
-        },
-        {
-          id: "/home/user/notes/setup.txt",
-          name: "setup.txt",
-          description: `62% — Notes about ${contentQuery}`,
-          icon: "",
-          category: "vector",
-          exec: "xdg-open /home/user/notes/setup.txt",
+          category: "info",
+          exec: "",
         },
       ];
     }
@@ -131,7 +99,6 @@ function mockSearch(args: Record<string, unknown>): SearchResult[] {
 
   // Math detection
   if (MATH_RE.test(query)) {
-    if (!SAFE_MATH_RE.test(query)) return [];
     try {
       // Simple math for mock purposes
       const result = Function(`"use strict"; return (${query})`)();
@@ -184,29 +151,10 @@ function mockSearch(args: Record<string, unknown>): SearchResult[] {
     }));
 }
 
-function mockRunSetting(args: Record<string, unknown>): string {
-  const action = args.action as string;
-  switch (action) {
-    case "reindex":
-      return "Reindexing started in background...";
-    case "update":
-      return "Incremental update started in background...";
-    case "config":
-      return "Opened ~/.config/burrow/config.toml";
-    case "stats":
-      return "Content indexed: 0 files | Apps tracked: 0 launches | Last indexed: never";
-    case "progress":
-      return "Idle | No indexing has run yet";
-    default:
-      throw new Error(`Unknown setting action: ${action}`);
-  }
-}
-
 const handlers: Record<string, MockHandler> = {
   search: mockSearch,
   record_launch: () => null,
   launch_app: () => null,
-  run_setting: mockRunSetting,
 };
 
 export async function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
