@@ -124,7 +124,7 @@ pub fn filter_hosts(hosts: Vec<SshHost>, query: &str) -> Vec<SearchResult> {
                 description: format!("{}{}", user_prefix, h.hostname),
                 icon: "".into(),
                 category: "ssh".into(),
-                exec: format!("kitty ssh {}{}", user_prefix, h.name),
+                exec: format!("kitty ssh '{}{}'", user_prefix, h.name.replace('\'', "'\\''")),
             }
         })
         .collect()
@@ -277,7 +277,7 @@ Host *
     fn result_exec_uses_kitty() {
         let hosts = parse_ssh_config_content(SAMPLE_CONFIG);
         let results = filter_hosts(hosts, "server1");
-        assert!(results[0].exec.starts_with("kitty ssh"));
+        assert!(results[0].exec.starts_with("kitty ssh '"));
     }
 
     #[test]

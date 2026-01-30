@@ -40,7 +40,10 @@ pub fn search_files(query: &str) -> Result<Vec<SearchResult>, String> {
         return Ok(vec![]);
     }
 
-    let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("/"));
+    let home = match dirs::home_dir() {
+        Some(h) => h,
+        None => return Ok(vec![]),
+    };
     let search_dirs = vec![
         home.join("Documents"),
         home.join("Downloads"),
