@@ -85,8 +85,8 @@ impl Default for IndexerConfig {
             interval_hours: 24,
             file_extensions: vec![
                 "txt", "md", "rs", "ts", "tsx", "js", "py", "toml", "yaml", "yml", "json", "sh",
-                "css", "html", "pdf", "docx", "xlsx", "xls", "pptx", "odt", "ods", "odp", "csv",
-                "rtf",
+                "css", "html", "pdf", "doc", "docx", "xlsx", "xls", "pptx", "odt", "ods", "odp",
+                "csv", "rtf",
             ]
             .into_iter()
             .map(String::from)
@@ -262,7 +262,8 @@ debounce_ms = 100
 
     #[test]
     fn load_nonexistent_returns_defaults() {
-        let cfg = load_config_from_path(&PathBuf::from("/tmp/nonexistent_burrow_test/config.toml"));
+        let tmp = tempfile::TempDir::new().unwrap();
+        let cfg = load_config_from_path(&tmp.path().join("burrow/config.toml"));
         assert_eq!(cfg.ollama.url, "http://localhost:11434");
     }
 
