@@ -47,8 +47,14 @@
 | `vector_search.enabled` | Enable content search | `true` |
 | `vector_search.top_k` | Max results | `10` |
 | `vector_search.min_score` | Min cosine similarity | `0.3` |
+| `vector_search.max_file_size_bytes` | Max file size to index | `1000000` |
+| `vector_search.index_dirs` | Directories to index | `~/Documents, ~/Projects, ~/Downloads` |
+| `indexer.interval_hours` | Re-index interval | `24` |
+| `indexer.file_extensions` | Indexed file types | `txt, md, rs, ts, tsx, js, py, toml, yaml, yml, json, sh, css, html, pdf, doc, docx, xlsx, xls, pptx, odt, ods, odp, csv, rtf` |
+| `indexer.max_content_chars` | Max chars per file | `4096` |
 | `history.max_results` | Frecent results shown | `10` |
 | `search.max_results` | Max search results | `10` |
+| `search.debounce_ms` | Input debounce | `80` |
 | `openrouter.api_key` | OpenRouter API key | `""` (empty) |
 | `openrouter.model` | Chat model | `google/gemini-2.5-flash-preview` |
 
@@ -75,6 +81,7 @@
 - `src-tauri/src/ollama.rs` — Ollama HTTP client, cosine similarity, embedding serialization
 - `src-tauri/src/commands/` — Backend providers (apps, history, math, ssh, onepass, files, vectors, chat, health, settings)
 - `src-tauri/src/chat.rs` — OpenRouter AI chat client, RAG prompt building
+- `src-tauri/src/text_extract.rs` — Document text extraction (PDF, DOC via external LibreOffice, DOCX, XLSX, ODS, etc.)
 - `src-tauri/src/router.rs` — Input classification and dispatch
 - `src/App.tsx` — Main UI component
 - `src/mock-tauri.ts` — Mock backend for browser-only testing
@@ -101,3 +108,19 @@
 - Pre-commit hooks run rustfmt — always run `cargo fmt` before staging, or stage after the first failed commit attempt
 - Health indicator checks only core services (Ollama, vector DB), not optional features (API key) to avoid false alarms
 - `e2e/launcher.spec.ts` and `e2e/edge-cases.spec.ts` have hardcoded settings count — update when adding new settings
+- Ollama server defaults to `localhost:11434` — existing user configs override all defaults
+- When new config keys are added, regenerate config (`rm ~/.config/burrow/config.toml`) or manually add new keys
+- When defaults change (values only), existing configs continue working with their current values
+- External tool extraction (e.g. LibreOffice for `.doc`) uses `spawn` + `wait-timeout` crate for timeout enforcement — never use blocking `Command::output()` for external processes that may hang
+- GitHub repo owner is `beastyrabbit` (not `beasty`)
+- CodeRabbit is incremental — it won't re-review already-reviewed commits. Post `@coderabbitai review` comment on PR to trigger review of latest push.
+
+## Reference Repos
+
+When a dependency's behavior is unclear or docs are insufficient, clone the repo into `examples/` for local analysis:
+
+```bash
+git clone --depth 1 https://github.com/org/repo.git examples/repo
+```
+
+`examples/` is gitignored. Clone what you need, delete when done.

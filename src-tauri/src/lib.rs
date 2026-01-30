@@ -1,3 +1,4 @@
+pub mod actions;
 pub(crate) mod chat;
 pub mod commands;
 pub mod config;
@@ -148,6 +149,7 @@ pub fn run() {
             commands::chat::chat_ask,
             commands::health::health_check,
             run_setting,
+            actions::execute_action,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

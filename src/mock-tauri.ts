@@ -239,6 +239,13 @@ function mockHealthCheck(): { ollama: boolean; vector_db: boolean; api_key: bool
   return { ollama: true, vector_db: true, api_key: true, issues: [] };
 }
 
+function mockExecuteAction(args: Record<string, unknown>): null {
+  const result = args.result as SearchResult;
+  const modifier = (args.modifier as string) || "none";
+  console.log(`[mock] execute_action: category=${result.category}, modifier=${modifier}`);
+  return null;
+}
+
 const handlers: Record<string, MockHandler> = {
   search: mockSearch,
   record_launch: () => null,
@@ -246,6 +253,7 @@ const handlers: Record<string, MockHandler> = {
   run_setting: mockRunSetting,
   chat_ask: mockChatAsk,
   health_check: mockHealthCheck,
+  execute_action: mockExecuteAction,
 };
 
 export async function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {

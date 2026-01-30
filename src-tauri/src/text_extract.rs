@@ -1,10 +1,10 @@
 use std::io::Read;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 /// Extract plain text from a file at the given path, truncated to `max_chars` characters.
 ///
 /// Supports plain text/code files (txt, md, rs, ts, js, py, etc.),
-/// PDF, DOCX, PPTX, XLSX/XLS/ODS, and ODF (odt, odp).
+/// PDF, DOCX, DOC (requires `libreoffice` on `$PATH`), PPTX, XLSX/XLS/ODS, and ODF (odt, odp).
 ///
 /// Returns `Err` if the format is unsupported or extraction fails.
 /// Returns `Ok("")` for valid documents that contain no text.
@@ -18,6 +18,7 @@ pub fn extract_text(path: &Path, max_chars: usize) -> Result<String, String> {
         "xlsx" | "xls" | "ods" => extract_spreadsheet(path, max_chars),
         "pptx" => extract_pptx(path, max_chars),
         "odt" | "odp" => extract_odf(path, max_chars),
+        "doc" => extract_doc_libreoffice(path, max_chars),
         _ => Err(format!("Unsupported format: {ext}")),
     }
 }
@@ -189,6 +190,80 @@ fn extract_spreadsheet(path: &Path, max_chars: usize) -> Result<String, String> 
     }
 
     Ok(result)
+}
+
+/// Derive the expected `.txt` output path for a `.doc` file converted by LibreOffice.
+fn doc_txt_path(path: &Path, out_dir: &Path) -> Result<PathBuf, String> {
+    let stem = path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .ok_or_else(|| format!("Cannot extract file stem from: {}", path.display()))?;
+    Ok(out_dir.join(format!("{stem}.txt")))
+}
+
+/// Convert a legacy `.doc` file to plain text using LibreOffice's headless mode.
+///
+/// Requires `libreoffice` to be available on `$PATH`. Returns `Err` if
+/// LibreOffice is not installed, conversion fails, or the process exceeds
+/// the 30-second timeout.
+fn extract_doc_libreoffice(path: &Path, max_chars: usize) -> Result<String, String> {
+    use std::time::Duration;
+    use wait_timeout::ChildExt;
+
+    const TIMEOUT_SECS: u64 = 30;
+
+    let tmp_dir = tempfile::tempdir().map_err(|e| e.to_string())?;
+    let mut child = std::process::Command::new("libreoffice")
+        .args([
+            "--headless",
+            "--nologo",
+            "--nodefault",
+            "--nofirststartwizard",
+            "--norestore",
+            "--nolockcheck",
+            "--convert-to",
+            "txt:Text",
+            "--outdir",
+        ])
+        .arg(tmp_dir.path())
+        .arg(path)
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("libreoffice not available: {e}"))?;
+
+    let status = match child.wait_timeout(Duration::from_secs(TIMEOUT_SECS)) {
+        Ok(Some(status)) => status,
+        Ok(None) => {
+            child.kill().ok();
+            child.wait().ok();
+            return Err(format!(
+                "libreoffice timed out after {TIMEOUT_SECS}s for {}",
+                path.display()
+            ));
+        }
+        Err(e) => {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(format!("libreoffice wait failed: {e}"));
+        }
+    };
+
+    if !status.success() {
+        let mut stderr = String::new();
+        if let Some(mut err) = child.stderr.take() {
+            err.read_to_string(&mut stderr).ok();
+        }
+        return Err(format!(
+            "libreoffice conversion failed for {}: {stderr}",
+            path.display()
+        ));
+    }
+
+    let txt_path = doc_txt_path(path, tmp_dir.path())?;
+    let content = std::fs::read_to_string(&txt_path)
+        .map_err(|e| format!("Failed to read converted file: {e}"))?;
+    Ok(content.chars().take(max_chars).collect())
 }
 
 /// Naive XML tag stripper that also decodes the five standard XML entities.
@@ -478,11 +553,36 @@ mod tests {
         assert_eq!(result, "Hello ODF");
     }
 
+    // --- doc_txt_path tests ---
+
+    #[test]
+    fn doc_txt_path_derives_correctly() {
+        let result = doc_txt_path(Path::new("/tmp/report.doc"), Path::new("/out")).unwrap();
+        assert_eq!(result, PathBuf::from("/out/report.txt"));
+    }
+
+    #[test]
+    fn doc_txt_path_dotfile_returns_ok() {
+        // Dotfile stems are preserved (".doc" -> ".doc.txt")
+        let result = doc_txt_path(Path::new("/tmp/.doc"), Path::new("/out"));
+        assert!(result.is_ok());
+    }
+
     // --- decode_xml_entities tests ---
 
     #[test]
     fn decode_all_standard_entities() {
         assert_eq!(decode_xml_entities("&amp;&lt;&gt;&quot;&apos;"), "&<>\"'");
+    }
+
+    #[test]
+    fn extract_doc_no_panic() {
+        let tmp = TempDir::new().unwrap();
+        let file = tmp.path().join("test.doc");
+        fs::write(&file, b"fake doc content").unwrap();
+        // Should not panic regardless of whether libreoffice is installed.
+        // If installed, libreoffice may convert or fail — both are valid outcomes.
+        let _ = extract_text(&file, 1000);
     }
 
     #[test]
