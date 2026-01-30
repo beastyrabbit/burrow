@@ -1,0 +1,103 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background: #1a1b26;
+  color: #c0caf5;
+  overflow: hidden;
+}
+
+.launcher {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  padding: 0;
+}
+
+.search-input {
+  width: 100%;
+  padding: 16px 20px;
+  font-size: 18px;
+  background: #24283b;
+  color: #c0caf5;
+  border: none;
+  border-bottom: 1px solid #3b4261;
+  outline: none;
+  font-family: inherit;
+}
+
+.search-input::placeholder {
+  color: #565f89;
+}
+
+.results-list {
+  list-style: none;
+  flex: 1;
+  overflow-y: auto;
+}
+
+.result-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 20px;
+  cursor: pointer;
+  border-left: 3px solid transparent;
+  transition: background 0.1s;
+}
+
+.result-item.selected {
+  background: #292e42;
+  border-left-color: #7aa2f7;
+}
+
+.result-item:hover {
+  background: #292e42;
+}
+
+.result-item.empty {
+  color: #565f89;
+  justify-content: center;
+  cursor: default;
+}
+
+.result-content {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.result-name {
+  font-size: 14px;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.result-desc {
+  font-size: 12px;
+  color: #565f89;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.result-badge {
+  font-size: 10px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: #3b4261;
+  color: #7aa2f7;
+  white-space: nowrap;
+  margin-left: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
