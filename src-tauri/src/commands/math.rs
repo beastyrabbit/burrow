@@ -81,10 +81,9 @@ mod tests {
 
     #[test]
     fn math_function_abs() {
-        // evalexpr doesn't have sqrt, but it has math_abs built-in via context
         let r = try_calculate("abs(-5)");
-        // abs is detected by our function detector
-        assert!(r.is_some() || r.is_none()); // may not be in default context
+        // abs is not available in evalexpr's default context
+        assert!(r.is_none());
     }
 
     #[test]

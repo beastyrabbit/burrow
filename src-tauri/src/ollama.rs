@@ -75,6 +75,10 @@ pub fn serialize_embedding(embedding: &[f32]) -> Vec<u8> {
 }
 
 pub fn deserialize_embedding(bytes: &[u8]) -> Vec<f32> {
+    if bytes.len() % 4 != 0 {
+        eprintln!("Invalid embedding blob length: {}", bytes.len());
+        return Vec::new();
+    }
     bytes
         .chunks_exact(4)
         .map(|chunk| f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]))

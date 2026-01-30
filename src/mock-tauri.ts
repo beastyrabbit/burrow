@@ -13,6 +13,7 @@ interface SearchResult {
 type MockHandler = (args: Record<string, unknown>) => unknown;
 
 const MATH_RE = /[+\-*/^%()]/;
+const SAFE_MATH_RE = /^[0-9+\-*/^%().\s]+$/;
 
 function mockSearch(args: Record<string, unknown>): SearchResult[] {
   const query = (args.query as string) || "";
@@ -130,6 +131,7 @@ function mockSearch(args: Record<string, unknown>): SearchResult[] {
 
   // Math detection
   if (MATH_RE.test(query)) {
+    if (!SAFE_MATH_RE.test(query)) return [];
     try {
       // Simple math for mock purposes
       const result = Function(`"use strict"; return (${query})`)();

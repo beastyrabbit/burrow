@@ -20,7 +20,10 @@ fn parse_ssh_config_content(content: &str) -> Vec<SshHost> {
             continue;
         }
 
-        if let Some(host) = line.strip_prefix("Host ").or_else(|| line.strip_prefix("Host\t")) {
+        if let Some(host) = line
+            .strip_prefix("Host ")
+            .or_else(|| line.strip_prefix("Host\t"))
+        {
             if !current_name.is_empty() && current_name != "*" {
                 hosts.push(SshHost {
                     name: current_name.clone(),

@@ -42,7 +42,9 @@ pub fn search_settings(query: &str) -> Result<Vec<SearchResult>, String> {
             if q.is_empty() {
                 return true;
             }
-            s.id.contains(&q) || s.name.contains(&q) || s.description.to_lowercase().contains(&q)
+            s.id.to_lowercase().contains(&q)
+                || s.name.to_lowercase().contains(&q)
+                || s.description.to_lowercase().contains(&q)
         })
         .map(|s| SearchResult {
             id: s.id.to_string(),

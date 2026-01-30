@@ -165,7 +165,8 @@ fn apply_env_overrides(mut cfg: AppConfig) -> AppConfig {
         cfg.ollama.embedding_model = model;
     }
     if let Ok(val) = std::env::var("BURROW_VECTOR_SEARCH_ENABLED") {
-        cfg.vector_search.enabled = val == "true" || val == "1";
+        let val = val.to_lowercase();
+        cfg.vector_search.enabled = matches!(val.as_str(), "true" | "1" | "yes" | "on");
     }
     cfg
 }
@@ -178,7 +179,9 @@ pub fn init_config() -> &'static AppConfig {
 }
 
 pub fn get_config() -> &'static AppConfig {
-    CONFIG.get().expect("Config not initialized. Call init_config() first.")
+    CONFIG
+        .get()
+        .expect("Config not initialized. Call init_config() first.")
 }
 
 #[cfg(test)]

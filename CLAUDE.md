@@ -61,8 +61,8 @@
 
 | Command | Purpose |
 |---------|---------|
-| `cd src-tauri && cargo test` | Run all Rust unit tests (130 tests) |
-| `npx playwright test` | Run all e2e tests (28 tests) |
+| `cd src-tauri && cargo test` | Run all Rust unit tests |
+| `npx playwright test` | Run all e2e tests |
 | `pnpm dev` | Start Vite dev server on :1420 (mock backend) |
 | `pnpm tauri dev` | Start full Tauri app (real backend) |
 | `pnpm build` | Build frontend for production |
@@ -93,4 +93,4 @@
 - Use `tempfile` crate for filesystem tests
 - Use in-memory SQLite (`Connection::open_in_memory()`) for DB tests
 - Config uses `OnceLock` for thread-safe singleton; tests use `parse_config()` directly
-- User's Ollama is at `192.168.10.120:11434` with `qwen3-embedding:8b` — set in config.toml
+- Configure your Ollama instance URL and embedding model in `~/.config/burrow/config.toml`

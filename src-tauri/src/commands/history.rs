@@ -125,8 +125,15 @@ mod tests {
     #[test]
     fn insert_and_query() {
         let conn = test_db();
-        insert_launch(&conn, "firefox", "Firefox", "firefox", "firefox-icon", "Web Browser")
-            .unwrap();
+        insert_launch(
+            &conn,
+            "firefox",
+            "Firefox",
+            "firefox",
+            "firefox-icon",
+            "Web Browser",
+        )
+        .unwrap();
         let results = query_frecent(&conn).unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].id, "firefox");
@@ -151,8 +158,14 @@ mod tests {
     #[test]
     fn upsert_updates_metadata() {
         let conn = test_db();
-        insert_launch(&conn, "app1", "Old Name", "old-exec", "old-icon", "old desc").unwrap();
-        insert_launch(&conn, "app1", "New Name", "new-exec", "new-icon", "new desc").unwrap();
+        insert_launch(
+            &conn, "app1", "Old Name", "old-exec", "old-icon", "old desc",
+        )
+        .unwrap();
+        insert_launch(
+            &conn, "app1", "New Name", "new-exec", "new-icon", "new desc",
+        )
+        .unwrap();
 
         let results = query_frecent(&conn).unwrap();
         assert_eq!(results[0].name, "New Name");
@@ -193,8 +206,15 @@ mod tests {
     fn limit_to_10_results() {
         let conn = test_db();
         for i in 0..20 {
-            insert_launch(&conn, &format!("app{i}"), &format!("App {i}"), "exec", "", "")
-                .unwrap();
+            insert_launch(
+                &conn,
+                &format!("app{i}"),
+                &format!("App {i}"),
+                "exec",
+                "",
+                "",
+            )
+            .unwrap();
         }
         let results = query_frecent(&conn).unwrap();
         assert_eq!(results.len(), 10);
