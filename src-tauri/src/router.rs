@@ -1,4 +1,4 @@
-use crate::commands::{apps, files, history, math, onepass, ssh, vectors};
+use crate::commands::{apps, files, history, math, onepass, settings, ssh, vectors};
 use serde::Serialize;
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -21,11 +21,16 @@ pub enum RouteKind {
     OnePassword,
     Ssh,
     Math,
+    Settings,
 }
 
 pub fn classify_query(query: &str) -> RouteKind {
     if query.is_empty() {
         return RouteKind::History;
+    }
+
+    if query.starts_with(':') {
+        return RouteKind::Settings;
     }
 
     if query.starts_with(' ') {
@@ -164,5 +169,20 @@ mod tests {
     #[test]
     fn text_with_numbers_routes_to_app() {
         assert_eq!(classify_query("libreoffice7"), RouteKind::App);
+    }
+
+    #[test]
+    fn colon_prefix_routes_to_settings() {
+        assert_eq!(classify_query(":reindex"), RouteKind::Settings);
+    }
+
+    #[test]
+    fn colon_alone_routes_to_settings() {
+        assert_eq!(classify_query(":"), RouteKind::Settings);
+    }
+
+    #[test]
+    fn colon_with_text_routes_to_settings() {
+        assert_eq!(classify_query(":config"), RouteKind::Settings);
     }
 }

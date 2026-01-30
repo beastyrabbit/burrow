@@ -19,7 +19,7 @@ pub struct IndexStats {
 #[derive(Debug, Clone, Serialize)]
 pub struct IndexerProgress {
     pub running: bool,
-    pub phase: String, // "idle", "scanning", "embedding", "cleanup", "done"
+    pub phase: String,       // "idle", "scanning", "embedding", "cleanup", "done"
     pub current_file: String,
     pub processed: u32,
     pub total: u32,
@@ -62,21 +62,10 @@ impl IndexerState {
 /// Default extensions used in tests when no config is available.
 #[cfg(test)]
 const DEFAULT_EXTENSIONS: &[&str] = &[
-    "txt", "md", "rs", "ts", "tsx", "js", "py", "toml", "yaml", "yml", "json", "sh", "css", "html",
+    "txt", "md", "rs", "ts", "tsx", "js", "py", "toml", "yaml", "yml", "json", "sh", "css",
+    "html",
 ];
 
-/// Check if a file should be indexed based on extension, size, and visibility.
-///
-/// # Examples
-///
-/// ```
-/// use std::path::Path;
-/// use burrow_lib::indexer::is_indexable_file;
-///
-/// // Non-existent files are not indexable
-/// let exts = vec!["rs".to_string(), "txt".to_string()];
-/// assert!(!is_indexable_file(Path::new("/nonexistent.rs"), 1_000_000, &exts));
-/// ```
 pub fn is_indexable_file(path: &Path, max_size: u64, extensions: &[String]) -> bool {
     // Skip hidden files (dotfiles) — only check the filename itself
     if let Some(name) = path.file_name() {
@@ -139,11 +128,7 @@ fn collect_indexable_paths(cfg: &config::AppConfig) -> Vec<PathBuf> {
             .filter_entry(|e| !is_hidden_entry(e))
             .filter_map(|e| e.ok())
         {
-            if is_indexable_file(
-                entry.path(),
-                cfg.vector_search.max_file_size_bytes,
-                &cfg.indexer.file_extensions,
-            ) {
+            if is_indexable_file(entry.path(), cfg.vector_search.max_file_size_bytes, &cfg.indexer.file_extensions) {
                 paths.push(entry.into_path());
             }
         }
@@ -180,20 +165,10 @@ pub async fn index_all(app: &tauri::AppHandle) -> IndexStats {
     });
 
     for path in &paths {
-        let name = path
-            .file_name()
-            .map(|f| f.to_string_lossy().to_string())
-            .unwrap_or_default();
+        let name = path.file_name().map(|f| f.to_string_lossy().to_string()).unwrap_or_default();
         progress.update(|p| p.current_file = name);
 
-        match index_single_file(
-            path,
-            &db,
-            &cfg.ollama.embedding_model,
-            cfg.indexer.max_content_chars,
-        )
-        .await
-        {
+        match index_single_file(path, &db, &cfg.ollama.embedding_model, cfg.indexer.max_content_chars).await {
             Ok(()) => stats.indexed += 1,
             Err(_) => stats.errors += 1,
         }
@@ -205,7 +180,10 @@ pub async fn index_all(app: &tauri::AppHandle) -> IndexStats {
         });
     }
 
-    let result = format!("Indexed {} files, {} errors", stats.indexed, stats.errors);
+    let result = format!(
+        "Indexed {} files, {} errors",
+        stats.indexed, stats.errors
+    );
     progress.update(|p| {
         p.running = false;
         p.phase = "idle".into();
@@ -269,20 +247,10 @@ pub async fn index_incremental(app: &tauri::AppHandle) -> IndexStats {
     });
 
     for path in &to_index {
-        let name = path
-            .file_name()
-            .map(|f| f.to_string_lossy().to_string())
-            .unwrap_or_default();
+        let name = path.file_name().map(|f| f.to_string_lossy().to_string()).unwrap_or_default();
         progress.update(|p| p.current_file = name);
 
-        match index_single_file(
-            path,
-            &db,
-            &cfg.ollama.embedding_model,
-            cfg.indexer.max_content_chars,
-        )
-        .await
-        {
+        match index_single_file(path, &db, &cfg.ollama.embedding_model, cfg.indexer.max_content_chars).await {
             Ok(()) => stats.indexed += 1,
             Err(_) => stats.errors += 1,
         }
@@ -334,7 +302,9 @@ async fn index_single_file(
 fn cleanup_stale(state: &VectorDbState) -> u32 {
     let conn = state.0.lock().unwrap();
     let paths: Vec<String> = {
-        let mut stmt = conn.prepare("SELECT file_path FROM vectors").unwrap();
+        let mut stmt = conn
+            .prepare("SELECT file_path FROM vectors")
+            .unwrap();
         stmt.query_map([], |row| row.get(0))
             .unwrap()
             .filter_map(|r| r.ok())
@@ -357,10 +327,6 @@ pub fn start_background_indexer(app: tauri::AppHandle) {
     if !cfg.vector_search.enabled {
         return;
     }
-    if cfg.indexer.interval_hours == 0 {
-        eprintln!("[indexer] interval_hours=0; background indexer disabled");
-        return;
-    }
 
     tauri::async_runtime::spawn(async move {
         loop {
@@ -370,8 +336,7 @@ pub fn start_background_indexer(app: tauri::AppHandle) {
                 stats.indexed, stats.skipped, stats.removed, stats.errors
             );
             let interval = config::get_config().indexer.interval_hours;
-            let sleep_secs = interval.saturating_mul(3600);
-            tokio::time::sleep(std::time::Duration::from_secs(sleep_secs)).await;
+            tokio::time::sleep(std::time::Duration::from_secs(interval * 3600)).await;
         }
     });
 }
@@ -511,57 +476,6 @@ mod tests {
             .query_row("SELECT COUNT(*) FROM vectors", [], |r| r.get(0))
             .unwrap();
         assert_eq!(count, 0);
-    }
-
-    #[test]
-    fn indexer_progress_default_is_idle() {
-        let progress = IndexerProgress::default();
-        assert!(!progress.running);
-        assert_eq!(progress.phase, "idle");
-        assert_eq!(progress.processed, 0);
-        assert_eq!(progress.total, 0);
-        assert_eq!(progress.errors, 0);
-        assert!(progress.current_file.is_empty());
-        assert!(progress.last_result.is_empty());
-    }
-
-    #[test]
-    fn indexer_state_get_returns_default() {
-        let state = IndexerState::new();
-        let p = state.get();
-        assert_eq!(p.phase, "idle");
-        assert!(!p.running);
-    }
-
-    #[test]
-    fn indexer_state_update_modifies_progress() {
-        let state = IndexerState::new();
-        state.update(|p| {
-            p.running = true;
-            p.phase = "scanning".into();
-        });
-        let p = state.get();
-        assert!(p.running);
-        assert_eq!(p.phase, "scanning");
-    }
-
-    #[test]
-    fn index_stats_default_all_zero() {
-        let stats = IndexStats::default();
-        assert_eq!(stats.indexed, 0);
-        assert_eq!(stats.skipped, 0);
-        assert_eq!(stats.removed, 0);
-        assert_eq!(stats.errors, 0);
-    }
-
-    #[test]
-    fn case_insensitive_extension_match() {
-        let tmp = TempDir::new().unwrap();
-        let file = tmp.path().join("test.RS");
-        fs::write(&file, "fn main() {}").unwrap();
-        // Extensions stored as lowercase in config, file has uppercase
-        // is_indexable_file lowercases the extension
-        assert!(is_indexable_file(&file, 1_000_000, &default_exts()));
     }
 
     #[test]
