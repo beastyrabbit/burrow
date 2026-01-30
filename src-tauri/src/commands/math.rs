@@ -16,18 +16,24 @@ pub fn try_calculate(input: &str) -> Option<SearchResult> {
         return None;
     }
 
-    // evalexpr is a sandboxed math expression library (no code execution)
-    match evalexpr::build_operator_tree::<evalexpr::DefaultNumericTypes>(trimmed)
-        .and_then(|tree| tree.eval_with_context_mut(&mut evalexpr::HashMapContext::new()))
-    {
-        Ok(value) => Some(SearchResult {
-            id: "math-result".into(),
-            name: format!("= {value}"),
-            description: format!("{trimmed} = {value}"),
-            icon: "".into(),
-            category: "math".into(),
-            exec: "".into(),
-        }),
+    // mexe is a sandboxed math-only expression library (no code execution, MIT licensed)
+    match mexe::eval(trimmed) {
+        Ok(value) => {
+            // Display integers without decimal point
+            let display = if value.fract() == 0.0 && value.abs() < i64::MAX as f64 {
+                format!("{}", value as i64)
+            } else {
+                format!("{value}")
+            };
+            Some(SearchResult {
+                id: "math-result".into(),
+                name: format!("= {display}"),
+                description: format!("{trimmed} = {display}"),
+                icon: "".into(),
+                category: "math".into(),
+                exec: "".into(),
+            })
+        }
         Err(_) => None,
     }
 }
@@ -56,9 +62,9 @@ mod tests {
     }
 
     #[test]
-    fn exponent() {
-        let r = try_calculate("2^10").unwrap();
-        assert_eq!(r.name, "= 1024");
+    fn exponent_not_supported() {
+        // mexe doesn't support ^; returns None
+        assert!(try_calculate("2^10").is_none());
     }
 
     #[test]
@@ -74,9 +80,9 @@ mod tests {
     }
 
     #[test]
-    fn modulo() {
-        let r = try_calculate("17 % 5").unwrap();
-        assert_eq!(r.name, "= 2");
+    fn modulo_not_supported() {
+        // mexe doesn't support %; returns None
+        assert!(try_calculate("17 % 5").is_none());
     }
 
     #[test]
