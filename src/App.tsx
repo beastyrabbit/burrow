@@ -92,6 +92,7 @@ function App() {
       ssh: "SSH",
       onepass: "1Pass",
       math: "Calc",
+      vector: "Content",
       info: "Info",
     };
     return labels[cat] || cat;

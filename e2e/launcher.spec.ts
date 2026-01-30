@@ -164,13 +164,44 @@ test.describe("Launcher UI", () => {
     await expect(list).toBeVisible();
   });
 
-  test("space * prefix shows vector search placeholder", async ({ page }) => {
+  test("space * prefix triggers vector content search", async ({ page }) => {
     const input = page.locator(".search-input");
-    await input.fill(" *test");
+    await input.fill(" *rust");
     await page.waitForTimeout(200);
 
+    const items = page.locator(".result-item");
+    await expect(items.first()).toBeVisible();
     const resultName = page.locator(".result-name").first();
-    await expect(resultName).toContainText("Content search not yet available");
+    await expect(resultName).toContainText("rust-guide.md");
+  });
+
+  test("vector search results have Content badge", async ({ page }) => {
+    const input = page.locator(".search-input");
+    await input.fill(" *rust");
+    await page.waitForTimeout(200);
+
+    const badge = page.locator(".result-badge").first();
+    await expect(badge).toHaveText("Content");
+  });
+
+  test("vector search description shows score", async ({ page }) => {
+    const input = page.locator(".search-input");
+    await input.fill(" *rust");
+    await page.waitForTimeout(200);
+
+    const desc = page.locator(".result-desc").first();
+    await expect(desc).toContainText("%");
+  });
+
+  test("vector search with empty content returns no results", async ({
+    page,
+  }) => {
+    const input = page.locator(".search-input");
+    await input.fill(" *");
+    await page.waitForTimeout(200);
+
+    const items = page.locator(".result-item:not(.empty)");
+    await expect(items).toHaveCount(0);
   });
 
   // --- Result item structure ---

@@ -1,4 +1,4 @@
-use crate::commands::{apps, files, history, math, onepass, ssh};
+use crate::commands::{apps, files, history, math, onepass, ssh, vectors};
 use serde::Serialize;
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -60,14 +60,8 @@ pub async fn search(query: String, app: tauri::AppHandle) -> Result<Vec<SearchRe
     if query.starts_with(' ') {
         let q = query.trim_start();
         if q.starts_with('*') {
-            return Ok(vec![SearchResult {
-                id: "vector-placeholder".into(),
-                name: "Content search not yet available".into(),
-                description: "Ollama integration pending".into(),
-                icon: "".into(),
-                category: "info".into(),
-                exec: "".into(),
-            }]);
+            let content_query = q.trim_start_matches('*').trim();
+            return vectors::search_by_content(content_query, &app).await;
         }
         return files::search_files(q);
     }
