@@ -122,16 +122,47 @@ impl Default for SearchConfig {
     }
 }
 
+/// Returns the burrow configuration directory.
+///
+/// # Examples
+///
+/// ```
+/// use burrow_lib::config::config_dir;
+///
+/// let dir = config_dir();
+/// assert!(dir.ends_with("burrow"));
+/// ```
 pub fn config_dir() -> PathBuf {
     dirs::config_dir()
         .unwrap_or_else(|| PathBuf::from("~/.config"))
         .join("burrow")
 }
 
+/// Returns the path to the burrow config file.
+///
+/// # Examples
+///
+/// ```
+/// use burrow_lib::config::config_path;
+///
+/// let path = config_path();
+/// assert_eq!(path.extension().unwrap(), "toml");
+/// assert!(path.ends_with("config.toml"));
+/// ```
 pub fn config_path() -> PathBuf {
     config_dir().join("config.toml")
 }
 
+/// Load the application config from disk, creating defaults if absent.
+///
+/// # Examples
+///
+/// ```
+/// use burrow_lib::config::load_config;
+///
+/// let cfg = load_config();
+/// assert_eq!(cfg.ollama.url, "http://localhost:11434");
+/// ```
 pub fn load_config() -> AppConfig {
     load_config_from_path(&config_path())
 }

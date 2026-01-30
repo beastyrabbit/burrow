@@ -24,6 +24,19 @@ pub enum RouteKind {
     Settings,
 }
 
+/// Classify a query string into the appropriate provider route.
+///
+/// # Examples
+///
+/// ```
+/// use burrow_lib::router::{classify_query, RouteKind};
+///
+/// assert_eq!(classify_query(""), RouteKind::History);
+/// assert_eq!(classify_query(":reindex"), RouteKind::Settings);
+/// assert_eq!(classify_query("!github"), RouteKind::OnePassword);
+/// assert_eq!(classify_query("ssh myhost"), RouteKind::Ssh);
+/// assert_eq!(classify_query("firefox"), RouteKind::App);
+/// ```
 pub fn classify_query(query: &str) -> RouteKind {
     if query.is_empty() {
         return RouteKind::History;

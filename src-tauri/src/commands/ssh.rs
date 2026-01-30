@@ -2,13 +2,24 @@ use crate::router::SearchResult;
 use std::fs;
 
 #[derive(Debug, Clone, PartialEq)]
-struct SshHost {
-    name: String,
-    hostname: String,
-    user: String,
+pub struct SshHost {
+    pub name: String,
+    pub hostname: String,
+    pub user: String,
 }
 
-fn parse_ssh_config_content(content: &str) -> Vec<SshHost> {
+/// Parse SSH config content into a list of hosts.
+///
+/// # Examples
+///
+/// ```
+/// use burrow_lib::commands::ssh::parse_ssh_config_content;
+///
+/// let hosts = parse_ssh_config_content("Host myserver\n    HostName 10.0.0.1\n    User root\n");
+/// assert_eq!(hosts.len(), 1);
+/// assert_eq!(hosts[0].name, "myserver");
+/// ```
+pub fn parse_ssh_config_content(content: &str) -> Vec<SshHost> {
     let mut hosts = Vec::new();
     let mut current_name = String::new();
     let mut current_hostname = String::new();
@@ -78,7 +89,19 @@ fn parse_ssh_config() -> Vec<SshHost> {
     }
 }
 
-fn filter_hosts(hosts: Vec<SshHost>, query: &str) -> Vec<SearchResult> {
+/// Filter SSH hosts by query and convert to SearchResults.
+///
+/// # Examples
+///
+/// ```
+/// use burrow_lib::commands::ssh::{parse_ssh_config_content, filter_hosts};
+///
+/// let hosts = parse_ssh_config_content("Host dev\n    HostName 10.0.0.1\n");
+/// let results = filter_hosts(hosts, "dev");
+/// assert_eq!(results.len(), 1);
+/// assert_eq!(results[0].category, "ssh");
+/// ```
+pub fn filter_hosts(hosts: Vec<SshHost>, query: &str) -> Vec<SearchResult> {
     let query_lower = query.to_lowercase();
 
     hosts

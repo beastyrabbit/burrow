@@ -34,6 +34,20 @@ const SETTINGS: &[SettingDef] = &[
     },
 ];
 
+/// Search settings actions by query. Empty query returns all actions.
+///
+/// # Examples
+///
+/// ```
+/// use burrow_lib::commands::settings::search_settings;
+///
+/// let all = search_settings("").unwrap();
+/// assert_eq!(all.len(), 5);
+///
+/// let filtered = search_settings("config").unwrap();
+/// assert_eq!(filtered.len(), 1);
+/// assert_eq!(filtered[0].id, "config");
+/// ```
 pub fn search_settings(query: &str) -> Result<Vec<SearchResult>, String> {
     let q = query.to_lowercase();
     let results: Vec<SearchResult> = SETTINGS
@@ -115,5 +129,26 @@ mod tests {
         let results = search_settings("incremental").unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].id, "update");
+    }
+
+    #[test]
+    fn case_insensitive_search() {
+        let results = search_settings("REINDEX").unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].id, "reindex");
+    }
+
+    #[test]
+    fn partial_match_re() {
+        let results = search_settings("re").unwrap();
+        assert!(results.iter().any(|r| r.id == "reindex"));
+    }
+
+    #[test]
+    fn all_results_have_empty_exec() {
+        let results = search_settings("").unwrap();
+        for r in &results {
+            assert!(r.exec.is_empty());
+        }
     }
 }

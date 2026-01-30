@@ -65,6 +65,18 @@ const DEFAULT_EXTENSIONS: &[&str] = &[
     "txt", "md", "rs", "ts", "tsx", "js", "py", "toml", "yaml", "yml", "json", "sh", "css", "html",
 ];
 
+/// Check if a file should be indexed based on extension, size, and visibility.
+///
+/// # Examples
+///
+/// ```
+/// use std::path::Path;
+/// use burrow_lib::indexer::is_indexable_file;
+///
+/// // Non-existent files are not indexable
+/// let exts = vec!["rs".to_string(), "txt".to_string()];
+/// assert!(!is_indexable_file(Path::new("/nonexistent.rs"), 1_000_000, &exts));
+/// ```
 pub fn is_indexable_file(path: &Path, max_size: u64, extensions: &[String]) -> bool {
     // Skip hidden files (dotfiles) — only check the filename itself
     if let Some(name) = path.file_name() {
@@ -499,6 +511,57 @@ mod tests {
             .query_row("SELECT COUNT(*) FROM vectors", [], |r| r.get(0))
             .unwrap();
         assert_eq!(count, 0);
+    }
+
+    #[test]
+    fn indexer_progress_default_is_idle() {
+        let progress = IndexerProgress::default();
+        assert!(!progress.running);
+        assert_eq!(progress.phase, "idle");
+        assert_eq!(progress.processed, 0);
+        assert_eq!(progress.total, 0);
+        assert_eq!(progress.errors, 0);
+        assert!(progress.current_file.is_empty());
+        assert!(progress.last_result.is_empty());
+    }
+
+    #[test]
+    fn indexer_state_get_returns_default() {
+        let state = IndexerState::new();
+        let p = state.get();
+        assert_eq!(p.phase, "idle");
+        assert!(!p.running);
+    }
+
+    #[test]
+    fn indexer_state_update_modifies_progress() {
+        let state = IndexerState::new();
+        state.update(|p| {
+            p.running = true;
+            p.phase = "scanning".into();
+        });
+        let p = state.get();
+        assert!(p.running);
+        assert_eq!(p.phase, "scanning");
+    }
+
+    #[test]
+    fn index_stats_default_all_zero() {
+        let stats = IndexStats::default();
+        assert_eq!(stats.indexed, 0);
+        assert_eq!(stats.skipped, 0);
+        assert_eq!(stats.removed, 0);
+        assert_eq!(stats.errors, 0);
+    }
+
+    #[test]
+    fn case_insensitive_extension_match() {
+        let tmp = TempDir::new().unwrap();
+        let file = tmp.path().join("test.RS");
+        fs::write(&file, "fn main() {}").unwrap();
+        // Extensions stored as lowercase in config, file has uppercase
+        // is_indexable_file lowercases the extension
+        assert!(is_indexable_file(&file, 1_000_000, &default_exts()));
     }
 
     #[test]

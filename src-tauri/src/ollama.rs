@@ -50,6 +50,23 @@ pub async fn generate_embedding(text: &str) -> Result<Vec<f32>, String> {
         .ok_or_else(|| "Ollama returned no embeddings".to_string())
 }
 
+/// Compute cosine similarity between two vectors.
+///
+/// Returns 0.0 for empty, mismatched-length, or zero-magnitude vectors.
+///
+/// # Examples
+///
+/// ```
+/// use burrow_lib::ollama::cosine_similarity;
+///
+/// let a = vec![1.0, 0.0, 0.0];
+/// let sim = cosine_similarity(&a, &a);
+/// assert!((sim - 1.0).abs() < 1e-6);
+///
+/// // Orthogonal vectors
+/// let b = vec![0.0, 1.0, 0.0];
+/// assert!(cosine_similarity(&a, &b).abs() < 1e-6);
+/// ```
 pub fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
     if a.len() != b.len() || a.is_empty() {
         return 0.0;
@@ -70,10 +87,40 @@ pub fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
     }
 }
 
+/// Serialize a float embedding to little-endian bytes.
+///
+/// # Examples
+///
+/// ```
+/// use burrow_lib::ollama::{serialize_embedding, deserialize_embedding};
+///
+/// let emb = vec![1.0f32, 2.5, -3.0];
+/// let bytes = serialize_embedding(&emb);
+/// assert_eq!(bytes.len(), 12); // 3 floats × 4 bytes
+/// let recovered = deserialize_embedding(&bytes);
+/// assert_eq!(emb, recovered);
+/// ```
 pub fn serialize_embedding(embedding: &[f32]) -> Vec<u8> {
     embedding.iter().flat_map(|f| f.to_le_bytes()).collect()
 }
 
+/// Deserialize little-endian bytes back to a float embedding.
+///
+/// Returns an empty vec if the byte length is not a multiple of 4.
+///
+/// # Examples
+///
+/// ```
+/// use burrow_lib::ollama::deserialize_embedding;
+///
+/// let bytes = vec![0u8; 8]; // 2 floats of 0.0
+/// let emb = deserialize_embedding(&bytes);
+/// assert_eq!(emb, vec![0.0f32, 0.0]);
+///
+/// // Invalid length returns empty
+/// let bad = vec![0u8; 5];
+/// assert!(deserialize_embedding(&bad).is_empty());
+/// ```
 pub fn deserialize_embedding(bytes: &[u8]) -> Vec<f32> {
     if bytes.len() % 4 != 0 {
         eprintln!("Invalid embedding blob length: {}", bytes.len());
@@ -183,5 +230,19 @@ mod tests {
         let recovered = deserialize_embedding(&bytes);
         assert_eq!(original.len(), recovered.len());
         assert_eq!(original, recovered);
+    }
+
+    #[test]
+    fn deserialize_corrupted_blob() {
+        // 5 bytes is not a multiple of 4
+        let bad = vec![0u8; 5];
+        let result = deserialize_embedding(&bad);
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn deserialize_3_bytes_returns_empty() {
+        let bad = vec![1u8, 2, 3];
+        assert!(deserialize_embedding(&bad).is_empty());
     }
 }
