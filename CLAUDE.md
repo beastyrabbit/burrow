@@ -48,7 +48,7 @@
 - Add Rust unit tests for any new backend logic (commands, parsing, search)
 - Add Playwright e2e tests for any new UI behavior
 - If a new provider is added, add tests for: empty query, matching query, no-match query, edge cases
-- Playwright e2e tests require `pnpm tauri dev` running (real backend via HTTP bridge on :3001)
+- Playwright e2e tests start `pnpm tauri dev` automatically via `playwright.config.ts` webServer config (or you can run it manually)
 
 ## Configuration
 
@@ -91,7 +91,7 @@
 | Command | Purpose |
 |---------|---------|
 | `cd src-tauri && cargo test` | Run all Rust unit tests (254+ tests) |
-| `npx playwright test` | Run all e2e tests (requires Tauri dev server) |
+| `npx playwright test` | Run all e2e tests (starts `pnpm tauri dev` if needed) |
 | `pnpm dev` | Start Vite dev server on :1420 (needs HTTP bridge on :3001) |
 | `pnpm tauri dev` | Start full Tauri app (real backend) |
 | `pnpm build` | Build frontend for production |
