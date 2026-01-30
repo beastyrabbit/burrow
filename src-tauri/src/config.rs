@@ -9,6 +9,7 @@ static CONFIG: OnceLock<AppConfig> = OnceLock::new();
 pub struct AppConfig {
     pub ollama: OllamaConfig,
     pub vector_search: VectorSearchConfig,
+    pub indexer: IndexerConfig,
     pub history: HistoryConfig,
     pub search: SearchConfig,
 }
@@ -33,6 +34,14 @@ pub struct VectorSearchConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
+pub struct IndexerConfig {
+    pub interval_hours: u64,
+    pub file_extensions: Vec<String>,
+    pub max_content_chars: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct HistoryConfig {
     pub max_results: usize,
 }
@@ -49,6 +58,7 @@ impl Default for AppConfig {
         Self {
             ollama: OllamaConfig::default(),
             vector_search: VectorSearchConfig::default(),
+            indexer: IndexerConfig::default(),
             history: HistoryConfig::default(),
             search: SearchConfig::default(),
         }
@@ -77,6 +87,22 @@ impl Default for VectorSearchConfig {
                 "~/Projects".into(),
                 "~/Downloads".into(),
             ],
+        }
+    }
+}
+
+impl Default for IndexerConfig {
+    fn default() -> Self {
+        Self {
+            interval_hours: 24,
+            file_extensions: vec![
+                "txt", "md", "rs", "ts", "tsx", "js", "py", "toml", "yaml", "yml", "json", "sh",
+                "css", "html",
+            ]
+            .into_iter()
+            .map(String::from)
+            .collect(),
+            max_content_chars: 4096,
         }
     }
 }
@@ -303,5 +329,43 @@ debounce_ms = 100
     fn default_index_dirs_has_entries() {
         let cfg = AppConfig::default();
         assert!(!cfg.vector_search.index_dirs.is_empty());
+    }
+
+    #[test]
+    fn default_indexer_config() {
+        let cfg = AppConfig::default();
+        assert_eq!(cfg.indexer.interval_hours, 24);
+        assert_eq!(cfg.indexer.max_content_chars, 4096);
+        assert!(cfg.indexer.file_extensions.contains(&"rs".to_string()));
+        assert!(cfg.indexer.file_extensions.contains(&"md".to_string()));
+        assert!(cfg.indexer.file_extensions.len() >= 10);
+    }
+
+    #[test]
+    fn parse_indexer_config() {
+        let cfg = parse_config(
+            r#"
+[indexer]
+interval_hours = 12
+file_extensions = ["rs", "py"]
+max_content_chars = 2048
+"#,
+        );
+        assert_eq!(cfg.indexer.interval_hours, 12);
+        assert_eq!(cfg.indexer.file_extensions, vec!["rs", "py"]);
+        assert_eq!(cfg.indexer.max_content_chars, 2048);
+    }
+
+    #[test]
+    fn partial_indexer_config_fills_defaults() {
+        let cfg = parse_config(
+            r#"
+[indexer]
+interval_hours = 6
+"#,
+        );
+        assert_eq!(cfg.indexer.interval_hours, 6);
+        assert_eq!(cfg.indexer.max_content_chars, 4096); // default
+        assert!(!cfg.indexer.file_extensions.is_empty()); // default
     }
 }

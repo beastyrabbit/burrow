@@ -15,6 +15,7 @@ function App() {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<SearchResult[]>([]);
   const [selectedIndex, setSelectedIndex] = useState(0);
+  const [notification, setNotification] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
 
   const doSearch = useCallback(async (q: string) => {
@@ -43,6 +44,20 @@ function App() {
     if (!item) return;
 
     if (item.category === "math" || item.category === "info") return;
+
+    if (item.category === "action") {
+      try {
+        setNotification("Running...");
+        const msg = await invoke<string>("run_setting", { action: item.id });
+        setNotification(msg);
+        setTimeout(() => setNotification(""), 4000);
+      } catch (e) {
+        const errMsg = e instanceof Error ? e.message : String(e);
+        setNotification(`Error: ${errMsg}`);
+        setTimeout(() => setNotification(""), 4000);
+      }
+      return;
+    }
 
     try {
       await invoke("record_launch", {
@@ -94,6 +109,7 @@ function App() {
       math: "Calc",
       vector: "Content",
       info: "Info",
+      action: "Action",
     };
     return labels[cat] || cat;
   };
@@ -110,6 +126,9 @@ function App() {
         autoFocus
         spellCheck={false}
       />
+      {notification && (
+        <div className="notification">{notification}</div>
+      )}
       <ul className="results-list">
         {results.map((item, i) => (
           <li

@@ -3,5 +3,6 @@ pub mod files;
 pub mod history;
 pub mod math;
 pub mod onepass;
+pub mod settings;
 pub mod ssh;
 pub mod vectors;
