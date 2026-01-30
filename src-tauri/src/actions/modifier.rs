@@ -15,12 +15,16 @@ pub fn from_flags(shift: bool, ctrl: bool, alt: bool, altgr: bool) -> Modifier {
     if altgr {
         return Modifier::Altgr;
     }
-    match (shift, ctrl, alt) {
-        (true, true, _) => Modifier::ShiftCtrl,
-        (true, false, false) => Modifier::Shift,
-        (false, true, false) => Modifier::Ctrl,
-        (false, false, true) => Modifier::Alt,
-        _ => Modifier::None,
+    if shift && ctrl {
+        Modifier::ShiftCtrl
+    } else if shift {
+        Modifier::Shift
+    } else if ctrl {
+        Modifier::Ctrl
+    } else if alt {
+        Modifier::Alt
+    } else {
+        Modifier::None
     }
 }
 
@@ -74,5 +78,20 @@ mod tests {
     fn deserialize_ctrl() {
         let m: Modifier = serde_json::from_str(r#""ctrl""#).unwrap();
         assert_eq!(m, Modifier::Ctrl);
+    }
+
+    #[test]
+    fn shift_alt_yields_shift() {
+        assert_eq!(from_flags(true, false, true, false), Modifier::Shift);
+    }
+
+    #[test]
+    fn ctrl_alt_yields_ctrl() {
+        assert_eq!(from_flags(false, true, true, false), Modifier::Ctrl);
+    }
+
+    #[test]
+    fn shift_ctrl_alt_yields_shift_ctrl() {
+        assert_eq!(from_flags(true, true, true, false), Modifier::ShiftCtrl);
     }
 }

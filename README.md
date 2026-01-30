@@ -81,7 +81,7 @@ See [MODIFIERS.md](MODIFIERS.md) for the full modifier key action table.
 
 ## Project Structure
 
-```
+```text
 src/                    # React frontend
   App.tsx               # Main UI component
   types.ts              # Shared types (Modifier)

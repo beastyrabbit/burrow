@@ -3,6 +3,14 @@ use crate::actions::utils;
 use crate::commands::onepass;
 use crate::router::SearchResult;
 
+/// Check whether a category string is recognized by the action dispatcher.
+pub fn is_valid_category(category: &str) -> bool {
+    matches!(
+        category,
+        "onepass" | "file" | "vector" | "app" | "history" | "ssh" | "math" | "action" | "info"
+    )
+}
+
 pub fn handle_action(
     result: &SearchResult,
     modifier: Modifier,
@@ -14,7 +22,7 @@ pub fn handle_action(
         "app" | "history" => handle_launch(result, app),
         "ssh" => handle_ssh(result, modifier),
         "math" => handle_math(result, modifier),
-        "action" => Ok(()), // Settings handled by frontend via run_setting
+        "action" => Ok(()), // Defensive no-op: frontend dispatches via run_setting
         "info" => Ok(()),
         _ => Err(format!("Unknown category: {}", result.category)),
     }
@@ -92,10 +100,13 @@ fn handle_math(result: &SearchResult, modifier: Modifier) -> Result<(), String> 
 
 /// Extract the SSH target from an exec string like "kitty ssh 'user@host'"
 fn extract_ssh_target(exec: &str) -> String {
-    // exec format: "kitty ssh 'user@host'" or similar
     if let Some(idx) = exec.find("ssh ") {
         let rest = &exec[idx + 4..];
-        rest.trim().trim_matches('\'').to_string()
+        rest.split_whitespace()
+            .last()
+            .unwrap_or(rest)
+            .trim_matches(&['\'', '"'][..])
+            .to_string()
     } else {
         exec.to_string()
     }
@@ -124,6 +135,18 @@ mod tests {
     }
 
     #[test]
+    fn extract_ssh_target_double_quotes() {
+        let exec = r#"kitty ssh "admin@server1""#;
+        assert_eq!(extract_ssh_target(exec), "admin@server1");
+    }
+
+    #[test]
+    fn extract_ssh_target_empty_after_ssh() {
+        let exec = "kitty ssh ";
+        assert_eq!(extract_ssh_target(exec), "");
+    }
+
+    #[test]
     fn handle_math_none_is_noop() {
         let result = SearchResult {
             id: "math-result".into(),
@@ -137,17 +160,18 @@ mod tests {
     }
 
     #[test]
-    fn unknown_category_errors() {
-        let result = SearchResult {
-            id: "x".into(),
-            name: "x".into(),
-            description: "".into(),
-            icon: "".into(),
-            category: "unknown".into(),
-            exec: "".into(),
-        };
-        // Can't call handle_action without AppHandle in tests,
-        // but we can test the match path indirectly
-        assert!(result.category != "app");
+    fn unknown_category_is_invalid() {
+        assert!(!is_valid_category("unknown"));
+        assert!(!is_valid_category(""));
+        assert!(!is_valid_category("ONEPASS"));
+    }
+
+    #[test]
+    fn all_known_categories_are_valid() {
+        for cat in &[
+            "onepass", "file", "vector", "app", "history", "ssh", "math", "action", "info",
+        ] {
+            assert!(is_valid_category(cat), "{cat} should be valid");
+        }
     }
 }

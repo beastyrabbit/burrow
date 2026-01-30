@@ -73,6 +73,7 @@ pub fn open_dir_in_terminal(path: &str) -> Result<(), String> {
 /// Open a path in VS Code.
 pub fn open_in_vscode(path: &str) -> Result<(), String> {
     Command::new("code")
+        .arg("--")
         .arg(path)
         .spawn()
         .map_err(|e| format!("Failed to open in VS Code: {e}"))?;
@@ -85,15 +86,23 @@ mod tests {
 
     #[test]
     fn terminal_fallback() {
-        // Clear TERMINAL to test fallback
+        let original = std::env::var("TERMINAL").ok();
         std::env::remove_var("TERMINAL");
         assert_eq!(get_terminal_cmd(), "foot");
+        if let Some(val) = original {
+            std::env::set_var("TERMINAL", val);
+        }
     }
 
     #[test]
     fn terminal_from_env() {
+        let original = std::env::var("TERMINAL").ok();
         std::env::set_var("TERMINAL", "kitty");
         assert_eq!(get_terminal_cmd(), "kitty");
-        std::env::remove_var("TERMINAL");
+        if let Some(val) = original {
+            std::env::set_var("TERMINAL", val);
+        } else {
+            std::env::remove_var("TERMINAL");
+        }
     }
 }

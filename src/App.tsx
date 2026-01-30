@@ -41,8 +41,8 @@ function App() {
     doSearch("");
   }, [doSearch]);
 
-  const executeAction = useCallback(async (e: React.KeyboardEvent | null) => {
-    const item = results[selectedIndex];
+  const executeAction = useCallback(async (e: React.KeyboardEvent | null, itemOverride?: SearchResult) => {
+    const item = itemOverride ?? results[selectedIndex];
     if (!item) return;
 
     const modifier = e
@@ -155,7 +155,7 @@ function App() {
             key={item.id}
             className={`result-item ${i === selectedIndex ? "selected" : ""}`}
             onMouseEnter={() => setSelectedIndex(i)}
-            onClick={() => executeAction(null)}
+            onClick={() => executeAction(null, item)}
           >
             <div className="result-content">
               <span className="result-name">{item.name}</span>

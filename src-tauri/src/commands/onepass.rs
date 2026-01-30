@@ -72,7 +72,11 @@ fn get_field(item_id: &str, field: &str, extra_args: &[&str]) -> Result<String, 
         .map_err(|e| format!("Failed to run op CLI: {e}"))?;
 
     if !output.status.success() {
-        return Err(format!("Failed to get {field} from 1Password"));
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!(
+            "Failed to get {field} from 1Password: {}",
+            stderr.trim()
+        ));
     }
 
     Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())

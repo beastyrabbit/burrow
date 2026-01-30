@@ -61,7 +61,7 @@ test.describe("Modifier Key Actions", () => {
 
   // --- Math category (no-op for plain Enter, copy for Shift/Ctrl) ---
 
-  test("Enter on math result does not invoke execute_action for record_launch", async ({ page }) => {
+  test("Enter on math result invokes execute_action but skips record_launch", async ({ page }) => {
     const input = page.locator(".search-input");
     await input.fill("2+3");
     await page.waitForTimeout(200);
@@ -173,6 +173,25 @@ test.describe("Modifier Key Actions", () => {
     await page.waitForTimeout(100);
 
     expect(logs.some((l) => l.includes("execute_action") && l.includes("category=file"))).toBe(true);
+  });
+
+  // --- Alt modifier ---
+
+  test("Alt+Enter invokes execute_action with alt modifier", async ({ page }) => {
+    const input = page.locator(".search-input");
+    await input.fill("Firefox");
+    await page.waitForTimeout(200);
+
+    const items = page.locator(".result-item:not(.empty)");
+    await expect(items.first()).toBeVisible();
+
+    const logs: string[] = [];
+    page.on("console", (msg) => logs.push(msg.text()));
+
+    await page.keyboard.press("Alt+Enter");
+    await page.waitForTimeout(100);
+
+    expect(logs.some((l) => l.includes("execute_action") && l.includes("modifier=alt"))).toBe(true);
   });
 
   // --- Click uses none modifier ---
