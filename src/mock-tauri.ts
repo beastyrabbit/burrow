@@ -200,11 +200,19 @@ function mockRunSetting(args: Record<string, unknown>): string {
   }
 }
 
+function mockExecuteAction(args: Record<string, unknown>): null {
+  const result = args.result as SearchResult;
+  const modifier = (args.modifier as string) || "none";
+  console.log(`[mock] execute_action: category=${result.category}, modifier=${modifier}`);
+  return null;
+}
+
 const handlers: Record<string, MockHandler> = {
   search: mockSearch,
   record_launch: () => null,
   launch_app: () => null,
   run_setting: mockRunSetting,
+  execute_action: mockExecuteAction,
 };
 
 export async function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {

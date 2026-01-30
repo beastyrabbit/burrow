@@ -1,7 +1,7 @@
 use crate::commands::{apps, files, history, math, onepass, settings, ssh, vectors};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Serialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct SearchResult {
     pub id: String,
     pub name: String,
