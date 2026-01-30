@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { parseModifier } from "./types";
 import "./styles.css";
 
 interface SearchResult {
@@ -40,39 +41,55 @@ function App() {
     doSearch("");
   }, [doSearch]);
 
-  const launchSelected = useCallback(async () => {
+  const executeAction = useCallback(async (e: React.KeyboardEvent | null) => {
     const item = results[selectedIndex];
     if (!item) return;
 
-    if (item.category === "math" || item.category === "info") return;
+    const modifier = e
+      ? parseModifier({
+          shift: e.shiftKey,
+          ctrl: e.ctrlKey,
+          alt: e.altKey,
+          altgr: e.getModifierState("AltGraph"),
+        })
+      : "none";
 
+    // Actions are handled separately via run_setting
     if (item.category === "action") {
       try {
         setNotification("Running...");
         const msg = await invoke<string>("run_setting", { action: item.id });
         setNotification(msg);
-        if (notificationTimer.current) clearTimeout(notificationTimer.current);
-        notificationTimer.current = setTimeout(() => setNotification(""), 4000);
-      } catch (e) {
-        const errMsg = e instanceof Error ? e.message : String(e);
+      } catch (err) {
+        const errMsg = err instanceof Error ? err.message : String(err);
         setNotification(`Error: ${errMsg}`);
+      } finally {
         if (notificationTimer.current) clearTimeout(notificationTimer.current);
         notificationTimer.current = setTimeout(() => setNotification(""), 4000);
       }
       return;
     }
 
+    // Record launch for non-ephemeral categories
+    if (!["math", "info"].includes(item.category)) {
+      try {
+        await invoke("record_launch", {
+          id: item.id,
+          name: item.name,
+          exec: item.exec,
+          icon: item.icon,
+          description: item.description,
+        });
+      } catch (err) {
+        console.error("Record launch failed:", err);
+      }
+    }
+
+    // Dispatch to backend execute_action
     try {
-      await invoke("record_launch", {
-        id: item.id,
-        name: item.name,
-        exec: item.exec,
-        icon: item.icon,
-        description: item.description,
-      });
-      await invoke("launch_app", { exec: item.exec });
-    } catch (e) {
-      console.error("Launch failed:", e);
+      await invoke("execute_action", { result: item, modifier });
+    } catch (err) {
+      console.error("Execute action failed:", err);
     }
   }, [results, selectedIndex]);
 
@@ -89,7 +106,7 @@ function App() {
           break;
         case "Enter":
           e.preventDefault();
-          launchSelected();
+          executeAction(e);
           break;
         case "Escape":
           e.preventDefault();
@@ -99,7 +116,7 @@ function App() {
           break;
       }
     },
-    [results.length, launchSelected, query]
+    [results.length, executeAction, query]
   );
 
   const categoryLabel = (cat: string) => {
@@ -138,7 +155,7 @@ function App() {
             key={item.id}
             className={`result-item ${i === selectedIndex ? "selected" : ""}`}
             onMouseEnter={() => setSelectedIndex(i)}
-            onClick={() => launchSelected()}
+            onClick={() => executeAction(null)}
           >
             <div className="result-content">
               <span className="result-name">{item.name}</span>

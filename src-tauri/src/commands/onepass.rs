@@ -48,6 +48,46 @@ pub fn parse_op_items(json_bytes: &[u8], query: &str) -> Result<Vec<SearchResult
     Ok(results)
 }
 
+/// Extract the 1Password item ID from an exec string.
+/// Exec format: "op item get {id} --otp 2>/dev/null || op open op://vault/{id}"
+pub fn extract_item_id(exec: &str) -> Option<String> {
+    let prefix = "op item get ";
+    if let Some(start) = exec.find(prefix) {
+        let rest = &exec[start + prefix.len()..];
+        let id = rest.split_whitespace().next()?;
+        if !id.is_empty() {
+            return Some(id.to_string());
+        }
+    }
+    None
+}
+
+/// Fetch a field value from a 1Password item.
+fn get_field(item_id: &str, field: &str, extra_args: &[&str]) -> Result<String, String> {
+    let mut cmd = Command::new("op");
+    cmd.args(["item", "get", item_id, "--fields", field]);
+    cmd.args(extra_args);
+    let output = cmd
+        .output()
+        .map_err(|e| format!("Failed to run op CLI: {e}"))?;
+
+    if !output.status.success() {
+        return Err(format!("Failed to get {field} from 1Password"));
+    }
+
+    Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+}
+
+/// Fetch the password for a 1Password item.
+pub fn get_password(item_id: &str) -> Result<String, String> {
+    get_field(item_id, "password", &["--reveal"])
+}
+
+/// Fetch the username for a 1Password item.
+pub fn get_username(item_id: &str) -> Result<String, String> {
+    get_field(item_id, "username", &[])
+}
+
 pub async fn search_onepass(query: &str) -> Result<Vec<SearchResult>, String> {
     if query.is_empty() {
         return Ok(vec![]);
@@ -149,6 +189,22 @@ mod tests {
         let json = format!("[{}]", items.join(","));
         let results = parse_op_items(json.as_bytes(), "item").unwrap();
         assert_eq!(results.len(), 10);
+    }
+
+    #[test]
+    fn extract_item_id_from_exec() {
+        let exec = "op item get abc123 --otp 2>/dev/null || op open op://vault/abc123";
+        assert_eq!(extract_item_id(exec), Some("abc123".to_string()));
+    }
+
+    #[test]
+    fn extract_item_id_missing() {
+        assert_eq!(extract_item_id("something else"), None);
+    }
+
+    #[test]
+    fn extract_item_id_empty_exec() {
+        assert_eq!(extract_item_id(""), None);
     }
 
     #[test]

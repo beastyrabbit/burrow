@@ -1,3 +1,4 @@
+pub mod actions;
 pub mod commands;
 pub mod config;
 pub mod indexer;
@@ -139,6 +140,7 @@ pub fn run() {
             history::record_launch,
             apps::launch_app,
             run_setting,
+            actions::execute_action,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
