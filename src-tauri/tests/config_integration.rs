@@ -1,5 +1,4 @@
 use burrow_lib::config;
-use std::path::PathBuf;
 
 #[test]
 fn config_dir_is_absolute() {
@@ -46,8 +45,16 @@ fn load_config_from_nonexistent_creates_file() {
 #[test]
 fn default_index_dirs_contain_home_subdirs() {
     let cfg = config::load_config();
-    assert!(cfg.vector_search.index_dirs.iter().any(|d| d.contains("Documents")));
-    assert!(cfg.vector_search.index_dirs.iter().any(|d| d.contains("Projects")));
+    assert!(cfg
+        .vector_search
+        .index_dirs
+        .iter()
+        .any(|d| d.contains("Documents")));
+    assert!(cfg
+        .vector_search
+        .index_dirs
+        .iter()
+        .any(|d| d.contains("Projects")));
 }
 
 #[test]

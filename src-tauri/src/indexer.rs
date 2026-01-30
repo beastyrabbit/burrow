@@ -43,9 +43,15 @@ impl Default for IndexerProgress {
 
 pub struct IndexerState(pub Mutex<IndexerProgress>);
 
+impl Default for IndexerState {
+    fn default() -> Self {
+        Self(Mutex::new(IndexerProgress::default()))
+    }
+}
+
 impl IndexerState {
     pub fn new() -> Self {
-        Self(Mutex::new(IndexerProgress::default()))
+        Self::default()
     }
 
     fn update(&self, f: impl FnOnce(&mut IndexerProgress)) {

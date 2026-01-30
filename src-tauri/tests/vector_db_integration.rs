@@ -1,5 +1,5 @@
 use burrow_lib::commands::vectors::insert_vector;
-use burrow_lib::ollama::{cosine_similarity, deserialize_embedding, serialize_embedding};
+use burrow_lib::ollama::{cosine_similarity, deserialize_embedding};
 use rusqlite::Connection;
 
 fn setup_db() -> Connection {

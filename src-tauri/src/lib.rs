@@ -1,8 +1,8 @@
-mod commands;
-mod config;
-mod indexer;
-mod ollama;
-mod router;
+pub mod commands;
+pub mod config;
+pub mod indexer;
+pub mod ollama;
+pub mod router;
 mod text_extract;
 
 use commands::{apps, history, vectors};

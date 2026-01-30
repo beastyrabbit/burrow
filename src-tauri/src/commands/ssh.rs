@@ -2,13 +2,13 @@ use crate::router::SearchResult;
 use std::fs;
 
 #[derive(Debug, Clone, PartialEq)]
-struct SshHost {
-    name: String,
-    hostname: String,
-    user: String,
+pub struct SshHost {
+    pub name: String,
+    pub hostname: String,
+    pub user: String,
 }
 
-fn parse_ssh_config_content(content: &str) -> Vec<SshHost> {
+pub fn parse_ssh_config_content(content: &str) -> Vec<SshHost> {
     let mut hosts = Vec::new();
     let mut current_name = String::new();
     let mut current_hostname = String::new();
@@ -89,7 +89,7 @@ fn parse_ssh_config() -> Vec<SshHost> {
     }
 }
 
-fn filter_hosts(hosts: Vec<SshHost>, query: &str) -> Vec<SearchResult> {
+pub fn filter_hosts(hosts: Vec<SshHost>, query: &str) -> Vec<SearchResult> {
     let query_lower = query.to_lowercase();
 
     hosts
@@ -112,7 +112,11 @@ fn filter_hosts(hosts: Vec<SshHost>, query: &str) -> Vec<SearchResult> {
                 description: format!("{}{}", user_prefix, h.hostname),
                 icon: "".into(),
                 category: "ssh".into(),
-                exec: format!("kitty ssh '{}{}'", user_prefix, h.name.replace('\'', "'\\''")),
+                exec: format!(
+                    "kitty ssh '{}{}'",
+                    user_prefix,
+                    h.name.replace('\'', "'\\''")
+                ),
             }
         })
         .collect()

@@ -73,9 +73,9 @@ fn all_settings_have_consistent_structure() {
 #[test]
 fn math_complex_expressions() {
     assert!(try_calculate("(10 + 5) * 2").is_some());
-    assert!(try_calculate("2^8").is_some());
-    assert!(try_calculate("100 % 7").is_some());
-    // sqrt not available in evalexpr default context, so skip it
+    // mexe doesn't support ^ or %, only +-*/
+    assert!(try_calculate("2^8").is_none());
+    assert!(try_calculate("100 % 7").is_none());
 }
 
 #[test]
