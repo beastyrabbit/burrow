@@ -199,7 +199,17 @@ fn extract_spreadsheet(path: &Path, max_chars: usize) -> Result<String, String> 
 fn extract_doc_libreoffice(path: &Path, max_chars: usize) -> Result<String, String> {
     let tmp_dir = tempfile::tempdir().map_err(|e| e.to_string())?;
     let output = std::process::Command::new("libreoffice")
-        .args(["--headless", "--convert-to", "txt:Text", "--outdir"])
+        .args([
+            "--headless",
+            "--nologo",
+            "--nodefault",
+            "--nofirststartwizard",
+            "--norestore",
+            "--nolockcheck",
+            "--convert-to",
+            "txt:Text",
+            "--outdir",
+        ])
         .arg(tmp_dir.path())
         .arg(path)
         .stdout(std::process::Stdio::null())

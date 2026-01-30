@@ -41,7 +41,7 @@
 
 | Section | Key | Default |
 |---------|-----|---------|
-| `ollama.url` | Ollama API URL | `http://192.168.10.243:11434` |
+| `ollama.url` | Ollama API URL | `http://localhost:11434` |
 | `ollama.embedding_model` | Embedding model | `qwen3-embedding:8b` |
 | `ollama.timeout_secs` | Request timeout | `30` |
 | `vector_search.enabled` | Enable content search | `true` |
@@ -67,8 +67,8 @@
 
 | Command | Purpose |
 |---------|---------|
-| `cd src-tauri && cargo test` | Run all Rust unit tests (220 tests) |
-| `npx playwright test` | Run all e2e tests (38 tests) |
+| `cd src-tauri && cargo test` | Run all Rust unit tests (221 tests) |
+| `npx playwright test` | Run all e2e tests (43 tests) |
 | `pnpm dev` | Start Vite dev server on :1420 (mock backend) |
 | `pnpm tauri dev` | Start full Tauri app (real backend) |
 | `pnpm build` | Build frontend for production |
@@ -101,8 +101,9 @@
 - Use in-memory SQLite (`Connection::open_in_memory()`) for DB tests
 - Config uses `OnceLock` for thread-safe singleton; tests use `parse_config()` directly
 - Configure your Ollama instance URL and embedding model in `~/.config/burrow/config.toml`
-- Ollama server is at `192.168.10.243:11434` — always keep user config updated when defaults change
-- When adding new config keys or changing defaults, remind to delete/regenerate user config or manually update it
+- Ollama server defaults to `localhost:11434` — existing user configs override all defaults
+- When new config keys are added, regenerate config (`rm ~/.config/burrow/config.toml`) or manually add new keys
+- When defaults change (values only), existing configs continue working with their current values
 
 ## Reference Repos
 
