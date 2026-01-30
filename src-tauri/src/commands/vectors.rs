@@ -45,9 +45,7 @@ fn search_vectors(
     top_k: usize,
     min_score: f32,
 ) -> Result<Vec<SearchResult>, rusqlite::Error> {
-    let mut stmt = conn.prepare(
-        "SELECT file_path, content_preview, embedding FROM vectors",
-    )?;
+    let mut stmt = conn.prepare("SELECT file_path, content_preview, embedding FROM vectors")?;
 
     let mut scored: Vec<(f32, String, String)> = stmt
         .query_map([], |row| {
@@ -91,10 +89,7 @@ fn search_vectors(
         .collect())
 }
 
-pub async fn search_by_content(
-    query: &str,
-    app: &AppHandle,
-) -> Result<Vec<SearchResult>, String> {
+pub async fn search_by_content(query: &str, app: &AppHandle) -> Result<Vec<SearchResult>, String> {
     let cfg = crate::config::get_config();
     if !cfg.vector_search.enabled {
         return Ok(vec![SearchResult {
@@ -174,7 +169,15 @@ mod tests {
     fn insert_and_search() {
         let conn = test_db();
         let emb = vec![1.0, 0.0, 0.0];
-        insert_vector(&conn, "/home/user/doc.txt", "hello world", &emb, "test-model", 0.0).unwrap();
+        insert_vector(
+            &conn,
+            "/home/user/doc.txt",
+            "hello world",
+            &emb,
+            "test-model",
+            0.0,
+        )
+        .unwrap();
 
         let query_emb = vec![1.0, 0.0, 0.0]; // identical
         let results = search_vectors(&conn, &query_emb, 10, 0.0).unwrap();
@@ -200,8 +203,15 @@ mod tests {
         let conn = test_db();
         for i in 0..20 {
             let emb = vec![1.0, i as f32 * 0.01, 0.0];
-            insert_vector(&conn, &format!("/path/f{i}.txt"), &format!("file {i}"), &emb, "m", 0.0)
-                .unwrap();
+            insert_vector(
+                &conn,
+                &format!("/path/f{i}.txt"),
+                &format!("file {i}"),
+                &emb,
+                "m",
+                0.0,
+            )
+            .unwrap();
         }
         let query = vec![1.0, 0.0, 0.0];
         let results = search_vectors(&conn, &query, 5, 0.0).unwrap();
@@ -254,7 +264,15 @@ mod tests {
     #[test]
     fn result_description_contains_score_and_preview() {
         let conn = test_db();
-        insert_vector(&conn, "/doc.txt", "important document", &[1.0, 0.0], "m", 0.0).unwrap();
+        insert_vector(
+            &conn,
+            "/doc.txt",
+            "important document",
+            &[1.0, 0.0],
+            "m",
+            0.0,
+        )
+        .unwrap();
         let results = search_vectors(&conn, &[1.0, 0.0], 10, 0.0).unwrap();
         assert!(results[0].description.contains("important document"));
         assert!(results[0].description.contains("%"));
@@ -265,7 +283,11 @@ mod tests {
         let conn = test_db();
         insert_vector(&conn, "/doc.txt", "x", &[1.0; 384], "m", 0.0).unwrap();
         let dim: i32 = conn
-            .query_row("SELECT dimension FROM vectors WHERE file_path = '/doc.txt'", [], |r| r.get(0))
+            .query_row(
+                "SELECT dimension FROM vectors WHERE file_path = '/doc.txt'",
+                [],
+                |r| r.get(0),
+            )
             .unwrap();
         assert_eq!(dim, 384);
     }
@@ -275,7 +297,11 @@ mod tests {
         let conn = test_db();
         insert_vector(&conn, "/doc.txt", "x", &[1.0], "qwen3-embedding:8b", 0.0).unwrap();
         let model: String = conn
-            .query_row("SELECT model FROM vectors WHERE file_path = '/doc.txt'", [], |r| r.get(0))
+            .query_row(
+                "SELECT model FROM vectors WHERE file_path = '/doc.txt'",
+                [],
+                |r| r.get(0),
+            )
             .unwrap();
         assert_eq!(model, "qwen3-embedding:8b");
     }
@@ -287,7 +313,11 @@ mod tests {
         insert_vector(&conn, "/doc.txt", "x", &original, "m", 0.0).unwrap();
 
         let blob: Vec<u8> = conn
-            .query_row("SELECT embedding FROM vectors WHERE file_path = '/doc.txt'", [], |r| r.get(0))
+            .query_row(
+                "SELECT embedding FROM vectors WHERE file_path = '/doc.txt'",
+                [],
+                |r| r.get(0),
+            )
             .unwrap();
         let recovered = ollama::deserialize_embedding(&blob);
         assert_eq!(original, recovered);

@@ -46,17 +46,25 @@ async fn run_setting(action: String, app: tauri::AppHandle) -> Result<String, St
             let vector_state = app.state::<vectors::VectorDbState>();
             let vconn = vector_state.0.lock().map_err(|e: _| e.to_string())?;
             let file_count: i64 = vconn
-                .query_row("SELECT COUNT(*) FROM vectors", [], |r: &rusqlite::Row| r.get(0))
+                .query_row("SELECT COUNT(*) FROM vectors", [], |r: &rusqlite::Row| {
+                    r.get(0)
+                })
                 .map_err(|e: rusqlite::Error| e.to_string())?;
             let last_indexed: Option<f64> = vconn
-                .query_row("SELECT MAX(indexed_at) FROM vectors", [], |r: &rusqlite::Row| r.get(0))
+                .query_row(
+                    "SELECT MAX(indexed_at) FROM vectors",
+                    [],
+                    |r: &rusqlite::Row| r.get(0),
+                )
                 .ok();
             drop(vconn);
 
             let history_state = app.state::<history::DbState>();
             let hconn = history_state.0.lock().map_err(|e: _| e.to_string())?;
             let launch_count: i64 = hconn
-                .query_row("SELECT COUNT(*) FROM launches", [], |r: &rusqlite::Row| r.get(0))
+                .query_row("SELECT COUNT(*) FROM launches", [], |r: &rusqlite::Row| {
+                    r.get(0)
+                })
                 .map_err(|e: rusqlite::Error| e.to_string())?;
 
             let last_str = last_indexed

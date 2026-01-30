@@ -13,6 +13,7 @@ pub struct SearchResult {
 
 /// Determines which provider should handle a given query.
 #[derive(Debug, PartialEq)]
+#[allow(dead_code)]
 pub enum RouteKind {
     History,
     App,
@@ -24,6 +25,7 @@ pub enum RouteKind {
     Settings,
 }
 
+#[allow(dead_code)]
 pub fn classify_query(query: &str) -> RouteKind {
     if query.is_empty() {
         return RouteKind::History;

@@ -4,7 +4,7 @@ use std::sync::OnceLock;
 
 static CONFIG: OnceLock<AppConfig> = OnceLock::new();
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct AppConfig {
     pub ollama: OllamaConfig,
@@ -51,18 +51,6 @@ pub struct HistoryConfig {
 pub struct SearchConfig {
     pub max_results: usize,
     pub debounce_ms: u64,
-}
-
-impl Default for AppConfig {
-    fn default() -> Self {
-        Self {
-            ollama: OllamaConfig::default(),
-            vector_search: VectorSearchConfig::default(),
-            indexer: IndexerConfig::default(),
-            history: HistoryConfig::default(),
-            search: SearchConfig::default(),
-        }
-    }
 }
 
 impl Default for OllamaConfig {
@@ -179,7 +167,9 @@ pub fn init_config() -> &'static AppConfig {
 }
 
 pub fn get_config() -> &'static AppConfig {
-    CONFIG.get().expect("Config not initialized. Call init_config() first.")
+    CONFIG
+        .get()
+        .expect("Config not initialized. Call init_config() first.")
 }
 
 #[cfg(test)]
