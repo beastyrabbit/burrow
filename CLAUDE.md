@@ -104,6 +104,9 @@
 - Ollama server defaults to `localhost:11434` — existing user configs override all defaults
 - When new config keys are added, regenerate config (`rm ~/.config/burrow/config.toml`) or manually add new keys
 - When defaults change (values only), existing configs continue working with their current values
+- External tool extraction (e.g. LibreOffice for `.doc`) uses `spawn` + `wait-timeout` crate for timeout enforcement — never use blocking `Command::output()` for external processes that may hang
+- GitHub repo owner is `beastyrabbit` (not `beasty`)
+- CodeRabbit is incremental — it won't re-review already-reviewed commits. Post `@coderabbitai review` comment on PR to trigger review of latest push.
 
 ## Reference Repos
 

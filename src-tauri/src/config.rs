@@ -262,7 +262,8 @@ debounce_ms = 100
 
     #[test]
     fn load_nonexistent_returns_defaults() {
-        let cfg = load_config_from_path(&PathBuf::from("/tmp/nonexistent_burrow_test/config.toml"));
+        let tmp = tempfile::TempDir::new().unwrap();
+        let cfg = load_config_from_path(&tmp.path().join("burrow/config.toml"));
         assert_eq!(cfg.ollama.url, "http://localhost:11434");
     }
 

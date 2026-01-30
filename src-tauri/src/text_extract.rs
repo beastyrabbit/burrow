@@ -242,7 +242,11 @@ fn extract_doc_libreoffice(path: &Path, max_chars: usize) -> Result<String, Stri
                 path.display()
             ));
         }
-        Err(e) => return Err(format!("libreoffice wait failed: {e}")),
+        Err(e) => {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(format!("libreoffice wait failed: {e}"));
+        }
     };
 
     if !status.success() {
@@ -558,11 +562,9 @@ mod tests {
     }
 
     #[test]
-    fn doc_txt_path_no_stem_returns_error() {
-        // A path with no file stem (just extension) should fail
+    fn doc_txt_path_dotfile_returns_ok() {
+        // Dotfile stems are preserved (".doc" -> ".doc.txt")
         let result = doc_txt_path(Path::new("/tmp/.doc"), Path::new("/out"));
-        // .doc has stem "" which to_str returns Some("") — but file_stem returns Some(".doc") for dotfiles
-        // Actually Path::new("/tmp/.doc").file_stem() returns Some(".doc"), so this succeeds
         assert!(result.is_ok());
     }
 
