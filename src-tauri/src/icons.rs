@@ -52,7 +52,11 @@ fn resolve_icon_uncached(name: &str) -> String {
 }
 
 fn file_to_data_uri(path: &Path) -> String {
-    let mime = match path.extension().and_then(|e| e.to_str()) {
+    let ext = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.to_ascii_lowercase());
+    let mime = match ext.as_deref() {
         Some("png") => "image/png",
         Some("svg") => "image/svg+xml",
         Some("xpm") => return String::new(),

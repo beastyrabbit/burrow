@@ -15,6 +15,9 @@ interface SearchResult {
 
 function ResultIcon({ icon, category }: { icon: string; category: string }) {
   const [broken, setBroken] = useState(false);
+  useEffect(() => {
+    setBroken(false);
+  }, [icon]);
   if (!icon || broken) {
     return (
       <div className="result-icon-placeholder">

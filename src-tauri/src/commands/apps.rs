@@ -429,6 +429,12 @@ mod tests {
     /// 3 of these must resolve — otherwise the test environment is broken.
     #[test]
     fn real_apps_resolve_to_data_uris() {
+        if std::env::var("BURROW_RUN_SYSTEM_ICON_TESTS").is_err() {
+            eprintln!(
+                "[skip] set BURROW_RUN_SYSTEM_ICON_TESTS=1 to run real_apps_resolve_to_data_uris"
+            );
+            return;
+        }
         let known_icons = [
             "1password",
             "google-chrome",
@@ -473,6 +479,10 @@ mod tests {
     /// contain data URI icons that a browser <img> tag can render.
     #[test]
     fn real_search_results_have_data_uri_icons() {
+        if std::env::var("BURROW_RUN_SYSTEM_ICON_TESTS").is_err() {
+            eprintln!("[skip] set BURROW_RUN_SYSTEM_ICON_TESTS=1 to run real_search_results_have_data_uri_icons");
+            return;
+        }
         let entries = load_desktop_entries();
         let queries = ["firefox", "chrome", "1password", "fastmail", "bambu"];
         let mut icons_found = 0;
