@@ -24,16 +24,22 @@ fn parse_ssh_config_content(content: &str) -> Vec<SshHost> {
             .strip_prefix("Host ")
             .or_else(|| line.strip_prefix("Host\t"))
         {
+            // Flush previous host block
             if !current_name.is_empty() && current_name != "*" {
-                hosts.push(SshHost {
-                    name: current_name.clone(),
-                    hostname: if current_hostname.is_empty() {
-                        current_name.clone()
-                    } else {
-                        current_hostname.clone()
-                    },
-                    user: current_user.clone(),
-                });
+                for name in current_name.split_whitespace() {
+                    if name == "*" || name.contains('?') {
+                        continue;
+                    }
+                    hosts.push(SshHost {
+                        name: name.to_string(),
+                        hostname: if current_hostname.is_empty() {
+                            name.to_string()
+                        } else {
+                            current_hostname.clone()
+                        },
+                        user: current_user.clone(),
+                    });
+                }
             }
             current_name = host.trim().to_string();
             current_hostname.clear();
@@ -53,15 +59,20 @@ fn parse_ssh_config_content(content: &str) -> Vec<SshHost> {
     }
 
     if !current_name.is_empty() && current_name != "*" {
-        hosts.push(SshHost {
-            name: current_name.clone(),
-            hostname: if current_hostname.is_empty() {
-                current_name
-            } else {
-                current_hostname
-            },
-            user: current_user,
-        });
+        for name in current_name.split_whitespace() {
+            if name == "*" || name.contains('?') {
+                continue;
+            }
+            hosts.push(SshHost {
+                name: name.to_string(),
+                hostname: if current_hostname.is_empty() {
+                    name.to_string()
+                } else {
+                    current_hostname.clone()
+                },
+                user: current_user.clone(),
+            });
+        }
     }
 
     hosts

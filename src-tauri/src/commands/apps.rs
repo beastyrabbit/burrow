@@ -94,6 +94,30 @@ fn parse_desktop_file(path: &PathBuf) -> Option<DesktopEntry> {
 fn strip_field_codes(exec: &str) -> String {
     exec.split_whitespace()
         .filter(|s| !s.starts_with('%'))
+        .map(|s| {
+            // Remove embedded field codes like --class=%c → --class=
+            // But preserve literal %% as %
+            if s.contains('%') {
+                let mut result = String::new();
+                let mut chars = s.chars().peekable();
+                while let Some(c) = chars.next() {
+                    if c == '%' {
+                        if chars.peek() == Some(&'%') {
+                            result.push('%');
+                            chars.next();
+                        } else {
+                            // Skip the field code letter
+                            chars.next();
+                        }
+                    } else {
+                        result.push(c);
+                    }
+                }
+                result
+            } else {
+                s.to_string()
+            }
+        })
         .collect::<Vec<_>>()
         .join(" ")
 }

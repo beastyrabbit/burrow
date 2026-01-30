@@ -73,6 +73,9 @@ pub async fn search(query: String, app: tauri::AppHandle) -> Result<Vec<SearchRe
         let q = query.trim_start();
         if q.starts_with('*') {
             let content_query = q.trim_start_matches('*').trim();
+            if content_query.is_empty() {
+                return Ok(vec![]);
+            }
             return vectors::search_by_content(content_query, &app).await;
         }
         return files::search_files(q);

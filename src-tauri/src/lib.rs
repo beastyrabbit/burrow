@@ -12,6 +12,10 @@ use tauri::Manager;
 async fn run_setting(action: String, app: tauri::AppHandle) -> Result<String, String> {
     match action.as_str() {
         "reindex" => {
+            let progress_state = app.state::<indexer::IndexerState>();
+            if progress_state.get().running {
+                return Ok("Indexer is already running".into());
+            }
             let handle = app.clone();
             tauri::async_runtime::spawn(async move {
                 let stats = indexer::index_all(&handle).await;
@@ -23,6 +27,10 @@ async fn run_setting(action: String, app: tauri::AppHandle) -> Result<String, St
             Ok("Reindexing started in background...".into())
         }
         "update" => {
+            let progress_state = app.state::<indexer::IndexerState>();
+            if progress_state.get().running {
+                return Ok("Indexer is already running".into());
+            }
             let handle = app.clone();
             tauri::async_runtime::spawn(async move {
                 let stats = indexer::index_incremental(&handle).await;
@@ -36,7 +44,11 @@ async fn run_setting(action: String, app: tauri::AppHandle) -> Result<String, St
         "config" => {
             let path = config::config_path();
             let editor = std::env::var("EDITOR").unwrap_or_else(|_| "xdg-open".into());
-            std::process::Command::new(&editor)
+            let mut parts = editor.split_whitespace();
+            let cmd = parts.next().unwrap_or("xdg-open");
+            let args: Vec<&str> = parts.collect();
+            std::process::Command::new(cmd)
+                .args(&args)
                 .arg(&path)
                 .spawn()
                 .map_err(|e| format!("Failed to open config: {e}"))?;

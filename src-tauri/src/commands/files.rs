@@ -11,7 +11,10 @@ fn match_files_in_dirs(dirs: &[PathBuf], query: &str, limit: usize) -> Vec<Searc
                 let name = entry.file_name().to_string_lossy().to_string();
                 if name.to_lowercase().contains(&query_lower) {
                     let path = entry.path();
-                    let open_cmd = format!("xdg-open {}", path.display());
+                    let open_cmd = format!(
+                        "xdg-open '{}'",
+                        path.display().to_string().replace('\'', "'\\''")
+                    );
                     results.push(SearchResult {
                         id: path.display().to_string(),
                         name: name.clone(),

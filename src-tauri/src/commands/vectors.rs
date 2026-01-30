@@ -76,7 +76,7 @@ fn search_vectors(
                 .file_name()
                 .map(|f| f.to_string_lossy().to_string())
                 .unwrap_or_else(|| path.clone());
-            let open_cmd = format!("xdg-open {}", path);
+            let open_cmd = format!("xdg-open '{}'", path.replace('\'', "'\\''"));
             SearchResult {
                 id: path.clone(),
                 name,

@@ -284,7 +284,11 @@ pub async fn index_incremental(app: &tauri::AppHandle) -> IndexStats {
 
     // Cleanup stale entries
     progress.update(|p| p.phase = "cleanup".into());
-    stats.removed = cleanup_stale(&db);
+    let valid_paths: std::collections::HashSet<String> = all_paths
+        .iter()
+        .map(|p| p.to_string_lossy().to_string())
+        .collect();
+    stats.removed = cleanup_stale(&db, &valid_paths);
 
     let result = format!(
         "Indexed {}, skipped {}, removed {}, {} errors",
@@ -319,7 +323,7 @@ async fn index_single_file(
         .map_err(|e| e.to_string())
 }
 
-fn cleanup_stale(state: &VectorDbState) -> u32 {
+fn cleanup_stale(state: &VectorDbState, valid_paths: &std::collections::HashSet<String>) -> u32 {
     let conn = state.0.lock().unwrap();
     let paths: Vec<String> = {
         let mut stmt = conn.prepare("SELECT file_path FROM vectors").unwrap();
@@ -331,7 +335,8 @@ fn cleanup_stale(state: &VectorDbState) -> u32 {
 
     let mut removed = 0u32;
     for path in paths {
-        if !Path::new(&path).exists() {
+        // Remove if file no longer exists OR is no longer in the configured index dirs
+        if !Path::new(&path).exists() || !valid_paths.contains(&path) {
             conn.execute("DELETE FROM vectors WHERE file_path = ?1", [&path])
                 .ok();
             removed += 1;
@@ -486,7 +491,8 @@ mod tests {
         .unwrap();
 
         let state = VectorDbState(std::sync::Mutex::new(conn));
-        let removed = cleanup_stale(&state);
+        let valid: std::collections::HashSet<String> = std::collections::HashSet::new();
+        let removed = cleanup_stale(&state, &valid);
         assert_eq!(removed, 1);
 
         let conn = state.0.lock().unwrap();
@@ -527,7 +533,8 @@ mod tests {
         .unwrap();
 
         let state = VectorDbState(std::sync::Mutex::new(conn));
-        let removed = cleanup_stale(&state);
+        let valid: std::collections::HashSet<String> = [path_str].into_iter().collect();
+        let removed = cleanup_stale(&state, &valid);
         assert_eq!(removed, 0);
     }
 }
