@@ -60,14 +60,14 @@ fn load_desktop_entries() -> Vec<DesktopEntry> {
 
 fn parse_desktop_file(path: &PathBuf) -> Option<DesktopEntry> {
     let entry = parse_entry(path).ok()?;
-    let section = entry.section("Desktop Entry");
+    let section = entry.section("Desktop Entry")?;
 
-    let name = section.attr("Name")?.to_string();
-    let exec_raw = section.attr("Exec").unwrap_or("").to_string();
-    let icon = section.attr("Icon").unwrap_or("").to_string();
-    let comment = section.attr("Comment").unwrap_or("").to_string();
-    let no_display = section.attr("NoDisplay").unwrap_or("false") == "true";
-    let entry_type = section.attr("Type").unwrap_or("Application");
+    let name = section.attr("Name").first()?.to_string();
+    let exec_raw = section.attr("Exec").first().map(|s| s.as_str()).unwrap_or("").to_string();
+    let icon = section.attr("Icon").first().map(|s| s.as_str()).unwrap_or("").to_string();
+    let comment = section.attr("Comment").first().map(|s| s.as_str()).unwrap_or("").to_string();
+    let no_display = section.attr("NoDisplay").first().map(|s| s.as_str()).unwrap_or("false") == "true";
+    let entry_type = section.attr("Type").first().map(|s| s.as_str()).unwrap_or("Application");
 
     if entry_type != "Application" {
         return None;

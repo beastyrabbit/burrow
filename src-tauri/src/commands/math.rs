@@ -17,7 +17,7 @@ pub fn try_calculate(input: &str) -> Option<SearchResult> {
     }
 
     // evalexpr is a sandboxed math expression library (no code execution)
-    match evalexpr::build_operator_tree(trimmed)
+    match evalexpr::build_operator_tree::<evalexpr::DefaultNumericTypes>(trimmed)
         .and_then(|tree| tree.eval_with_context_mut(&mut evalexpr::HashMapContext::new()))
     {
         Ok(value) => Some(SearchResult {
