@@ -49,6 +49,11 @@ pub async fn health_check(app: tauri::AppHandle) -> Result<HealthStatus, String>
 }
 
 async fn check_ollama(url: &str) -> Result<(), String> {
+    if crate::actions::dry_run::is_enabled() {
+        eprintln!("[dry-run] check_ollama: {url}");
+        // Assume healthy in dry-run to avoid false alarms in tests
+        return Ok(());
+    }
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(3))
         .build()

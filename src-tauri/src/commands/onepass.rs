@@ -64,6 +64,10 @@ pub fn extract_item_id(exec: &str) -> Option<String> {
 
 /// Fetch a field value from a 1Password item.
 fn get_field(item_id: &str, field: &str, extra_args: &[&str]) -> Result<String, String> {
+    if crate::actions::dry_run::is_enabled() {
+        eprintln!("[dry-run] op get_field: {item_id} {field}");
+        return Err("dry-run: 1Password field lookup skipped".into());
+    }
     let mut cmd = Command::new("op");
     cmd.args(["item", "get", item_id, "--fields", field]);
     cmd.args(extra_args);
@@ -94,6 +98,11 @@ pub fn get_username(item_id: &str) -> Result<String, String> {
 
 pub async fn search_onepass(query: &str) -> Result<Vec<SearchResult>, String> {
     if query.is_empty() {
+        return Ok(vec![]);
+    }
+
+    if crate::actions::dry_run::is_enabled() {
+        eprintln!("[dry-run] search_onepass: {query}");
         return Ok(vec![]);
     }
 

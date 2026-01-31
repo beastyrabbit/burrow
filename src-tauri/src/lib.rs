@@ -48,6 +48,10 @@ async fn run_setting(action: String, app: tauri::AppHandle) -> Result<String, St
         }
         "config" => {
             let path = config::config_path();
+            if actions::dry_run::is_enabled() {
+                eprintln!("[dry-run] open config: {}", path.display());
+                return Ok(format!("[dry-run] Would open {}", path.display()));
+            }
             let editor = std::env::var("EDITOR").unwrap_or_else(|_| "xdg-open".into());
             let mut parts = editor.split_whitespace();
             let cmd = parts.next().unwrap_or("xdg-open");

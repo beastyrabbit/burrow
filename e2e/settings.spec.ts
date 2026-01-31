@@ -36,7 +36,7 @@ test.describe("Settings Actions", () => {
 
     // After executing a setting, should show a notification or clear
     // The mock returns a string response — check if notification bar appears
-    const notification = page.locator(".notification-bar");
+    const notification = page.locator(".notification");
     const count = await notification.count();
     if (count > 0) {
       await expect(notification).toBeVisible();
