@@ -48,7 +48,7 @@
 - Add Rust unit tests for any new backend logic (commands, parsing, search)
 - Add Playwright e2e tests for any new UI behavior
 - If a new provider is added, add tests for: empty query, matching query, no-match query, edge cases
-- Mock new Tauri commands in `src/mock-tauri.ts` so Playwright tests work without Tauri runtime
+- Playwright e2e tests start `pnpm tauri dev` automatically via `playwright.config.ts` webServer config (or you can run it manually)
 
 ## Configuration
 
@@ -81,7 +81,8 @@
 ## Architecture
 
 - **Stack:** Tauri v2 + React + TypeScript frontend, Rust backend
-- **Frontend mock:** `src/mock-tauri.ts` — aliases `@tauri-apps/api/core` when running outside Tauri (Vite alias in `vite.config.ts`). All Playwright tests run against this mock.
+- **HTTP bridge:** In debug builds, Tauri spawns an axum HTTP server on `127.0.0.1:3001` (`src-tauri/src/dev_server.rs`) exposing all commands as `POST /api/{cmd}` endpoints
+- **Frontend bridge client:** `src/mock-tauri.ts` — Vite aliases `@tauri-apps/api/core` to this file outside Tauri. It forwards `invoke()` calls to the HTTP bridge via `fetch()`. Playwright tests run against the real backend through this bridge.
 - **Routing:** Prefix-based input dispatch in `src-tauri/src/router.rs`
 - **Vector search:** SQLite brute-force cosine similarity (no HNSW needed at <100k vectors). Embeddings via Ollama HTTP API, stored as BLOBs in `~/.local/share/burrow/vectors.db`
 
@@ -90,8 +91,8 @@
 | Command | Purpose |
 |---------|---------|
 | `cd src-tauri && cargo test` | Run all Rust unit tests (254+ tests) |
-| `npx playwright test` | Run all e2e tests (63+ tests) |
-| `pnpm dev` | Start Vite dev server on :1420 (mock backend) |
+| `npx playwright test` | Run all e2e tests (starts `pnpm tauri dev` if needed) |
+| `pnpm dev` | Start Vite dev server on :1420 (needs HTTP bridge on :3001) |
 | `pnpm tauri dev` | Start full Tauri app (real backend) |
 | `pnpm build` | Build frontend for production |
 
@@ -103,10 +104,11 @@
 - `src-tauri/src/chat.rs` — OpenRouter AI chat client, RAG prompt building
 - `src-tauri/src/text_extract.rs` — Document text extraction (PDF, DOC via external LibreOffice, DOCX, XLSX, ODS, etc.)
 - `src-tauri/src/router.rs` — Input classification and dispatch
+- `src-tauri/src/dev_server.rs` — Axum HTTP bridge for browser/Playwright testing (debug builds only, `#[cfg(debug_assertions)]`)
 - `src/App.tsx` — Main UI component
 - `src-tauri/src/icons.rs` — Freedesktop icon name → base64 data URI resolution
 - `src/category-icons.tsx` — Lucide SVG icons for non-app result categories
-- `src/mock-tauri.ts` — Mock backend for browser-only testing
+- `src/mock-tauri.ts` — HTTP bridge client (forwards `invoke()` to axum server on :3001)
 - `e2e/` — Playwright e2e tests
 - `e2e/icons.spec.ts` — Icon rendering e2e tests
 - `playwright.config.ts` — Playwright configuration
@@ -128,6 +130,9 @@
 - Config uses `OnceLock` for thread-safe singleton; tests use `parse_config()` directly
 - Configure your Ollama instance URL and embedding model in `~/.config/burrow/config.toml`
 - When adding a new settings action: add `SettingDef` in `commands/settings.rs`, add match arm in `run_setting()` in `lib.rs`, update settings count in tests
+- When adding a new Tauri command: add route in `dev_server.rs` with request body struct, add to `generate_handler![]` in `lib.rs`
+- `dev_server.rs` endpoints mirror Tauri command signatures — each gets a Deserialize body struct and calls the same function
+- Playwright tests now run against real backend via HTTP bridge — no more mock data to maintain in `mock-tauri.ts`
 - Pre-commit hooks run rustfmt — always run `cargo fmt` before staging, or stage after the first failed commit attempt
 - Health indicator checks only core services (Ollama, vector DB), not optional features (API key) to avoid false alarms
 - `e2e/launcher.spec.ts`, `e2e/edge-cases.spec.ts`, and `e2e/icons.spec.ts` have hardcoded settings count — update when adding new settings

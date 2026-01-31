@@ -4,21 +4,16 @@ import path from "path";
 
 // @ts-expect-error process is a nodejs global
 const host = process.env.TAURI_DEV_HOST;
-// @ts-expect-error process is a nodejs global
-const isTauri = !!process.env.TAURI_ENV_PLATFORM;
-
 // https://vite.dev/config/
 export default defineConfig(async () => ({
   plugins: [react()],
   resolve: {
-    alias: isTauri
-      ? {}
-      : {
-          "@tauri-apps/api/core": path.resolve(
-            __dirname,
-            "src/mock-tauri.ts"
-          ),
-        },
+    alias: {
+      "@tauri-apps/api/core": path.resolve(
+        __dirname,
+        "src/mock-tauri.ts"
+      ),
+    },
   },
   clearScreen: false,
   server: {

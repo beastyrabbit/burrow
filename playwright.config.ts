@@ -9,10 +9,10 @@ export default defineConfig({
     headless: true,
   },
   webServer: {
-    command: "pnpm dev",
+    command: "pnpm tauri dev",
     port: 1420,
     reuseExistingServer: true,
-    timeout: 10000,
+    timeout: 60000,
   },
   projects: [
     {

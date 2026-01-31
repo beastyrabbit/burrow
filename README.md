@@ -31,7 +31,7 @@ pnpm install
 ## Development
 
 ```bash
-# Frontend only (mock backend, runs on :1420)
+# Frontend dev server (requires "pnpm tauri dev" for backend bridge on :3001)
 pnpm dev
 
 # Full Tauri app (real backend)
