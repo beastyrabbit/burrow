@@ -1,4 +1,4 @@
-use crate::commands::{apps, files, history, math, onepass, settings, special, ssh, vectors};
+use crate::commands::{apps, files, math, onepass, settings, special, ssh, vectors};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

@@ -256,6 +256,9 @@ pub fn launch_app(exec: String) -> Result<(), String> {
     if parts.is_empty() {
         return Err("Empty exec command".into());
     }
+    if crate::actions::dry_run::is_enabled() {
+        return crate::actions::dry_run::launch_app(&exec);
+    }
     Command::new(parts[0])
         .args(&parts[1..])
         .spawn()

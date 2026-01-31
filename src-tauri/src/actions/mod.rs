@@ -1,3 +1,4 @@
+pub mod dry_run;
 pub mod handlers;
 pub mod modifier;
 pub mod utils;

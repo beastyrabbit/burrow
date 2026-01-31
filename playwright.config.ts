@@ -13,6 +13,7 @@ export default defineConfig({
     port: 1420,
     reuseExistingServer: true,
     timeout: 60000,
+    env: { BURROW_DRY_RUN: "1" },
   },
   projects: [
     {

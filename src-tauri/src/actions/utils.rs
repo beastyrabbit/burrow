@@ -1,7 +1,11 @@
+use super::dry_run;
 use std::process::Command;
 
 /// Run a shell command string via `sh -c`.
 pub fn exec_shell(cmd: &str) -> Result<(), String> {
+    if dry_run::is_enabled() {
+        return dry_run::exec_shell(cmd);
+    }
     Command::new("sh")
         .arg("-c")
         .arg(cmd)
@@ -12,6 +16,9 @@ pub fn exec_shell(cmd: &str) -> Result<(), String> {
 
 /// Copy text to clipboard using wl-copy.
 pub fn copy_to_clipboard(text: &str) -> Result<(), String> {
+    if dry_run::is_enabled() {
+        return dry_run::copy_to_clipboard(text);
+    }
     Command::new("wl-copy")
         .arg("--")
         .arg(text)
@@ -22,6 +29,9 @@ pub fn copy_to_clipboard(text: &str) -> Result<(), String> {
 
 /// Type text via wtype (Wayland). Hides window first, sleeps 1s, then types.
 pub fn type_text_wayland(text: &str, app: &tauri::AppHandle) -> Result<(), String> {
+    if dry_run::is_enabled() {
+        return dry_run::type_text_wayland(text, app);
+    }
     hide_window(app);
 
     // Sleep 1s then type — run as a background process
@@ -41,6 +51,10 @@ pub fn get_terminal_cmd() -> String {
 
 /// Hide the Tauri window.
 pub fn hide_window(app: &tauri::AppHandle) {
+    if dry_run::is_enabled() {
+        dry_run::hide_window(app);
+        return;
+    }
     use tauri::Manager;
     if let Some(win) = app.get_webview_window("main") {
         let _ = win.hide();
@@ -49,6 +63,9 @@ pub fn hide_window(app: &tauri::AppHandle) {
 
 /// Open a path with xdg-open.
 pub fn xdg_open(path: &str) -> Result<(), String> {
+    if dry_run::is_enabled() {
+        return dry_run::xdg_open(path);
+    }
     Command::new("xdg-open")
         .arg(path)
         .spawn()
@@ -58,6 +75,9 @@ pub fn xdg_open(path: &str) -> Result<(), String> {
 
 /// Open a path's parent directory in the terminal.
 pub fn open_dir_in_terminal(path: &str) -> Result<(), String> {
+    if dry_run::is_enabled() {
+        return dry_run::open_dir_in_terminal(path);
+    }
     let dir = std::path::Path::new(path)
         .parent()
         .map(|p| p.to_string_lossy().to_string())
@@ -72,6 +92,9 @@ pub fn open_dir_in_terminal(path: &str) -> Result<(), String> {
 
 /// Open a path in VS Code.
 pub fn open_in_vscode(path: &str) -> Result<(), String> {
+    if dry_run::is_enabled() {
+        return dry_run::open_in_vscode(path);
+    }
     Command::new("code")
         .arg("--")
         .arg(path)
