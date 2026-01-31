@@ -65,6 +65,37 @@ pub fn get_frecent(app: &AppHandle) -> Result<Vec<SearchResult>, String> {
     query_frecent(&conn).map_err(|e| e.to_string())
 }
 
+/// Returns a map of app id → frecency score for all entries in the history DB.
+pub fn get_frecency_scores(
+    app: &AppHandle,
+) -> Result<std::collections::HashMap<String, f64>, String> {
+    let state = app.state::<DbState>();
+    let conn = state.0.lock().map_err(|e| e.to_string())?;
+    query_frecency_scores(&conn).map_err(|e| e.to_string())
+}
+
+fn query_frecency_scores(
+    conn: &Connection,
+) -> Result<std::collections::HashMap<String, f64>, rusqlite::Error> {
+    let mut stmt = conn.prepare(
+        "SELECT id, count * (1.0 / (1.0 + (julianday('now') - last_used))) AS score
+         FROM launches",
+    )?;
+    let map = stmt
+        .query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, f64>(1)?))
+        })?
+        .filter_map(|r| match r {
+            Ok(val) => Some(val),
+            Err(e) => {
+                eprintln!("Warning: skipping corrupted history row: {e}");
+                None
+            }
+        })
+        .collect();
+    Ok(map)
+}
+
 fn insert_launch(
     conn: &Connection,
     id: &str,
@@ -218,6 +249,25 @@ mod tests {
         }
         let results = query_frecent(&conn).unwrap();
         assert_eq!(results.len(), 10);
+    }
+
+    #[test]
+    fn frecency_scores_returns_all_entries() {
+        let conn = test_db();
+        insert_launch(&conn, "a", "App A", "a", "", "").unwrap();
+        insert_launch(&conn, "b", "App B", "b", "", "").unwrap();
+        let scores = query_frecency_scores(&conn).unwrap();
+        assert_eq!(scores.len(), 2);
+        assert!(scores.contains_key("a"));
+        assert!(scores.contains_key("b"));
+        assert!(*scores.get("a").unwrap() > 0.0);
+    }
+
+    #[test]
+    fn frecency_scores_empty_db() {
+        let conn = test_db();
+        let scores = query_frecency_scores(&conn).unwrap();
+        assert!(scores.is_empty());
     }
 
     #[test]

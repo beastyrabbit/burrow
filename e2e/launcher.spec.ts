@@ -327,6 +327,59 @@ test.describe("Launcher UI", () => {
     await expect(empty).toBeVisible();
   });
 
+  // --- All apps on empty query ---
+
+  test("empty query shows more than 10 items (all apps)", async ({ page }) => {
+    // On load, empty query should already show all apps
+    await page.waitForTimeout(200);
+    const items = page.locator(".result-item:not(.empty)");
+    const count = await items.count();
+    expect(count).toBeGreaterThan(10);
+  });
+
+  test("empty query shows history items first, then app items", async ({ page }) => {
+    await page.waitForTimeout(200);
+    const badges = page.locator(".result-badge");
+    const first = await badges.nth(0).textContent();
+    expect(first).toBe("Recent");
+    // Find first "App" badge
+    const count = await badges.count();
+    let foundAppAfterHistory = false;
+    let historyDone = false;
+    for (let i = 0; i < count; i++) {
+      const text = await badges.nth(i).textContent();
+      if (text === "App" && !historyDone) {
+        historyDone = true;
+        foundAppAfterHistory = true;
+      }
+      // No history items should appear after app items
+      if (historyDone && text === "Recent") {
+        foundAppAfterHistory = false;
+        break;
+      }
+    }
+    expect(foundAppAfterHistory).toBe(true);
+  });
+
+  test("keyboard navigation auto-scrolls selected item into view", async ({ page }) => {
+    await page.waitForTimeout(200);
+    const items = page.locator(".result-item:not(.empty)");
+    const count = await items.count();
+    expect(count).toBeGreaterThan(5);
+
+    // Press ArrowDown many times to go past visible area
+    for (let i = 0; i < count - 1; i++) {
+      await page.keyboard.press("ArrowDown");
+    }
+    await page.waitForTimeout(100);
+
+    // Last item should be selected and visible
+    const lastItem = items.nth(count - 1);
+    await expect(lastItem).toHaveClass(/selected/);
+    const isVisible = await lastItem.isVisible();
+    expect(isVisible).toBe(true);
+  });
+
   // --- Styling ---
 
   test("badge has correct styling", async ({ page }) => {

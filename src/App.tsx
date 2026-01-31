@@ -45,6 +45,7 @@ function App() {
   const [healthOk, setHealthOk] = useState(true);
   const notificationTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const listRef = useRef<HTMLUListElement>(null);
 
   const doSearch = useCallback(async (q: string) => {
     try {
@@ -83,6 +84,14 @@ function App() {
     const interval = setInterval(checkHealth, 30000);
     return () => clearInterval(interval);
   }, []);
+
+  // Auto-scroll selected item into view on keyboard navigation
+  useEffect(() => {
+    const list = listRef.current;
+    if (!list) return;
+    const child = list.children[selectedIndex] as HTMLElement | undefined;
+    child?.scrollIntoView({ block: "nearest" });
+  }, [selectedIndex]);
 
   const executeAction = useCallback(async (e: React.KeyboardEvent | null, itemOverride?: SearchResult) => {
     const item = itemOverride ?? results[selectedIndex];
@@ -224,7 +233,7 @@ function App() {
       {chatAnswer && !chatLoading && (
         <div className="chat-answer">{chatAnswer}</div>
       )}
-      <ul className="results-list">
+      <ul ref={listRef} className="results-list">
         {results.map((item, i) => (
           <li
             key={item.id}

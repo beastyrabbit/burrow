@@ -184,15 +184,65 @@ fn fuzzy_search(entries: &[DesktopEntry], query: &str) -> Vec<SearchResult> {
     scored
         .into_iter()
         .take(10)
-        .map(|(_, app)| SearchResult {
-            id: app.id.clone(),
-            name: app.name.clone(),
-            description: app.comment.clone(),
-            icon: icons::resolve_icon(&app.icon),
-            category: "app".into(),
-            exec: app.exec.clone(),
-        })
+        .map(|(_, app)| entry_to_result(app, "app"))
         .collect()
+}
+
+fn entry_to_result(entry: &DesktopEntry, category: &str) -> SearchResult {
+    SearchResult {
+        id: entry.id.clone(),
+        name: entry.name.clone(),
+        description: entry.comment.clone(),
+        icon: icons::resolve_icon(&entry.icon),
+        category: category.into(),
+        exec: entry.exec.clone(),
+    }
+}
+
+/// Sort apps: history entries by frecency score first, then remaining apps alphabetically.
+fn sort_apps_by_frecency(
+    apps: &[DesktopEntry],
+    scores: &std::collections::HashMap<String, f64>,
+) -> Vec<SearchResult> {
+    let mut with_history: Vec<(&DesktopEntry, f64)> = Vec::new();
+    let mut without_history: Vec<&DesktopEntry> = Vec::new();
+
+    for entry in apps {
+        if let Some(&score) = scores.get(&entry.id) {
+            with_history.push((entry, score));
+        } else {
+            without_history.push(entry);
+        }
+    }
+
+    with_history.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+    without_history.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+
+    let mut results: Vec<SearchResult> = with_history
+        .into_iter()
+        .map(|(entry, _)| entry_to_result(entry, "history"))
+        .collect();
+
+    results.extend(
+        without_history
+            .into_iter()
+            .map(|entry| entry_to_result(entry, "app")),
+    );
+
+    results
+}
+
+/// Returns all apps sorted by frecency (history first, then alphabetical).
+pub fn get_all_apps_with_frecency(app: &tauri::AppHandle) -> Result<Vec<SearchResult>, String> {
+    let apps = APP_CACHE.get().ok_or("App cache not initialized")?;
+    let scores = match super::history::get_frecency_scores(app) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("Warning: failed to load frecency scores, falling back to alphabetical: {e}");
+            std::collections::HashMap::new()
+        }
+    };
+    Ok(sort_apps_by_frecency(apps, &scores))
 }
 
 pub fn search_apps(query: &str) -> Result<Vec<SearchResult>, String> {
@@ -331,6 +381,61 @@ mod tests {
         // All should match; exact shorter match should score higher
         assert!(results.len() >= 2);
         // First result should be the best match
+    }
+
+    // --- sort_apps_by_frecency ---
+
+    #[test]
+    fn all_apps_history_items_come_first() {
+        use std::collections::HashMap;
+        let apps = vec![
+            make_entry("zz", "Zzz App", "zzz"),
+            make_entry("ff", "Firefox", "firefox"),
+            make_entry("aa", "Alpha", "alpha"),
+        ];
+        let mut scores = HashMap::new();
+        scores.insert("ff".to_string(), 5.0);
+
+        let results = sort_apps_by_frecency(&apps, &scores);
+        let names: Vec<&str> = results.iter().map(|r| r.name.as_str()).collect();
+        assert_eq!(names, vec!["Firefox", "Alpha", "Zzz App"]);
+        assert_eq!(results[0].category, "history");
+        assert_eq!(results[1].category, "app");
+    }
+
+    #[test]
+    fn all_apps_no_history_sorted_alphabetically() {
+        use std::collections::HashMap;
+        let apps = vec![
+            make_entry("zz", "Zzz", "z"),
+            make_entry("aa", "Alpha", "a"),
+            make_entry("mm", "Middle", "m"),
+        ];
+        let scores = HashMap::new();
+
+        let results = sort_apps_by_frecency(&apps, &scores);
+        let names: Vec<&str> = results.iter().map(|r| r.name.as_str()).collect();
+        assert_eq!(names, vec!["Alpha", "Middle", "Zzz"]);
+        assert!(results.iter().all(|r| r.category == "app"));
+    }
+
+    #[test]
+    fn all_apps_history_sorted_by_score_desc() {
+        use std::collections::HashMap;
+        let apps = vec![
+            make_entry("a", "App A", "a"),
+            make_entry("b", "App B", "b"),
+            make_entry("c", "App C", "c"),
+        ];
+        let mut scores = HashMap::new();
+        scores.insert("a".to_string(), 1.0);
+        scores.insert("b".to_string(), 10.0);
+        scores.insert("c".to_string(), 5.0);
+
+        let results = sort_apps_by_frecency(&apps, &scores);
+        let names: Vec<&str> = results.iter().map(|r| r.name.as_str()).collect();
+        assert_eq!(names, vec!["App B", "App C", "App A"]);
+        assert!(results.iter().all(|r| r.category == "history"));
     }
 
     // --- launch_app ---
