@@ -166,6 +166,7 @@ function App() {
       chat: "Chat",
       info: "Info",
       action: "Action",
+      special: "Special",
     };
     return labels[cat] || cat;
   };

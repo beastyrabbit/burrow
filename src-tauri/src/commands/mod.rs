@@ -6,5 +6,6 @@ pub mod history;
 pub mod math;
 pub mod onepass;
 pub mod settings;
+pub mod special;
 pub mod ssh;
 pub mod vectors;

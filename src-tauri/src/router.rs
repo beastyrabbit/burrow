@@ -1,4 +1,4 @@
-use crate::commands::{apps, files, history, math, onepass, settings, ssh, vectors};
+use crate::commands::{apps, files, history, math, onepass, settings, special, ssh, vectors};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -24,12 +24,17 @@ pub enum RouteKind {
     Math,
     Settings,
     Chat,
+    Special,
 }
 
 #[allow(dead_code)]
 pub fn classify_query(query: &str) -> RouteKind {
     if query.is_empty() {
         return RouteKind::History;
+    }
+
+    if query.starts_with('#') {
+        return RouteKind::Special;
     }
 
     if query.starts_with('?') {
@@ -67,6 +72,11 @@ pub fn classify_query(query: &str) -> RouteKind {
 pub async fn search(query: String, app: tauri::AppHandle) -> Result<Vec<SearchResult>, String> {
     if query.is_empty() {
         return history::get_frecent(&app).map_err(|e| e.to_string());
+    }
+
+    if query.starts_with('#') {
+        let q = query.trim_start_matches('#').trim();
+        return special::search_special(q);
     }
 
     if query.starts_with('?') {
@@ -226,5 +236,15 @@ mod tests {
     #[test]
     fn question_mark_alone_routes_to_chat() {
         assert_eq!(classify_query("?"), RouteKind::Chat);
+    }
+
+    #[test]
+    fn hash_prefix_routes_to_special() {
+        assert_eq!(classify_query("#cowork"), RouteKind::Special);
+    }
+
+    #[test]
+    fn hash_alone_routes_to_special() {
+        assert_eq!(classify_query("#"), RouteKind::Special);
     }
 }
