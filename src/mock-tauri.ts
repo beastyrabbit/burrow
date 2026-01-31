@@ -23,7 +23,7 @@ function mockSearch(args: Record<string, unknown>): SearchResult[] {
         id: "firefox",
         name: "Firefox",
         description: "Web Browser",
-        icon: "firefox",
+        icon: "",
         category: "history",
         exec: "firefox",
       },
@@ -31,7 +31,7 @@ function mockSearch(args: Record<string, unknown>): SearchResult[] {
         id: "kitty",
         name: "Kitty",
         description: "Terminal Emulator",
-        icon: "kitty",
+        icon: "",
         category: "history",
         exec: "kitty",
       },
@@ -192,33 +192,33 @@ function mockSearch(args: Record<string, unknown>): SearchResult[] {
     }
   }
 
-  // App search mock
+  // App search mock — mirrors real desktop entries found on typical Linux systems
   const apps = [
     { id: "firefox", name: "Firefox", desc: "Web Browser", exec: "firefox" },
-    {
-      id: "chromium",
-      name: "Chromium",
-      desc: "Web Browser",
-      exec: "chromium",
-    },
-    { id: "kitty", name: "Kitty", desc: "Terminal", exec: "kitty" },
+    { id: "google-chrome", name: "Google Chrome", desc: "Web Browser", exec: "google-chrome-stable" },
+    { id: "chromium", name: "Chromium", desc: "Web Browser", exec: "chromium" },
+    { id: "kitty", name: "Kitty", desc: "Terminal Emulator", exec: "kitty" },
     { id: "code", name: "VS Code", desc: "Code Editor", exec: "code" },
-    {
-      id: "nautilus",
-      name: "Files",
-      desc: "File Manager",
-      exec: "nautilus",
-    },
+    { id: "jetbrains-pycharm", name: "PyCharm", desc: "Python IDE", exec: "pycharm" },
+    { id: "jetbrains-idea", name: "IntelliJ IDEA", desc: "Java IDE", exec: "idea" },
+    { id: "1password", name: "1Password", desc: "Password Manager", exec: "1password" },
+    { id: "nautilus", name: "Files", desc: "File Manager", exec: "nautilus" },
+    { id: "spotify", name: "Spotify", desc: "Music Player", exec: "spotify" },
+    { id: "slack", name: "Slack", desc: "Team Messaging", exec: "slack" },
+    { id: "discord", name: "Discord", desc: "Voice & Text Chat", exec: "discord" },
+    { id: "obsidian", name: "Obsidian", desc: "Knowledge Base", exec: "obsidian" },
+    { id: "thunar", name: "Thunar", desc: "File Manager", exec: "thunar" },
+    { id: "org.gnome.Calculator", name: "Calculator", desc: "GNOME Calculator", exec: "gnome-calculator" },
   ];
 
   const q = query.toLowerCase();
   return apps
-    .filter((a) => a.name.toLowerCase().includes(q))
+    .filter((a) => a.name.toLowerCase().includes(q) || a.id.toLowerCase().includes(q))
     .map((a) => ({
       id: a.id,
       name: a.name,
       description: a.desc,
-      icon: a.id,
+      icon: "", // mock mode has no backend icon resolution; category fallback shows
       category: "app",
       exec: a.exec,
     }));

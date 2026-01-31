@@ -2,6 +2,7 @@ pub mod actions;
 pub(crate) mod chat;
 pub mod commands;
 pub mod config;
+pub mod icons;
 pub mod indexer;
 pub mod ollama;
 pub mod router;

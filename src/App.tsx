@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { parseModifier } from "./types";
+import { CategoryIcon } from "./category-icons";
 import "./styles.css";
 
 interface SearchResult {
@@ -10,6 +11,28 @@ interface SearchResult {
   icon: string;
   category: string;
   exec: string;
+}
+
+function ResultIcon({ icon, category }: { icon: string; category: string }) {
+  const [broken, setBroken] = useState(false);
+  useEffect(() => {
+    setBroken(false);
+  }, [icon]);
+  if (!icon || broken) {
+    return (
+      <div className="result-icon-placeholder">
+        <CategoryIcon category={category} />
+      </div>
+    );
+  }
+  return (
+    <img
+      className="result-icon"
+      src={icon}
+      alt=""
+      onError={() => { console.warn(`[ResultIcon] failed to load icon for category="${category}"`); setBroken(true); }}
+    />
+  );
 }
 
 function App() {
@@ -209,6 +232,7 @@ function App() {
             onMouseEnter={() => setSelectedIndex(i)}
             onClick={() => executeAction(null, item)}
           >
+            <ResultIcon icon={item.icon} category={item.category} />
             <div className="result-content">
               <span className="result-name">{item.name}</span>
               {item.description && (

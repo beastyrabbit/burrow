@@ -4,6 +4,26 @@
 
 **NEVER commit code that hasn't been tested. This is non-negotiable.**
 
+### TESTS FIRST — No Exceptions
+
+**ALWAYS write failing tests BEFORE writing implementation code. This is TDD and it is mandatory.**
+
+1. Write the test that describes the expected behavior
+2. Run it — confirm it fails
+3. Write the minimum implementation to make it pass
+4. Run it — confirm it passes
+5. Only then move to the next piece of functionality
+
+**Never write implementation code without a corresponding test already existing.** If you catch yourself writing implementation first, STOP, delete it, and write the test first.
+
+**Tests must be thorough and informative:**
+- Test the FULL pipeline, not just individual functions in isolation
+- Use REAL system data (installed apps, real files) — not fake/mock inputs
+- Assert on the actual output format the consumer will receive (e.g., if the frontend needs a data URI, assert on data URI — not on intermediate file paths)
+- Include descriptive failure messages that show what went wrong: `assert!(result.starts_with("data:"), "expected data URI, got: {result}")`
+- Set minimum thresholds (e.g., "at least 3 of 6 known apps must resolve") to catch silent regressions
+- When a test passes but the feature doesn't work, the test is wrong — write a better test that would have caught the real issue
+
 ### Before Every Commit
 
 1. **Run Rust unit tests:**
@@ -69,8 +89,8 @@
 
 | Command | Purpose |
 |---------|---------|
-| `cd src-tauri && cargo test` | Run all Rust unit tests (236 tests) |
-| `npx playwright test` | Run all e2e tests (52 tests) |
+| `cd src-tauri && cargo test` | Run all Rust unit tests (254+ tests) |
+| `npx playwright test` | Run all e2e tests (63+ tests) |
 | `pnpm dev` | Start Vite dev server on :1420 (mock backend) |
 | `pnpm tauri dev` | Start full Tauri app (real backend) |
 | `pnpm build` | Build frontend for production |
@@ -84,8 +104,11 @@
 - `src-tauri/src/text_extract.rs` — Document text extraction (PDF, DOC via external LibreOffice, DOCX, XLSX, ODS, etc.)
 - `src-tauri/src/router.rs` — Input classification and dispatch
 - `src/App.tsx` — Main UI component
+- `src-tauri/src/icons.rs` — Freedesktop icon name → base64 data URI resolution
+- `src/category-icons.tsx` — Lucide SVG icons for non-app result categories
 - `src/mock-tauri.ts` — Mock backend for browser-only testing
 - `e2e/` — Playwright e2e tests
+- `e2e/icons.spec.ts` — Icon rendering e2e tests
 - `playwright.config.ts` — Playwright configuration
 
 ## Data Storage
@@ -107,11 +130,18 @@
 - When adding a new settings action: add `SettingDef` in `commands/settings.rs`, add match arm in `run_setting()` in `lib.rs`, update settings count in tests
 - Pre-commit hooks run rustfmt — always run `cargo fmt` before staging, or stage after the first failed commit attempt
 - Health indicator checks only core services (Ollama, vector DB), not optional features (API key) to avoid false alarms
-- `e2e/launcher.spec.ts` and `e2e/edge-cases.spec.ts` have hardcoded settings count — update when adding new settings
+- `e2e/launcher.spec.ts`, `e2e/edge-cases.spec.ts`, and `e2e/icons.spec.ts` have hardcoded settings count — update when adding new settings
 - Ollama server defaults to `localhost:11434` — existing user configs override all defaults
 - When new config keys are added, regenerate config (`rm ~/.config/burrow/config.toml`) or manually add new keys
 - When defaults change (values only), existing configs continue working with their current values
 - External tool extraction (e.g. LibreOffice for `.doc`) uses `spawn` + `wait-timeout` crate for timeout enforcement — never use blocking `Command::output()` for external processes that may hang
+- Icons use base64 data URIs (`data:image/png;base64,...`) — NOT Tauri asset protocol. Asset protocol scope/CSP is unreliable; data URIs work everywhere.
+- Desktop entry dedup: `load_desktop_entries()` uses `HashSet<id>` to prevent duplicates from overlapping dirs (XDG_DATA_DIRS, flatpak, snap)
+- `cargo build` may silently skip recompilation after Edit tool changes — use `touch <file> && cargo build` to force recompile
+- `pnpm tauri dev` requires port 1420 free — kill stale processes with `lsof -ti:1420 | xargs kill -9` before restart
+- `tauri.conf.json` changes require full `tauri dev` restart (not just HMR)
+- Known pre-existing bug: `pdf-extract` crate panics on some PDFs (`unwrap()` on `None` at lib.rs:1383`) — can crash the Tauri process
+- Flatpak/Snap app dirs are already in `XDG_DATA_DIRS` on this system — adding them again in `desktop_dirs()` causes duplicates without dedup
 - GitHub repo owner is `beastyrabbit` (not `beasty`)
 - CodeRabbit is incremental — it won't re-review already-reviewed commits. Post `@coderabbitai review` comment on PR to trigger review of latest push.
 
