@@ -38,6 +38,21 @@ function mockSearch(args: Record<string, unknown>): SearchResult[] {
     ];
   }
 
+  if (query.startsWith("#")) {
+    const q = query.slice(1).trim().toLowerCase();
+    const specials = [
+      {
+        id: "special-cowork",
+        name: "cowork",
+        description: "Open kitty in ~/cowork and run cc",
+        icon: "",
+        category: "special" as const,
+        exec: "kitty sh -c 'cd ~/cowork && cc'",
+      },
+    ];
+    return specials.filter((s) => !q || s.name.includes(q));
+  }
+
   if (query.startsWith("?")) {
     const q = query.slice(1).trim();
     if (!q) {

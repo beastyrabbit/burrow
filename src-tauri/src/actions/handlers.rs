@@ -7,7 +7,16 @@ use crate::router::SearchResult;
 pub fn is_valid_category(category: &str) -> bool {
     matches!(
         category,
-        "onepass" | "file" | "vector" | "app" | "history" | "ssh" | "math" | "action" | "info"
+        "onepass"
+            | "file"
+            | "vector"
+            | "app"
+            | "history"
+            | "ssh"
+            | "math"
+            | "action"
+            | "info"
+            | "special"
     )
 }
 
@@ -19,7 +28,7 @@ pub fn handle_action(
     match result.category.as_str() {
         "onepass" => handle_onepass(result, modifier, app),
         "file" | "vector" => handle_file(result, modifier, app),
-        "app" | "history" => handle_launch(result, app),
+        "app" | "history" | "special" => handle_launch(result, app),
         "ssh" => handle_ssh(result, modifier),
         "math" => handle_math(result, modifier),
         "action" => Ok(()), // Defensive no-op: frontend dispatches via run_setting
@@ -170,6 +179,7 @@ mod tests {
     fn all_known_categories_are_valid() {
         for cat in &[
             "onepass", "file", "vector", "app", "history", "ssh", "math", "action", "info",
+            "special",
         ] {
             assert!(is_valid_category(cat), "{cat} should be valid");
         }
