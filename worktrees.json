@@ -1,5 +1,5 @@
 {
   "setup-worktree": [
-    "ln -sfn \"$ROOT_WORKTREE_PATH/examples\" examples"
+    "cp -r \"$ROOT_WORKTREE_PATH/examples\" examples"
   ]
 }
