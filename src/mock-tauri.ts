@@ -19,22 +19,24 @@ function mockSearch(args: Record<string, unknown>): SearchResult[] {
 
   if (query === "") {
     return [
-      {
-        id: "firefox",
-        name: "Firefox",
-        description: "Web Browser",
-        icon: "",
-        category: "history",
-        exec: "firefox",
-      },
-      {
-        id: "kitty",
-        name: "Kitty",
-        description: "Terminal Emulator",
-        icon: "",
-        category: "history",
-        exec: "kitty",
-      },
+      // History (frecent) items first
+      { id: "firefox", name: "Firefox", description: "Web Browser", icon: "firefox", category: "history", exec: "firefox" },
+      { id: "kitty", name: "Kitty", description: "Terminal Emulator", icon: "kitty", category: "history", exec: "kitty" },
+      { id: "code", name: "VS Code", description: "Code Editor", icon: "code", category: "history", exec: "code" },
+      // Alphabetical apps without history
+      { id: "blender", name: "Blender", description: "3D Modelling", icon: "blender", category: "app", exec: "blender" },
+      { id: "chromium", name: "Chromium", description: "Web Browser", icon: "chromium", category: "app", exec: "chromium" },
+      { id: "discord", name: "Discord", description: "Chat App", icon: "discord", category: "app", exec: "discord" },
+      { id: "evince", name: "Evince", description: "Document Viewer", icon: "evince", category: "app", exec: "evince" },
+      { id: "nautilus", name: "Files", description: "File Manager", icon: "nautilus", category: "app", exec: "nautilus" },
+      { id: "gimp", name: "GIMP", description: "Image Editor", icon: "gimp", category: "app", exec: "gimp" },
+      { id: "inkscape", name: "Inkscape", description: "Vector Graphics", icon: "inkscape", category: "app", exec: "inkscape" },
+      { id: "libreoffice", name: "LibreOffice", description: "Office Suite", icon: "libreoffice", category: "app", exec: "libreoffice" },
+      { id: "mpv", name: "mpv", description: "Media Player", icon: "mpv", category: "app", exec: "mpv" },
+      { id: "obs", name: "OBS Studio", description: "Screen Recording", icon: "obs", category: "app", exec: "obs" },
+      { id: "steam", name: "Steam", description: "Game Launcher", icon: "steam", category: "app", exec: "steam" },
+      { id: "thunar", name: "Thunar", description: "File Manager", icon: "thunar", category: "app", exec: "thunar" },
+      { id: "vlc", name: "VLC", description: "Media Player", icon: "vlc", category: "app", exec: "vlc" },
     ];
   }
 

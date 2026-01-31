@@ -71,7 +71,7 @@ pub fn classify_query(query: &str) -> RouteKind {
 #[tauri::command]
 pub async fn search(query: String, app: tauri::AppHandle) -> Result<Vec<SearchResult>, String> {
     if query.is_empty() {
-        return history::get_frecent(&app).map_err(|e| e.to_string());
+        return apps::get_all_apps_with_frecency(&app);
     }
 
     if query.starts_with('#') {
