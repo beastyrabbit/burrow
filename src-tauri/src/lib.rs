@@ -141,6 +141,43 @@ pub fn run() {
     config::init_config();
 
     tauri::Builder::default()
+        // When a second instance is launched (e.g. `burrow toggle` from a keybinding),
+        // toggle or focus the existing window instead of opening a duplicate.
+        .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+            match app.get_webview_window("main") {
+                Some(win) => {
+                    if args.iter().any(|a| a == "toggle") {
+                        let visible = win.is_visible().unwrap_or_else(|e| {
+                            eprintln!("[single-instance] failed to check visibility: {e}");
+                            false
+                        });
+                        if visible {
+                            if let Err(e) = win.hide() {
+                                eprintln!("[single-instance] failed to hide window: {e}");
+                            }
+                        } else {
+                            if let Err(e) = win.show() {
+                                eprintln!("[single-instance] failed to show window: {e}");
+                            }
+                            if let Err(e) = win.set_focus() {
+                                eprintln!("[single-instance] failed to set focus: {e}");
+                            }
+                        }
+                    } else {
+                        // Plain `burrow` invocation — bring existing instance to front
+                        if let Err(e) = win.show() {
+                            eprintln!("[single-instance] failed to show window: {e}");
+                        }
+                        if let Err(e) = win.set_focus() {
+                            eprintln!("[single-instance] failed to set focus: {e}");
+                        }
+                    }
+                }
+                None => {
+                    eprintln!("[single-instance] main window not found, cannot toggle");
+                }
+            }
+        }))
         .setup(|app| {
             history::init_db(app.handle())?;
             vectors::init_vector_db(app.handle())?;
