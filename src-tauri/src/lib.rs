@@ -13,6 +13,14 @@ mod text_extract;
 use commands::{apps, history, vectors};
 use tauri::Manager;
 
+fn format_config_action(path: &std::path::Path, dry_run: bool) -> String {
+    if dry_run {
+        format!("[dry-run] Would open {}", path.display())
+    } else {
+        format!("Opened {}", path.display())
+    }
+}
+
 #[tauri::command]
 async fn run_setting(action: String, app: tauri::AppHandle) -> Result<String, String> {
     match action.as_str() {
@@ -50,7 +58,7 @@ async fn run_setting(action: String, app: tauri::AppHandle) -> Result<String, St
             let path = config::config_path();
             if actions::dry_run::is_enabled() {
                 eprintln!("[dry-run] open config: {}", path.display());
-                return Ok(format!("[dry-run] Would open {}", path.display()));
+                return Ok(format_config_action(&path, true));
             }
             let editor = std::env::var("EDITOR").unwrap_or_else(|_| "xdg-open".into());
             let mut parts = editor.split_whitespace();
@@ -61,7 +69,7 @@ async fn run_setting(action: String, app: tauri::AppHandle) -> Result<String, St
                 .arg(&path)
                 .spawn()
                 .map_err(|e| format!("Failed to open config: {e}"))?;
-            Ok(format!("Opened {}", path.display()))
+            Ok(format_config_action(&path, false))
         }
         "stats" => {
             let vector_state = app.state::<vectors::VectorDbState>();
@@ -199,4 +207,30 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn format_config_action_dry_run() {
+        let path = std::path::Path::new("/tmp/config.toml");
+        let msg = format_config_action(path, true);
+        assert!(
+            msg.contains("[dry-run]"),
+            "expected dry-run marker, got: {msg}"
+        );
+        assert!(
+            msg.contains("/tmp/config.toml"),
+            "expected path in message, got: {msg}"
+        );
+    }
+
+    #[test]
+    fn format_config_action_normal() {
+        let path = std::path::Path::new("/home/user/.config/burrow/config.toml");
+        let msg = format_config_action(path, false);
+        assert_eq!(msg, "Opened /home/user/.config/burrow/config.toml");
+    }
 }

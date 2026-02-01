@@ -66,6 +66,28 @@ pub fn classify_query(query: &str) -> RouteKind {
     RouteKind::App
 }
 
+fn build_chat_results(q: &str) -> Vec<SearchResult> {
+    if q.is_empty() {
+        vec![SearchResult {
+            id: "chat-hint".into(),
+            name: "Type a question after ?".into(),
+            description: "Press Enter to ask AI".into(),
+            icon: "".into(),
+            category: "info".into(),
+            exec: "".into(),
+        }]
+    } else {
+        vec![SearchResult {
+            id: "chat-ask".into(),
+            name: format!("Ask: {q}"),
+            description: "Press Enter to get an AI answer".into(),
+            icon: "".into(),
+            category: "chat".into(),
+            exec: "".into(),
+        }]
+    }
+}
+
 #[tauri::command]
 pub async fn search(query: String, app: tauri::AppHandle) -> Result<Vec<SearchResult>, String> {
     match classify_query(&query) {
@@ -76,25 +98,7 @@ pub async fn search(query: String, app: tauri::AppHandle) -> Result<Vec<SearchRe
         }
         RouteKind::Chat => {
             let q = query.trim_start_matches('?').trim();
-            if q.is_empty() {
-                Ok(vec![SearchResult {
-                    id: "chat-hint".into(),
-                    name: "Type a question after ?".into(),
-                    description: "Press Enter to ask AI".into(),
-                    icon: "".into(),
-                    category: "info".into(),
-                    exec: "".into(),
-                }])
-            } else {
-                Ok(vec![SearchResult {
-                    id: "chat-ask".into(),
-                    name: format!("Ask: {q}"),
-                    description: "Press Enter to get an AI answer".into(),
-                    icon: "".into(),
-                    category: "chat".into(),
-                    exec: "".into(),
-                }])
-            }
+            Ok(build_chat_results(q))
         }
         RouteKind::Settings => {
             let cmd = query.trim_start_matches(':').trim();
@@ -242,5 +246,44 @@ mod tests {
     #[test]
     fn hash_alone_routes_to_special() {
         assert_eq!(classify_query("#"), RouteKind::Special);
+    }
+
+    // --- build_chat_results ---
+
+    #[test]
+    fn chat_results_empty_query_returns_hint() {
+        let results = build_chat_results("");
+        assert_eq!(
+            results.len(),
+            1,
+            "expected one hint result, got: {}",
+            results.len()
+        );
+        assert_eq!(
+            results[0].id, "chat-hint",
+            "expected chat-hint id, got: {}",
+            results[0].id
+        );
+    }
+
+    #[test]
+    fn chat_results_non_empty_query_returns_ask() {
+        let results = build_chat_results("hello");
+        assert_eq!(
+            results.len(),
+            1,
+            "expected one ask result, got: {}",
+            results.len()
+        );
+        assert_eq!(
+            results[0].id, "chat-ask",
+            "expected chat-ask id, got: {}",
+            results[0].id
+        );
+        assert!(
+            results[0].name.contains("hello"),
+            "expected name to contain query, got: {}",
+            results[0].name
+        );
     }
 }
