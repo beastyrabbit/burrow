@@ -13,6 +13,14 @@ struct EmbeddingResponse {
 }
 
 pub async fn generate_embedding(text: &str) -> Result<Vec<f32>, String> {
+    if crate::actions::dry_run::is_enabled() {
+        eprintln!(
+            "[dry-run] generate_embedding: {}",
+            crate::actions::dry_run::truncate(text, 80)
+        );
+        // Return Err to prevent callers from storing empty/fake embeddings
+        return Err("dry-run: embedding skipped".into());
+    }
     let cfg = config::get_config();
     let url = format!("{}/api/embed", cfg.ollama.url);
 

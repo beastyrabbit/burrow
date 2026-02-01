@@ -15,6 +15,14 @@ pub async fn generate_answer(
     query: &str,
     context_snippets: &[ContextSnippet],
 ) -> Result<String, String> {
+    if crate::actions::dry_run::is_enabled() {
+        eprintln!(
+            "[dry-run] generate_answer: {}",
+            crate::actions::dry_run::truncate(query, 80)
+        );
+        return Ok("[dry-run] Chat disabled during testing".into());
+    }
+
     let cfg = config::get_config();
 
     if cfg.openrouter.api_key.is_empty() {

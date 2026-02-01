@@ -13,6 +13,14 @@ mod text_extract;
 use commands::{apps, history, vectors};
 use tauri::Manager;
 
+fn format_config_action(path: &std::path::Path, dry_run: bool) -> String {
+    if dry_run {
+        format!("[dry-run] Would open {}", path.display())
+    } else {
+        format!("Opened {}", path.display())
+    }
+}
+
 #[tauri::command]
 async fn run_setting(action: String, app: tauri::AppHandle) -> Result<String, String> {
     match action.as_str() {
@@ -48,6 +56,10 @@ async fn run_setting(action: String, app: tauri::AppHandle) -> Result<String, St
         }
         "config" => {
             let path = config::config_path();
+            if actions::dry_run::is_enabled() {
+                eprintln!("[dry-run] open config: {}", path.display());
+                return Ok(format_config_action(&path, true));
+            }
             let editor = std::env::var("EDITOR").unwrap_or_else(|_| "xdg-open".into());
             let mut parts = editor.split_whitespace();
             let cmd = parts.next().unwrap_or("xdg-open");
@@ -57,7 +69,7 @@ async fn run_setting(action: String, app: tauri::AppHandle) -> Result<String, St
                 .arg(&path)
                 .spawn()
                 .map_err(|e| format!("Failed to open config: {e}"))?;
-            Ok(format!("Opened {}", path.display()))
+            Ok(format_config_action(&path, false))
         }
         "stats" => {
             let vector_state = app.state::<vectors::VectorDbState>();
@@ -137,6 +149,43 @@ pub fn run() {
     config::init_config();
 
     tauri::Builder::default()
+        // When a second instance is launched (e.g. `burrow toggle` from a keybinding),
+        // toggle or focus the existing window instead of opening a duplicate.
+        .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+            match app.get_webview_window("main") {
+                Some(win) => {
+                    if args.iter().any(|a| a == "toggle") {
+                        let visible = win.is_visible().unwrap_or_else(|e| {
+                            eprintln!("[single-instance] failed to check visibility: {e}");
+                            false
+                        });
+                        if visible {
+                            if let Err(e) = win.hide() {
+                                eprintln!("[single-instance] failed to hide window: {e}");
+                            }
+                        } else {
+                            if let Err(e) = win.show() {
+                                eprintln!("[single-instance] failed to show window: {e}");
+                            }
+                            if let Err(e) = win.set_focus() {
+                                eprintln!("[single-instance] failed to set focus: {e}");
+                            }
+                        }
+                    } else {
+                        // Plain `burrow` invocation — bring existing instance to front
+                        if let Err(e) = win.show() {
+                            eprintln!("[single-instance] failed to show window: {e}");
+                        }
+                        if let Err(e) = win.set_focus() {
+                            eprintln!("[single-instance] failed to set focus: {e}");
+                        }
+                    }
+                }
+                None => {
+                    eprintln!("[single-instance] main window not found, cannot toggle");
+                }
+            }
+        }))
         .setup(|app| {
             history::init_db(app.handle())?;
             vectors::init_vector_db(app.handle())?;
@@ -158,4 +207,30 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn format_config_action_dry_run() {
+        let path = std::path::Path::new("/tmp/config.toml");
+        let msg = format_config_action(path, true);
+        assert!(
+            msg.contains("[dry-run]"),
+            "expected dry-run marker, got: {msg}"
+        );
+        assert!(
+            msg.contains("/tmp/config.toml"),
+            "expected path in message, got: {msg}"
+        );
+    }
+
+    #[test]
+    fn format_config_action_normal() {
+        let path = std::path::Path::new("/home/user/.config/burrow/config.toml");
+        let msg = format_config_action(path, false);
+        assert_eq!(msg, "Opened /home/user/.config/burrow/config.toml");
+    }
 }

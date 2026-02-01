@@ -13,7 +13,6 @@ pub struct SearchResult {
 
 /// Determines which provider should handle a given query.
 #[derive(Debug, PartialEq)]
-#[allow(dead_code)]
 pub enum RouteKind {
     History,
     App,
@@ -27,7 +26,6 @@ pub enum RouteKind {
     Special,
 }
 
-#[allow(dead_code)]
 pub fn classify_query(query: &str) -> RouteKind {
     if query.is_empty() {
         return RouteKind::History;
@@ -68,71 +66,73 @@ pub fn classify_query(query: &str) -> RouteKind {
     RouteKind::App
 }
 
-#[tauri::command]
-pub async fn search(query: String, app: tauri::AppHandle) -> Result<Vec<SearchResult>, String> {
-    if query.is_empty() {
-        return apps::get_all_apps_with_frecency(&app);
-    }
-
-    if query.starts_with('#') {
-        let q = query.trim_start_matches('#').trim();
-        return special::search_special(q);
-    }
-
-    if query.starts_with('?') {
-        let q = query.trim_start_matches('?').trim();
-        if q.is_empty() {
-            return Ok(vec![SearchResult {
-                id: "chat-hint".into(),
-                name: "Type a question after ?".into(),
-                description: "Press Enter to ask AI".into(),
-                icon: "".into(),
-                category: "info".into(),
-                exec: "".into(),
-            }]);
-        }
-        return Ok(vec![SearchResult {
+fn build_chat_results(q: &str) -> Vec<SearchResult> {
+    if q.is_empty() {
+        vec![SearchResult {
+            id: "chat-hint".into(),
+            name: "Type a question after ?".into(),
+            description: "Press Enter to ask AI".into(),
+            icon: "".into(),
+            category: "info".into(),
+            exec: "".into(),
+        }]
+    } else {
+        vec![SearchResult {
             id: "chat-ask".into(),
             name: format!("Ask: {q}"),
             description: "Press Enter to get an AI answer".into(),
             icon: "".into(),
             category: "chat".into(),
             exec: "".into(),
-        }]);
+        }]
     }
+}
 
-    if query.starts_with(':') {
-        let cmd = query.trim_start_matches(':').trim();
-        return settings::search_settings(cmd);
-    }
-
-    if query.starts_with(' ') {
-        let q = query.trim_start();
-        if q.starts_with('*') {
-            let content_query = q.trim_start_matches('*').trim();
-            if content_query.is_empty() {
-                return Ok(vec![]);
-            }
-            return vectors::search_by_content(content_query, &app).await;
+#[tauri::command]
+pub async fn search(query: String, app: tauri::AppHandle) -> Result<Vec<SearchResult>, String> {
+    match classify_query(&query) {
+        RouteKind::History => apps::get_all_apps_with_frecency(&app),
+        RouteKind::Special => {
+            let q = query.trim_start_matches('#').trim();
+            special::search_special(q)
         }
-        return files::search_files(q);
+        RouteKind::Chat => {
+            let q = query.trim_start_matches('?').trim();
+            Ok(build_chat_results(q))
+        }
+        RouteKind::Settings => {
+            let cmd = query.trim_start_matches(':').trim();
+            settings::search_settings(cmd)
+        }
+        RouteKind::VectorSearch => {
+            let content_query = query.trim_start().trim_start_matches('*').trim();
+            if content_query.is_empty() {
+                Ok(vec![])
+            } else {
+                vectors::search_by_content(content_query, &app).await
+            }
+        }
+        RouteKind::FileSearch => {
+            let q = query.trim_start();
+            files::search_files(q)
+        }
+        RouteKind::OnePassword => {
+            let q = query.trim_start_matches('!').trim();
+            onepass::search_onepass(q).await
+        }
+        RouteKind::Ssh => {
+            let q = query.strip_prefix("ssh").unwrap_or("").trim();
+            ssh::search_ssh(q)
+        }
+        RouteKind::Math => {
+            if let Some(result) = math::try_calculate(&query) {
+                Ok(vec![result])
+            } else {
+                apps::search_apps(&query)
+            }
+        }
+        RouteKind::App => apps::search_apps(&query),
     }
-
-    if query.starts_with('!') {
-        let q = query.trim_start_matches('!').trim();
-        return onepass::search_onepass(q).await;
-    }
-
-    if query.starts_with("ssh ") || query == "ssh" {
-        let q = query.strip_prefix("ssh").unwrap_or("").trim();
-        return ssh::search_ssh(q);
-    }
-
-    if let Some(result) = math::try_calculate(&query) {
-        return Ok(vec![result]);
-    }
-
-    apps::search_apps(&query)
 }
 
 #[cfg(test)]
@@ -246,5 +246,44 @@ mod tests {
     #[test]
     fn hash_alone_routes_to_special() {
         assert_eq!(classify_query("#"), RouteKind::Special);
+    }
+
+    // --- build_chat_results ---
+
+    #[test]
+    fn chat_results_empty_query_returns_hint() {
+        let results = build_chat_results("");
+        assert_eq!(
+            results.len(),
+            1,
+            "expected one hint result, got: {}",
+            results.len()
+        );
+        assert_eq!(
+            results[0].id, "chat-hint",
+            "expected chat-hint id, got: {}",
+            results[0].id
+        );
+    }
+
+    #[test]
+    fn chat_results_non_empty_query_returns_ask() {
+        let results = build_chat_results("hello");
+        assert_eq!(
+            results.len(),
+            1,
+            "expected one ask result, got: {}",
+            results.len()
+        );
+        assert_eq!(
+            results[0].id, "chat-ask",
+            "expected chat-ask id, got: {}",
+            results[0].id
+        );
+        assert!(
+            results[0].name.contains("hello"),
+            "expected name to contain query, got: {}",
+            results[0].name
+        );
     }
 }

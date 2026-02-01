@@ -189,11 +189,15 @@ mod tests {
     fn resolve_data_uri_is_valid_base64() {
         let result = resolve_icon("firefox");
         if !result.is_empty() {
-            let b64 = result.split(',').nth(1).expect("no comma in data URI");
+            let b64 = match result.split(',').nth(1) {
+                Some(b) => b,
+                None => panic!("no comma in data URI: {}", &result[..50.min(result.len())]),
+            };
             assert!(!b64.is_empty(), "Base64 payload is empty");
-            let decoded = base64::engine::general_purpose::STANDARD.decode(b64);
-            assert!(decoded.is_ok(), "Invalid base64: {:?}", decoded.err());
-            assert!(decoded.unwrap().len() > 100, "Decoded icon too small");
+            let decoded = base64::engine::general_purpose::STANDARD
+                .decode(b64)
+                .expect("Invalid base64");
+            assert!(decoded.len() > 100, "Decoded icon too small");
         }
     }
 

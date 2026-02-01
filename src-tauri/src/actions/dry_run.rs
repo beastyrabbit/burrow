@@ -57,6 +57,14 @@ pub fn launch_app(exec: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// Truncate a string to at most `max_chars` characters (UTF-8 safe).
+pub fn truncate(text: &str, max_chars: usize) -> &str {
+    match text.char_indices().nth(max_chars) {
+        Some((idx, _)) => &text[..idx],
+        None => text,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -72,6 +80,19 @@ mod tests {
         assert!(!parse_truthy("false"));
         assert!(!parse_truthy("False"));
         assert!(!parse_truthy("FALSE"));
+    }
+
+    #[test]
+    fn truncate_ascii() {
+        assert_eq!(truncate("hello world", 5), "hello");
+        assert_eq!(truncate("hi", 10), "hi");
+    }
+
+    #[test]
+    fn truncate_multibyte_safe() {
+        // 3 emoji = 3 chars but 12 bytes; truncating at char 2 must not panic
+        let text = "🎉🎉🎉";
+        assert_eq!(truncate(text, 2), "🎉🎉");
     }
 
     #[test]
