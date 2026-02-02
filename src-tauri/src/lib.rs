@@ -13,6 +13,17 @@ mod text_extract;
 use commands::{apps, history, vectors};
 use tauri::Manager;
 
+#[tauri::command]
+fn hide_window(app: tauri::AppHandle) -> Result<(), String> {
+    match app.get_webview_window("main") {
+        Some(win) => win.hide().map_err(|e| e.to_string()),
+        None => {
+            eprintln!("[hide_window] main window not found");
+            Ok(())
+        }
+    }
+}
+
 fn format_config_action(path: &std::path::Path, dry_run: bool) -> String {
     if dry_run {
         format!("[dry-run] Would open {}", path.display())
@@ -73,28 +84,20 @@ async fn run_setting(action: String, app: tauri::AppHandle) -> Result<String, St
         }
         "stats" => {
             let vector_state = app.state::<vectors::VectorDbState>();
-            let vconn = vector_state.0.lock().map_err(|e: _| e.to_string())?;
+            let vconn = vector_state.0.lock().map_err(|e| e.to_string())?;
             let file_count: i64 = vconn
-                .query_row("SELECT COUNT(*) FROM vectors", [], |r: &rusqlite::Row| {
-                    r.get(0)
-                })
-                .map_err(|e: rusqlite::Error| e.to_string())?;
+                .query_row("SELECT COUNT(*) FROM vectors", [], |r| r.get(0))
+                .map_err(|e| e.to_string())?;
             let last_indexed: Option<f64> = vconn
-                .query_row(
-                    "SELECT MAX(indexed_at) FROM vectors",
-                    [],
-                    |r: &rusqlite::Row| r.get(0),
-                )
+                .query_row("SELECT MAX(indexed_at) FROM vectors", [], |r| r.get(0))
                 .ok();
             drop(vconn);
 
             let history_state = app.state::<history::DbState>();
-            let hconn = history_state.0.lock().map_err(|e: _| e.to_string())?;
+            let hconn = history_state.0.lock().map_err(|e| e.to_string())?;
             let launch_count: i64 = hconn
-                .query_row("SELECT COUNT(*) FROM launches", [], |r: &rusqlite::Row| {
-                    r.get(0)
-                })
-                .map_err(|e: rusqlite::Error| e.to_string())?;
+                .query_row("SELECT COUNT(*) FROM launches", [], |r| r.get(0))
+                .map_err(|e| e.to_string())?;
 
             let last_str = last_indexed
                 .map(|_| "available".to_string())
@@ -152,37 +155,27 @@ pub fn run() {
         // When a second instance is launched (e.g. `burrow toggle` from a keybinding),
         // toggle or focus the existing window instead of opening a duplicate.
         .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
-            match app.get_webview_window("main") {
-                Some(win) => {
-                    if args.iter().any(|a| a == "toggle") {
-                        let visible = win.is_visible().unwrap_or_else(|e| {
-                            eprintln!("[single-instance] failed to check visibility: {e}");
-                            false
-                        });
-                        if visible {
-                            if let Err(e) = win.hide() {
-                                eprintln!("[single-instance] failed to hide window: {e}");
-                            }
-                        } else {
-                            if let Err(e) = win.show() {
-                                eprintln!("[single-instance] failed to show window: {e}");
-                            }
-                            if let Err(e) = win.set_focus() {
-                                eprintln!("[single-instance] failed to set focus: {e}");
-                            }
-                        }
-                    } else {
-                        // Plain `burrow` invocation — bring existing instance to front
-                        if let Err(e) = win.show() {
-                            eprintln!("[single-instance] failed to show window: {e}");
-                        }
-                        if let Err(e) = win.set_focus() {
-                            eprintln!("[single-instance] failed to set focus: {e}");
-                        }
-                    }
+            let Some(win) = app.get_webview_window("main") else {
+                eprintln!("[single-instance] main window not found, cannot toggle");
+                return;
+            };
+
+            let should_hide = args.iter().any(|a| a == "toggle")
+                && win.is_visible().unwrap_or_else(|e| {
+                    eprintln!("[single-instance] failed to check visibility: {e}");
+                    false
+                });
+
+            if should_hide {
+                if let Err(e) = win.hide() {
+                    eprintln!("[single-instance] failed to hide window: {e}");
                 }
-                None => {
-                    eprintln!("[single-instance] main window not found, cannot toggle");
+            } else {
+                if let Err(e) = win.show() {
+                    eprintln!("[single-instance] failed to show window: {e}");
+                }
+                if let Err(e) = win.set_focus() {
+                    eprintln!("[single-instance] failed to set focus: {e}");
                 }
             }
         }))
@@ -190,6 +183,7 @@ pub fn run() {
             history::init_db(app.handle())?;
             vectors::init_vector_db(app.handle())?;
             apps::init_app_cache();
+            commands::onepass::preload_cache();
             app.manage(indexer::IndexerState::new());
             indexer::start_background_indexer(app.handle().clone());
             #[cfg(debug_assertions)]
@@ -204,6 +198,7 @@ pub fn run() {
             commands::health::health_check,
             run_setting,
             actions::execute_action,
+            hide_window,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

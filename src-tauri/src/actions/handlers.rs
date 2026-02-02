@@ -42,22 +42,62 @@ fn handle_onepass(
     modifier: Modifier,
     app: &tauri::AppHandle,
 ) -> Result<(), String> {
+    if result.exec == "op-refresh-cache" {
+        onepass::refresh_op_cache()?;
+        return Ok(());
+    }
+
     let item_id = onepass::extract_item_id(&result.exec)
         .ok_or_else(|| "Could not extract 1Password item ID".to_string())?;
 
+    // Hide window immediately so 1Password biometric prompts are not blocked
+    utils::hide_window(app);
+
     match modifier {
         Modifier::Shift => {
-            let password = onepass::get_password(&item_id)?;
-            utils::copy_to_clipboard(&password)
+            // Copy password to clipboard (runs in background thread)
+            let id = item_id.clone();
+            std::thread::spawn(move || match onepass::get_password(&id) {
+                Ok(pw) => {
+                    if let Err(e) = utils::copy_to_clipboard(&pw) {
+                        eprintln!("[1pass] copy password failed: {e}");
+                    }
+                }
+                Err(e) => eprintln!("[1pass] get password failed: {e}"),
+            });
+            Ok(())
         }
         Modifier::Ctrl => {
-            let username = onepass::get_username(&item_id)?;
-            utils::copy_to_clipboard(&username)
+            // Copy username to clipboard (runs in background thread)
+            let id = item_id.clone();
+            std::thread::spawn(move || match onepass::get_username(&id) {
+                Ok(user) => {
+                    if let Err(e) = utils::copy_to_clipboard(&user) {
+                        eprintln!("[1pass] copy username failed: {e}");
+                    }
+                }
+                Err(e) => eprintln!("[1pass] get username failed: {e}"),
+            });
+            Ok(())
         }
         _ => {
-            // Default: type password via wtype
-            let password = onepass::get_password(&item_id)?;
-            utils::type_text_wayland(&password, app)
+            // Default: fetch password then type via wtype.
+            // 1s delay lets the focused window receive input after Burrow hides.
+            let id = item_id.clone();
+            std::thread::spawn(move || match onepass::get_password(&id) {
+                Ok(pw) => {
+                    std::thread::sleep(std::time::Duration::from_secs(1));
+                    if let Err(e) = std::process::Command::new("wtype")
+                        .arg("--")
+                        .arg(&pw)
+                        .status()
+                    {
+                        eprintln!("[1pass] wtype failed (is wtype installed?): {e}");
+                    }
+                }
+                Err(e) => eprintln!("[1pass] get password failed: {e}"),
+            });
+            Ok(())
         }
     }
 }

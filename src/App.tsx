@@ -13,6 +13,20 @@ interface SearchResult {
   exec: string;
 }
 
+const CATEGORY_LABELS: Record<string, string> = {
+  app: "App",
+  history: "Recent",
+  file: "File",
+  ssh: "SSH",
+  onepass: "1Pass",
+  math: "Calc",
+  vector: "Content",
+  chat: "Chat",
+  info: "Info",
+  action: "Action",
+  special: "Special",
+};
+
 function ResultIcon({ icon, category }: { icon: string; category: string }) {
   const [broken, setBroken] = useState(false);
   useEffect(() => {
@@ -44,6 +58,7 @@ function App() {
   const [chatLoading, setChatLoading] = useState(false);
   const [healthOk, setHealthOk] = useState(true);
   const notificationTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const visibilityEpoch = useRef(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLUListElement>(null);
 
@@ -85,6 +100,44 @@ function App() {
     return () => clearInterval(interval);
   }, []);
 
+  // Clear input when window is hidden
+  useEffect(() => {
+    const onVisibilityChange = () => {
+      if (document.hidden) {
+        visibilityEpoch.current += 1;
+        setQuery("");
+        setSelectedIndex(0);
+        setChatAnswer("");
+        setChatLoading(false);
+      }
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => document.removeEventListener("visibilitychange", onVisibilityChange);
+  }, []);
+
+  // Hide window when it loses focus (standard launcher behavior).
+  // Debounce guards against focus churn during show/reposition transitions.
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const onBlur = () => {
+      if (timer) { clearTimeout(timer); }
+      timer = setTimeout(() => {
+        timer = null;
+        invoke("hide_window").catch((e) => console.error("hide_window failed:", e));
+      }, 150);
+    };
+    const onFocus = () => {
+      if (timer) { clearTimeout(timer); timer = null; }
+    };
+    window.addEventListener("blur", onBlur);
+    window.addEventListener("focus", onFocus);
+    return () => {
+      if (timer) clearTimeout(timer);
+      window.removeEventListener("blur", onBlur);
+      window.removeEventListener("focus", onFocus);
+    };
+  }, []);
+
   // Auto-scroll selected item into view on keyboard navigation
   useEffect(() => {
     const list = listRef.current;
@@ -107,16 +160,21 @@ function App() {
       : "none";
 
     if (item.category === "chat") {
+      const epoch = visibilityEpoch.current;
       setChatLoading(true);
       setChatAnswer("");
       try {
         const answer = await invoke<string>("chat_ask", { query });
+        if (visibilityEpoch.current !== epoch || document.hidden) return;
         setChatAnswer(answer);
       } catch (e) {
+        if (visibilityEpoch.current !== epoch || document.hidden) return;
         const errMsg = e instanceof Error ? e.message : String(e);
         setChatAnswer(`Error: ${errMsg}`);
       } finally {
-        setChatLoading(false);
+        if (visibilityEpoch.current === epoch && !document.hidden) {
+          setChatLoading(false);
+        }
       }
       return;
     }
@@ -177,31 +235,15 @@ function App() {
           break;
         case "Escape":
           e.preventDefault();
-          if (query) {
-            setQuery("");
-          }
+          invoke("hide_window").catch((e) => console.error("hide_window failed:", e));
           break;
       }
     },
-    [results.length, executeAction, query]
+    [results.length, executeAction]
   );
 
-  const categoryLabel = (cat: string) => {
-    const labels: Record<string, string> = {
-      app: "App",
-      history: "Recent",
-      file: "File",
-      ssh: "SSH",
-      onepass: "1Pass",
-      math: "Calc",
-      vector: "Content",
-      chat: "Chat",
-      info: "Info",
-      action: "Action",
-      special: "Special",
-    };
-    return labels[cat] || cat;
-  };
+  const categoryLabel = (cat: string): string =>
+    CATEGORY_LABELS[cat] ?? cat;
 
   return (
     <div className="launcher" onKeyDown={handleKeyDown}>
