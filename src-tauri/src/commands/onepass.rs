@@ -534,10 +534,13 @@ mod tests {
         assert_eq!(results.len(), 1);
     }
 
+    // Guards env-var manipulation against parallel test execution
+    static DISK_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     #[test]
     fn disk_cache_roundtrip() {
+        let _guard = DISK_TEST_LOCK.lock().unwrap();
         let dir = tempfile::tempdir().unwrap();
-        // Note: this test modifies env var — run with --test-threads=1 if flaky
         unsafe {
             std::env::set_var("BURROW_DATA_DIR", dir.path());
         }

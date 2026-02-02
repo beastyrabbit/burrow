@@ -112,13 +112,25 @@ function App() {
     return () => document.removeEventListener("visibilitychange", onVisibilityChange);
   }, []);
 
-  // Hide window when it loses focus (standard launcher behavior)
+  // Hide window when it loses focus (standard launcher behavior).
+  // Debounce guards against focus churn during show/reposition transitions.
   useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | null = null;
     const onBlur = () => {
-      invoke("hide_window").catch((e) => console.error("hide_window failed:", e));
+      timer = setTimeout(() => {
+        invoke("hide_window").catch((e) => console.error("hide_window failed:", e));
+      }, 150);
+    };
+    const onFocus = () => {
+      if (timer) { clearTimeout(timer); timer = null; }
     };
     window.addEventListener("blur", onBlur);
-    return () => window.removeEventListener("blur", onBlur);
+    window.addEventListener("focus", onFocus);
+    return () => {
+      if (timer) clearTimeout(timer);
+      window.removeEventListener("blur", onBlur);
+      window.removeEventListener("focus", onFocus);
+    };
   }, []);
 
   // Auto-scroll selected item into view on keyboard navigation
