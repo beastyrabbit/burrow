@@ -478,8 +478,10 @@ dependencies = [
  "tokio",
  "toml 0.9.11+spec-1.1.0",
  "tower-http",
+ "url",
  "wait-timeout",
  "walkdir",
+ "zeroize",
  "zip 7.2.0",
 ]
 
@@ -3917,7 +3919,9 @@ dependencies = [
  "base64 0.22.1",
  "bytes",
  "encoding_rs",
+ "futures-channel",
  "futures-core",
+ "futures-util",
  "h2",
  "http",
  "http-body",

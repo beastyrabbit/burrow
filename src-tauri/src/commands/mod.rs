@@ -5,6 +5,7 @@ pub mod health;
 pub mod history;
 pub mod math;
 pub mod onepass;
+pub mod onepass_vault;
 pub mod settings;
 pub mod special;
 pub mod ssh;

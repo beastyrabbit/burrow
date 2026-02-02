@@ -183,7 +183,7 @@ pub fn run() {
             history::init_db(app.handle())?;
             vectors::init_vector_db(app.handle())?;
             apps::init_app_cache();
-            commands::onepass::preload_cache();
+            // Vault is loaded on-demand via "Load 1Password Data" action
             app.manage(indexer::IndexerState::new());
             indexer::start_background_indexer(app.handle().clone());
             #[cfg(debug_assertions)]
