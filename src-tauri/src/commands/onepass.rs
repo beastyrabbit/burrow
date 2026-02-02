@@ -552,19 +552,22 @@ mod tests {
         }
     }
 
+    // Single test to avoid parallel-test races on the global OP_SESSION
     #[test]
     fn session_set_get_clear_and_overwrite() {
-        // Single test to avoid parallel-test races on the global OP_SESSION
         clear_session();
+        assert!(get_session().is_none());
 
         set_session("test-token-123".into());
         assert_eq!(get_session().unwrap(), "test-token-123");
 
-        // Overwrite
-        set_session("second-token".into());
-        assert_eq!(get_session().unwrap(), "second-token");
-
         clear_session();
         assert!(get_session().is_none());
+
+        // Overwrite
+        set_session("first".into());
+        set_session("second".into());
+        assert_eq!(get_session().unwrap(), "second");
+        clear_session();
     }
 }

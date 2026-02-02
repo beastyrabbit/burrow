@@ -81,15 +81,19 @@ fn handle_onepass(
             Ok(())
         }
         _ => {
-            // Default: fetch password then type via wtype after 1s delay
+            // Default: fetch password then type via wtype.
+            // 1s delay lets the focused window receive input after Burrow hides.
             let id = item_id.clone();
             std::thread::spawn(move || match onepass::get_password(&id) {
                 Ok(pw) => {
                     std::thread::sleep(std::time::Duration::from_secs(1));
-                    let _ = std::process::Command::new("wtype")
+                    if let Err(e) = std::process::Command::new("wtype")
                         .arg("--")
                         .arg(&pw)
-                        .status();
+                        .status()
+                    {
+                        eprintln!("[1pass] wtype failed (is wtype installed?): {e}");
+                    }
                 }
                 Err(e) => eprintln!("[1pass] get password failed: {e}"),
             });
