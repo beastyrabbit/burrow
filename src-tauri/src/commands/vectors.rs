@@ -8,10 +8,10 @@ use tauri::{AppHandle, Manager};
 pub struct VectorDbState(pub Mutex<Connection>);
 
 fn vector_db_path() -> PathBuf {
-    let dir = dirs::data_local_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join("burrow");
-    std::fs::create_dir_all(&dir).ok();
+    let dir = super::data_dir();
+    if let Err(e) = std::fs::create_dir_all(&dir) {
+        eprintln!("[vectors] failed to create data dir {}: {e}", dir.display());
+    }
     dir.join("vectors.db")
 }
 
@@ -54,7 +54,13 @@ fn search_vectors(
             let blob: Vec<u8> = row.get(2)?;
             Ok((path, preview, blob))
         })?
-        .filter_map(|r| r.ok())
+        .filter_map(|r| match r {
+            Ok(val) => Some(val),
+            Err(e) => {
+                eprintln!("Warning: skipping corrupted vector row: {e}");
+                None
+            }
+        })
         .filter_map(|(path, preview, blob)| {
             let embedding = ollama::deserialize_embedding(&blob);
             let score = ollama::cosine_similarity(query_embedding, &embedding);

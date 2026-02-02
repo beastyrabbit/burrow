@@ -11,7 +11,7 @@
     "test": "playwright test",
     "test:rust": "cd src-tauri && cargo test",
     "prepare": "lefthook install",
-    "install-app": "pnpm tauri build && sudo cp src-tauri/target/release/burrow /usr/local/bin/burrow"
+    "install-app": "./scripts/install.sh"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.9.1",

@@ -7,10 +7,10 @@ use tauri::{AppHandle, Manager};
 pub struct DbState(pub Mutex<Connection>);
 
 fn db_path() -> PathBuf {
-    let dir = dirs::data_local_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join("burrow");
-    std::fs::create_dir_all(&dir).ok();
+    let dir = super::data_dir();
+    if let Err(e) = std::fs::create_dir_all(&dir) {
+        eprintln!("[history] failed to create data dir {}: {e}", dir.display());
+    }
     dir.join("history.db")
 }
 
@@ -53,7 +53,13 @@ fn query_frecent(conn: &Connection) -> Result<Vec<SearchResult>, rusqlite::Error
                 category: "history".into(),
             })
         })?
-        .filter_map(|r| r.ok())
+        .filter_map(|r| match r {
+            Ok(val) => Some(val),
+            Err(e) => {
+                eprintln!("Warning: skipping corrupted history row: {e}");
+                None
+            }
+        })
         .collect();
 
     Ok(results)

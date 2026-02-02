@@ -1,15 +1,240 @@
 use crate::router::SearchResult;
 use std::process::Command;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Mutex;
+use std::time::Instant;
 
-/// Parse 1Password JSON output and filter by query.
-pub fn parse_op_items(json_bytes: &[u8], query: &str) -> Result<Vec<SearchResult>, String> {
-    let items: Vec<serde_json::Value> =
-        serde_json::from_slice(json_bytes).map_err(|e| e.to_string())?;
+/// In-memory 1Password item cache.
+struct OpCache {
+    items: Vec<serde_json::Value>,
+    fetched_at: Instant,
+}
 
+static OP_CACHE: Mutex<Option<OpCache>> = Mutex::new(None);
+static REFRESH_IN_PROGRESS: AtomicBool = AtomicBool::new(false);
+/// Cached `op signin --raw` session token. Kept until 1Password rejects it.
+static OP_SESSION: Mutex<Option<String>> = Mutex::new(None);
+
+const CACHE_TTL_SECS: u64 = 300; // 5 minutes
+
+/// Get the cached session token, if any.
+fn get_session() -> Option<String> {
+    OP_SESSION.lock().ok()?.clone()
+}
+
+/// Store a new session token.
+fn set_session(token: String) {
+    if let Ok(mut s) = OP_SESSION.lock() {
+        *s = Some(token);
+    }
+}
+
+/// Clear the cached session token (called when op rejects it).
+fn clear_session() {
+    if let Ok(mut s) = OP_SESSION.lock() {
+        *s = None;
+    }
+}
+
+/// Acquire a fresh session token via `op signin --raw`.
+/// This is the only call that prompts the user for their password.
+fn signin() -> Result<String, String> {
+    eprintln!("[1pass] signing in (requesting session token)...");
+    let output = Command::new("op")
+        .args(["signin", "--raw"])
+        .stdin(std::process::Stdio::inherit())
+        .output()
+        .map_err(|e| format!("Failed to run op signin: {e}"))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("op signin failed: {}", stderr.trim()));
+    }
+
+    let token = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if token.is_empty() {
+        return Err("op signin returned empty token".into());
+    }
+    set_session(token.clone());
+    eprintln!("[1pass] session token acquired");
+    Ok(token)
+}
+
+/// Run an `op` command with the cached session token.
+/// If the command fails and we had a token, clear it and retry once (which will prompt signin).
+fn run_op_with_session(args: &[&str]) -> Result<std::process::Output, String> {
+    // First attempt: with cached session if available
+    if let Some(token) = get_session() {
+        let mut cmd_args: Vec<&str> = args.to_vec();
+        let session_flag = format!("--session={token}");
+        cmd_args.push(&session_flag);
+
+        let output = Command::new("op")
+            .args(&cmd_args)
+            .output()
+            .map_err(|e| format!("Failed to run op: {e}"))?;
+
+        if output.status.success() {
+            return Ok(output);
+        }
+
+        // Token rejected — clear and fall through to retry with fresh signin
+        eprintln!("[1pass] session token expired, re-authenticating...");
+        clear_session();
+    }
+
+    // Second attempt: get fresh token then retry
+    let token = signin()?;
+    let mut cmd_args: Vec<&str> = args.to_vec();
+    let session_flag = format!("--session={token}");
+    cmd_args.push(&session_flag);
+
+    let output = Command::new("op")
+        .args(&cmd_args)
+        .output()
+        .map_err(|e| format!("Failed to run op: {e}"))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("op command failed: {}", stderr.trim()));
+    }
+
+    Ok(output)
+}
+
+fn disk_cache_path() -> std::path::PathBuf {
+    super::data_dir().join("op_items.json")
+}
+
+fn load_from_disk() -> Option<Vec<serde_json::Value>> {
+    let path = disk_cache_path();
+    let bytes = std::fs::read(&path).ok()?;
+    match serde_json::from_slice(&bytes) {
+        Ok(items) => Some(items),
+        Err(e) => {
+            eprintln!("[1pass] failed to parse disk cache: {e}");
+            None
+        }
+    }
+}
+
+fn save_to_disk(items: &[serde_json::Value]) {
+    let dir = super::data_dir();
+    if let Err(e) = std::fs::create_dir_all(&dir) {
+        eprintln!("[1pass] failed to create data dir {}: {e}", dir.display());
+        return;
+    }
+    match serde_json::to_vec(items) {
+        Ok(json) => {
+            if let Err(e) = std::fs::write(disk_cache_path(), json) {
+                eprintln!("[1pass] failed to write disk cache: {e}");
+            }
+        }
+        Err(e) => eprintln!("[1pass] failed to serialize cache: {e}"),
+    }
+}
+
+/// Fetch all account user IDs via `op account list`.
+fn fetch_account_ids() -> Result<Vec<String>, String> {
+    eprintln!("[1pass] fetching account list...");
+    let output = run_op_with_session(&["account", "list", "--format=json"])?;
+
+    let accounts: Vec<serde_json::Value> =
+        serde_json::from_slice(&output.stdout).map_err(|e| e.to_string())?;
+
+    let ids: Vec<String> = accounts
+        .iter()
+        .filter_map(|a| {
+            a.get("user_uuid")
+                .and_then(|id| id.as_str())
+                .map(String::from)
+        })
+        .collect();
+    eprintln!("[1pass] found {} account(s)", ids.len());
+    Ok(ids)
+}
+
+/// Fetch items from all accounts, iterating each account with `--account`.
+fn fetch_op_items() -> Result<Vec<serde_json::Value>, String> {
+    let account_ids = fetch_account_ids()?;
+    let mut all_items = Vec::new();
+
+    for account_id in &account_ids {
+        eprintln!("[1pass] fetching items for account {account_id}...");
+        let output = match run_op_with_session(&[
+            "item",
+            "list",
+            "--account",
+            account_id,
+            "--format=json",
+        ]) {
+            Ok(o) => o,
+            Err(e) => {
+                eprintln!("[1pass] failed to list items for account {account_id}: {e}");
+                continue;
+            }
+        };
+
+        match serde_json::from_slice::<Vec<serde_json::Value>>(&output.stdout) {
+            Ok(items) => {
+                eprintln!("[1pass] account {account_id}: {} items", items.len());
+                all_items.extend(items);
+            }
+            Err(e) => {
+                eprintln!("[1pass] failed to parse items for account {account_id}: {e}")
+            }
+        }
+    }
+
+    if all_items.is_empty() && !account_ids.is_empty() {
+        return Err("No items found across any account".into());
+    }
+
+    eprintln!(
+        "[1pass] total: {} items across all accounts",
+        all_items.len()
+    );
+    Ok(all_items)
+}
+
+fn refresh_cache() -> Result<Vec<serde_json::Value>, String> {
+    let items = fetch_op_items()?;
+    save_to_disk(&items);
+    let mut cache = OP_CACHE.lock().map_err(|e| e.to_string())?;
+    *cache = Some(OpCache {
+        items: items.clone(),
+        fetched_at: Instant::now(),
+    });
+    Ok(items)
+}
+
+fn get_cached_items() -> Result<(Vec<serde_json::Value>, bool), String> {
+    let cache = OP_CACHE.lock().map_err(|e| e.to_string())?;
+    if let Some(ref c) = *cache {
+        let stale = c.fetched_at.elapsed().as_secs() > CACHE_TTL_SECS;
+        return Ok((c.items.clone(), stale));
+    }
+    drop(cache);
+
+    // Try disk cache
+    if let Some(items) = load_from_disk() {
+        let mut cache = OP_CACHE.lock().map_err(|e| e.to_string())?;
+        *cache = Some(OpCache {
+            items: items.clone(),
+            fetched_at: Instant::now() - std::time::Duration::from_secs(CACHE_TTL_SECS + 1),
+        });
+        return Ok((items, true)); // Disk cache loses fetch timestamp; backdated past TTL to trigger background refresh
+    }
+
+    Err("no_cache".into())
+}
+
+/// Filter cached items by query and return SearchResults.
+pub fn filter_items(items: &[serde_json::Value], query: &str) -> Vec<SearchResult> {
     let query_lower = query.to_lowercase();
 
-    let results = items
-        .into_iter()
+    items
+        .iter()
         .filter(|item| {
             item.get("title")
                 .and_then(|t| t.as_str())
@@ -37,19 +262,23 @@ pub fn parse_op_items(json_bytes: &[u8], query: &str) -> Result<Vec<SearchResult
             SearchResult {
                 id: format!("op-{id}"),
                 name: title,
-                description: category,
+                description: format!("{category} · ⏎ type pw · ⇧ copy pw · ^C copy user"),
                 icon: "".into(),
                 category: "onepass".into(),
                 exec: format!("op item get {id} --otp 2>/dev/null || op open op://vault/{id}"),
             }
         })
-        .collect();
-
-    Ok(results)
+        .collect()
 }
 
-/// Extract the 1Password item ID from an exec string.
-/// Exec format: "op item get {id} --otp 2>/dev/null || op open op://vault/{id}"
+/// Parse 1Password JSON output and filter by query.
+pub fn parse_op_items(json_bytes: &[u8], query: &str) -> Result<Vec<SearchResult>, String> {
+    let items: Vec<serde_json::Value> =
+        serde_json::from_slice(json_bytes).map_err(|e| e.to_string())?;
+    Ok(filter_items(&items, query))
+}
+
+/// Extract the 1Password item ID from an exec string like "op item get {id} --otp ...".
 pub fn extract_item_id(exec: &str) -> Option<String> {
     let prefix = "op item get ";
     if let Some(start) = exec.find(prefix) {
@@ -68,21 +297,9 @@ fn get_field(item_id: &str, field: &str, extra_args: &[&str]) -> Result<String, 
         eprintln!("[dry-run] op get_field: {item_id} {field}");
         return Err("dry-run: 1Password field lookup skipped".into());
     }
-    let mut cmd = Command::new("op");
-    cmd.args(["item", "get", item_id, "--fields", field]);
-    cmd.args(extra_args);
-    let output = cmd
-        .output()
-        .map_err(|e| format!("Failed to run op CLI: {e}"))?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(format!(
-            "Failed to get {field} from 1Password: {}",
-            stderr.trim()
-        ));
-    }
-
+    let mut args = vec!["item", "get", item_id, "--fields", field];
+    args.extend_from_slice(extra_args);
+    let output = run_op_with_session(&args)?;
     Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
 }
 
@@ -96,6 +313,42 @@ pub fn get_username(item_id: &str) -> Result<String, String> {
     get_field(item_id, "username", &[])
 }
 
+/// Trigger background cache population. Call at app startup so the first `!` query is instant.
+pub fn preload_cache() {
+    if crate::actions::dry_run::is_enabled() {
+        return;
+    }
+    // If disk cache exists, load it into memory
+    if let Some(items) = load_from_disk() {
+        eprintln!("[1pass] preloaded {} items from disk cache", items.len());
+        if let Ok(mut cache) = OP_CACHE.lock() {
+            *cache = Some(OpCache {
+                items,
+                fetched_at: Instant::now() - std::time::Duration::from_secs(CACHE_TTL_SECS + 1),
+            });
+        }
+    }
+    // Then kick off a background refresh regardless
+    spawn_background_refresh();
+}
+
+fn spawn_background_refresh() {
+    if !REFRESH_IN_PROGRESS.swap(true, Ordering::SeqCst) {
+        std::thread::spawn(|| {
+            struct ResetGuard;
+            impl Drop for ResetGuard {
+                fn drop(&mut self) {
+                    REFRESH_IN_PROGRESS.store(false, Ordering::SeqCst);
+                }
+            }
+            let _guard = ResetGuard;
+            if let Err(e) = refresh_cache() {
+                eprintln!("[1pass] background refresh failed: {e}");
+            }
+        });
+    }
+}
+
 pub async fn search_onepass(query: &str) -> Result<Vec<SearchResult>, String> {
     if query.is_empty() {
         return Ok(vec![]);
@@ -106,16 +359,52 @@ pub async fn search_onepass(query: &str) -> Result<Vec<SearchResult>, String> {
         return Ok(vec![]);
     }
 
-    let output = Command::new("op")
-        .args(["item", "list", "--format=json"])
-        .output()
-        .map_err(|e| format!("Failed to run op CLI: {e}"))?;
-
-    if !output.status.success() {
-        return Err("1Password CLI not available or not signed in".into());
+    match get_cached_items() {
+        Ok((items, stale)) => {
+            let mut results = filter_items(&items, query);
+            if stale {
+                // Only show the refresh indicator if no background refresh is running,
+                // since the user can't dismiss it while a refresh is in progress.
+                if !REFRESH_IN_PROGRESS.load(Ordering::SeqCst) {
+                    results.insert(
+                        0,
+                        SearchResult {
+                            id: "op-refresh".into(),
+                            name: "Update 1Password items".into(),
+                            description: "Cache may be outdated — select to refresh".into(),
+                            icon: "".into(),
+                            category: "onepass".into(),
+                            exec: "op-refresh-cache".into(),
+                        },
+                    );
+                }
+                spawn_background_refresh();
+            }
+            Ok(results)
+        }
+        Err(_) => {
+            // No cache yet — show loading indicator and trigger fetch
+            spawn_background_refresh();
+            Ok(vec![SearchResult {
+                id: "op-loading".into(),
+                name: "Loading 1Password items...".into(),
+                description: "Fetching from all vaults — results will appear shortly".into(),
+                icon: "".into(),
+                category: "onepass".into(),
+                exec: "".into(),
+            }])
+        }
     }
+}
 
-    parse_op_items(&output.stdout, query)
+/// Force refresh the 1Password cache. Called when user selects "Update 1Password items".
+pub fn refresh_op_cache() -> Result<String, String> {
+    if crate::actions::dry_run::is_enabled() {
+        eprintln!("[dry-run] refresh_op_cache");
+        return Ok("dry-run: 1Password cache refresh skipped".into());
+    }
+    refresh_cache()?;
+    Ok("1Password items updated".into())
 }
 
 #[cfg(test)]
@@ -150,7 +439,6 @@ mod tests {
 
     #[test]
     fn parse_missing_fields() {
-        // Items without "title" should be filtered out (title match returns false)
         let json = br#"[
             {"id": "abc"},
             {"title": "Has Title", "id": "def"}
@@ -179,7 +467,7 @@ mod tests {
     fn description_is_op_category() {
         let json = br#"[{"id": "x", "title": "Test", "category": "SECURE_NOTE"}]"#;
         let results = parse_op_items(json, "test").unwrap();
-        assert_eq!(results[0].description, "SECURE_NOTE");
+        assert!(results[0].description.starts_with("SECURE_NOTE"));
     }
 
     #[test]
@@ -222,10 +510,61 @@ mod tests {
 
     #[test]
     fn empty_query_filter_returns_all_matching() {
-        // parse_op_items with empty string query matches nothing (substring match on empty = all)
         let json = br#"[{"id": "x", "title": "Test", "category": "LOGIN"}]"#;
         let results = parse_op_items(json, "").unwrap();
-        // Empty query substring matches everything
         assert_eq!(results.len(), 1);
+    }
+
+    #[test]
+    fn filter_items_from_values() {
+        let items: Vec<serde_json::Value> = serde_json::from_str(
+            r#"[{"id": "a", "title": "GitHub", "category": "LOGIN"}, {"id": "b", "title": "Slack", "category": "LOGIN"}]"#,
+        ).unwrap();
+        let results = filter_items(&items, "git");
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].name, "GitHub");
+    }
+
+    #[test]
+    fn filter_items_empty_query_matches_all() {
+        let items: Vec<serde_json::Value> =
+            serde_json::from_str(r#"[{"id": "a", "title": "GitHub", "category": "LOGIN"}]"#)
+                .unwrap();
+        let results = filter_items(&items, "");
+        assert_eq!(results.len(), 1);
+    }
+
+    #[test]
+    fn disk_cache_roundtrip() {
+        let dir = tempfile::tempdir().unwrap();
+        // Note: this test modifies env var — run with --test-threads=1 if flaky
+        unsafe {
+            std::env::set_var("BURROW_DATA_DIR", dir.path());
+        }
+        let items: Vec<serde_json::Value> =
+            serde_json::from_str(r#"[{"id": "x", "title": "Test", "category": "LOGIN"}]"#).unwrap();
+        save_to_disk(&items);
+        let loaded = load_from_disk().unwrap();
+        assert_eq!(loaded.len(), 1);
+        assert_eq!(loaded[0]["title"], "Test");
+        unsafe {
+            std::env::remove_var("BURROW_DATA_DIR");
+        }
+    }
+
+    #[test]
+    fn session_set_get_clear_and_overwrite() {
+        // Single test to avoid parallel-test races on the global OP_SESSION
+        clear_session();
+
+        set_session("test-token-123".into());
+        assert_eq!(get_session().unwrap(), "test-token-123");
+
+        // Overwrite
+        set_session("second-token".into());
+        assert_eq!(get_session().unwrap(), "second-token");
+
+        clear_session();
+        assert!(get_session().is_none());
     }
 }

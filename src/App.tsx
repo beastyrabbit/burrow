@@ -13,6 +13,20 @@ interface SearchResult {
   exec: string;
 }
 
+const CATEGORY_LABELS: Record<string, string> = {
+  app: "App",
+  history: "Recent",
+  file: "File",
+  ssh: "SSH",
+  onepass: "1Pass",
+  math: "Calc",
+  vector: "Content",
+  chat: "Chat",
+  info: "Info",
+  action: "Action",
+  special: "Special",
+};
+
 function ResultIcon({ icon, category }: { icon: string; category: string }) {
   const [broken, setBroken] = useState(false);
   useEffect(() => {
@@ -83,6 +97,28 @@ function App() {
     checkHealth();
     const interval = setInterval(checkHealth, 30000);
     return () => clearInterval(interval);
+  }, []);
+
+  // Clear input when window is hidden
+  useEffect(() => {
+    const onVisibilityChange = () => {
+      if (document.hidden) {
+        setQuery("");
+        setSelectedIndex(0);
+        setChatAnswer("");
+      }
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => document.removeEventListener("visibilitychange", onVisibilityChange);
+  }, []);
+
+  // Hide window when it loses focus (standard launcher behavior)
+  useEffect(() => {
+    const onBlur = () => {
+      invoke("hide_window").catch((e) => console.error("hide_window failed:", e));
+    };
+    window.addEventListener("blur", onBlur);
+    return () => window.removeEventListener("blur", onBlur);
   }, []);
 
   // Auto-scroll selected item into view on keyboard navigation
@@ -177,31 +213,15 @@ function App() {
           break;
         case "Escape":
           e.preventDefault();
-          if (query) {
-            setQuery("");
-          }
+          invoke("hide_window").catch((e) => console.error("hide_window failed:", e));
           break;
       }
     },
-    [results.length, executeAction, query]
+    [results.length, executeAction]
   );
 
-  const categoryLabel = (cat: string) => {
-    const labels: Record<string, string> = {
-      app: "App",
-      history: "Recent",
-      file: "File",
-      ssh: "SSH",
-      onepass: "1Pass",
-      math: "Calc",
-      vector: "Content",
-      chat: "Chat",
-      info: "Info",
-      action: "Action",
-      special: "Special",
-    };
-    return labels[cat] || cat;
-  };
+  const categoryLabel = (cat: string): string =>
+    CATEGORY_LABELS[cat] ?? cat;
 
   return (
     <div className="launcher" onKeyDown={handleKeyDown}>

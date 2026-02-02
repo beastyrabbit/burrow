@@ -5,15 +5,19 @@ import path from "path";
 // @ts-expect-error process is a nodejs global
 const host = process.env.TAURI_DEV_HOST;
 // https://vite.dev/config/
+const isTauriBuild = !!process.env.TAURI_ENV_PLATFORM;
+
 export default defineConfig(async () => ({
   plugins: [react()],
   resolve: {
-    alias: {
-      "@tauri-apps/api/core": path.resolve(
-        __dirname,
-        "src/mock-tauri.ts"
-      ),
-    },
+    alias: isTauriBuild
+      ? {}
+      : {
+          "@tauri-apps/api/core": path.resolve(
+            __dirname,
+            "src/mock-tauri.ts"
+          ),
+        },
   },
   clearScreen: false,
   server: {
