@@ -186,9 +186,7 @@ fn fetch_op_items() -> Result<Vec<serde_json::Value>, String> {
         }
     }
 
-    if all_items.is_empty() && !account_ids.is_empty() {
-        return Err("No items found across any account".into());
-    }
+    // Empty result is valid (new account, empty vaults) — caller handles "no results"
 
     eprintln!(
         "[1pass] total: {} items across all accounts",

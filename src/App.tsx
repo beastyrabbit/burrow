@@ -58,6 +58,7 @@ function App() {
   const [chatLoading, setChatLoading] = useState(false);
   const [healthOk, setHealthOk] = useState(true);
   const notificationTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const visibilityEpoch = useRef(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLUListElement>(null);
 
@@ -103,9 +104,11 @@ function App() {
   useEffect(() => {
     const onVisibilityChange = () => {
       if (document.hidden) {
+        visibilityEpoch.current += 1;
         setQuery("");
         setSelectedIndex(0);
         setChatAnswer("");
+        setChatLoading(false);
       }
     };
     document.addEventListener("visibilitychange", onVisibilityChange);
@@ -117,7 +120,9 @@ function App() {
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout> | null = null;
     const onBlur = () => {
+      if (timer) { clearTimeout(timer); }
       timer = setTimeout(() => {
+        timer = null;
         invoke("hide_window").catch((e) => console.error("hide_window failed:", e));
       }, 150);
     };
@@ -155,16 +160,21 @@ function App() {
       : "none";
 
     if (item.category === "chat") {
+      const epoch = visibilityEpoch.current;
       setChatLoading(true);
       setChatAnswer("");
       try {
         const answer = await invoke<string>("chat_ask", { query });
+        if (visibilityEpoch.current !== epoch || document.hidden) return;
         setChatAnswer(answer);
       } catch (e) {
+        if (visibilityEpoch.current !== epoch || document.hidden) return;
         const errMsg = e instanceof Error ? e.message : String(e);
         setChatAnswer(`Error: ${errMsg}`);
       } finally {
-        setChatLoading(false);
+        if (visibilityEpoch.current === epoch && !document.hidden) {
+          setChatLoading(false);
+        }
       }
       return;
     }
