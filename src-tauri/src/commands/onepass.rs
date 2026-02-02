@@ -152,20 +152,47 @@ fn run_op_with_session(account_id: &str, args: &[&str]) -> Result<std::process::
 
 /// Fetch all account IDs via `op account list`.
 fn fetch_account_ids() -> Result<Vec<String>, String> {
-    eprintln!("[1pass] fetching account list...");
-    // account list doesn't need a session
-    let output = Command::new("op")
-        .args(["account", "list", "--format=json"])
-        .output()
-        .map_err(|e| format!("Failed to run op account list: {e}"))?;
+    use std::io::Read;
+    use wait_timeout::ChildExt;
 
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(format!("op account list failed: {}", stderr.trim()));
+    eprintln!("[1pass] fetching account list...");
+    let mut child = Command::new("op")
+        .args(["account", "list", "--format=json"])
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("Failed to spawn op account list: {e}"))?;
+
+    let status = match child
+        .wait_timeout(Duration::from_secs(30))
+        .map_err(|e| e.to_string())?
+    {
+        Some(s) => s,
+        None => {
+            child.kill().ok();
+            child.wait().ok();
+            return Err("op account list timed out after 30s".into());
+        }
+    };
+
+    let mut stdout = Vec::new();
+    if let Some(mut out) = child.stdout.take() {
+        out.read_to_end(&mut stdout).ok();
+    }
+
+    if !status.success() {
+        let mut stderr = Vec::new();
+        if let Some(mut err) = child.stderr.take() {
+            err.read_to_end(&mut stderr).ok();
+        }
+        return Err(format!(
+            "op account list failed: {}",
+            String::from_utf8_lossy(&stderr).trim()
+        ));
     }
 
     let accounts: Vec<serde_json::Value> =
-        serde_json::from_slice(&output.stdout).map_err(|e| e.to_string())?;
+        serde_json::from_slice(&stdout).map_err(|e| e.to_string())?;
 
     let ids: Vec<String> = accounts
         .iter()
