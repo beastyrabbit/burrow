@@ -1,6 +1,6 @@
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
-use zeroize::{Zeroize, ZeroizeOnDrop};
+use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
 
 use crate::router::SearchResult;
 
@@ -119,13 +119,15 @@ fn get_item_field(
 }
 
 /// Retrieve the password for a vault item by ID.
-pub fn get_password(id: &str) -> Result<String, String> {
-    get_item_field(id, |item| item.secrets.password.clone())
+/// Returns `Zeroizing<String>` so the secret is zeroed when the caller drops it.
+pub fn get_password(id: &str) -> Result<Zeroizing<String>, String> {
+    get_item_field(id, |item| item.secrets.password.clone()).map(Zeroizing::new)
 }
 
 /// Retrieve the username for a vault item by ID.
-pub fn get_username(id: &str) -> Result<String, String> {
-    get_item_field(id, |item| item.secrets.username.clone())
+/// Returns `Zeroizing<String>` so the secret is zeroed when the caller drops it.
+pub fn get_username(id: &str) -> Result<Zeroizing<String>, String> {
+    get_item_field(id, |item| item.secrets.username.clone()).map(Zeroizing::new)
 }
 
 /// Non-secret metadata returned by search.
@@ -212,8 +214,8 @@ mod tests {
         clear_vault();
         store_items(make_items(3), Duration::from_secs(600));
         assert!(is_vault_loaded());
-        assert_eq!(get_password("id-1").unwrap(), "pass1");
-        assert_eq!(get_username("id-1").unwrap(), "user1");
+        assert_eq!(&*get_password("id-1").unwrap(), "pass1");
+        assert_eq!(&*get_username("id-1").unwrap(), "user1");
         clear_vault();
     }
 

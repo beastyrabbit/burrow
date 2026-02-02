@@ -9,13 +9,8 @@ use zeroize::Zeroizing;
 /// Per-account session tokens (account_id → session token).
 static OP_SESSIONS: Mutex<Option<HashMap<String, Zeroizing<String>>>> = Mutex::new(None);
 
-fn get_session(account_id: &str) -> Option<String> {
-    OP_SESSIONS
-        .lock()
-        .ok()?
-        .as_ref()?
-        .get(account_id)
-        .map(|z| z.to_string())
+fn get_session(account_id: &str) -> Option<Zeroizing<String>> {
+    OP_SESSIONS.lock().ok()?.as_ref()?.get(account_id).cloned()
 }
 
 fn set_session(account_id: &str, token: String) {
@@ -144,7 +139,11 @@ fn fetch_icon_for_domain(domain: &str) -> Option<String> {
 
     // Fetch from DuckDuckGo
     let url = format!("https://icons.duckduckgo.com/ip3/{domain}.ico");
-    let resp = reqwest::blocking::get(&url).ok()?;
+    let client = reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(5))
+        .build()
+        .ok()?;
+    let resp = client.get(&url).send().ok()?;
     if !resp.status().is_success() {
         return None;
     }
@@ -363,12 +362,12 @@ pub async fn search_onepass(query: &str) -> Result<Vec<SearchResult>, String> {
 }
 
 /// Fetch the password for a 1Password item from the vault.
-pub fn get_password(item_id: &str) -> Result<String, String> {
+pub fn get_password(item_id: &str) -> Result<Zeroizing<String>, String> {
     onepass_vault::get_password(item_id)
 }
 
 /// Fetch the username for a 1Password item from the vault.
-pub fn get_username(item_id: &str) -> Result<String, String> {
+pub fn get_username(item_id: &str) -> Result<Zeroizing<String>, String> {
     onepass_vault::get_username(item_id)
 }
 
@@ -385,7 +384,7 @@ mod tests {
         clear_all_sessions();
         assert!(get_session("acc-1").is_none());
         set_session("acc-1", "token-a".into());
-        assert_eq!(get_session("acc-1").unwrap(), "token-a");
+        assert_eq!(&*get_session("acc-1").unwrap(), "token-a");
         clear_session("acc-1");
         assert!(get_session("acc-1").is_none());
         clear_all_sessions();
@@ -397,11 +396,11 @@ mod tests {
         clear_all_sessions();
         set_session("acc-1", "token-a".into());
         set_session("acc-2", "token-b".into());
-        assert_eq!(get_session("acc-1").unwrap(), "token-a");
-        assert_eq!(get_session("acc-2").unwrap(), "token-b");
+        assert_eq!(&*get_session("acc-1").unwrap(), "token-a");
+        assert_eq!(&*get_session("acc-2").unwrap(), "token-b");
         clear_session("acc-1");
         assert!(get_session("acc-1").is_none());
-        assert_eq!(get_session("acc-2").unwrap(), "token-b");
+        assert_eq!(&*get_session("acc-2").unwrap(), "token-b");
         clear_all_sessions();
     }
 
@@ -411,7 +410,7 @@ mod tests {
         clear_all_sessions();
         set_session("acc-1", "first".into());
         set_session("acc-1", "second".into());
-        assert_eq!(get_session("acc-1").unwrap(), "second");
+        assert_eq!(&*get_session("acc-1").unwrap(), "second");
         clear_all_sessions();
     }
 
