@@ -36,41 +36,97 @@ fn clear_all_sessions() {
 }
 
 /// Sign in to a specific 1Password account.
+/// Uses a 120-second timeout to allow for user interaction (password prompts).
 fn signin(account_id: &str) -> Result<String, String> {
+    use std::io::Read;
+    use wait_timeout::ChildExt;
+
     eprintln!("[1pass] signing in to account {account_id}...");
-    let output = Command::new("op")
+    let mut child = Command::new("op")
         .args(["signin", "--account", account_id, "--raw"])
         .stdin(std::process::Stdio::inherit())
-        .output()
-        .map_err(|e| format!("Failed to run op signin: {e}"))?;
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("Failed to spawn op signin: {e}"))?;
 
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(format!(
-            "op signin failed for {account_id}: {}",
-            stderr.trim()
-        ));
+    match child
+        .wait_timeout(Duration::from_secs(120))
+        .map_err(|e| e.to_string())?
+    {
+        Some(status) if status.success() => {
+            let mut stdout = String::new();
+            if let Some(mut out) = child.stdout.take() {
+                out.read_to_string(&mut stdout).ok();
+            }
+            let token = stdout.trim().to_string();
+            if token.is_empty() {
+                return Err(format!("op signin returned empty token for {account_id}"));
+            }
+            set_session(account_id, token.clone());
+            eprintln!("[1pass] session token acquired for {account_id}");
+            Ok(token)
+        }
+        Some(_) => {
+            let mut stderr = String::new();
+            if let Some(mut err) = child.stderr.take() {
+                err.read_to_string(&mut stderr).ok();
+            }
+            Err(format!(
+                "op signin failed for {account_id}: {}",
+                stderr.trim()
+            ))
+        }
+        None => {
+            child.kill().ok();
+            child.wait().ok();
+            Err(format!("op signin timed out for {account_id}"))
+        }
     }
-
-    let token = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    if token.is_empty() {
-        return Err(format!("op signin returned empty token for {account_id}"));
-    }
-    set_session(account_id, token.clone());
-    eprintln!("[1pass] session token acquired for {account_id}");
-    Ok(token)
 }
 
 /// Run `op` with the given args and a `--session` flag.
+/// Uses a 30-second timeout to prevent hanging on unresponsive CLI calls.
 fn run_op_once(args: &[&str], token: &str) -> Result<std::process::Output, String> {
+    use std::io::Read;
+    use wait_timeout::ChildExt;
+
     let session_flag = format!("--session={token}");
     let mut cmd_args: Vec<&str> = args.to_vec();
     cmd_args.push(&session_flag);
 
-    Command::new("op")
+    let mut child = Command::new("op")
         .args(&cmd_args)
-        .output()
-        .map_err(|e| format!("Failed to run op: {e}"))
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("Failed to spawn op: {e}"))?;
+
+    match child
+        .wait_timeout(Duration::from_secs(30))
+        .map_err(|e| e.to_string())?
+    {
+        Some(status) => {
+            let mut stdout = Vec::new();
+            let mut stderr = Vec::new();
+            if let Some(mut out) = child.stdout.take() {
+                out.read_to_end(&mut stdout).ok();
+            }
+            if let Some(mut err) = child.stderr.take() {
+                err.read_to_end(&mut stderr).ok();
+            }
+            Ok(std::process::Output {
+                status,
+                stdout,
+                stderr,
+            })
+        }
+        None => {
+            child.kill().ok();
+            child.wait().ok();
+            Err("op command timed out after 30s".into())
+        }
+    }
 }
 
 /// Run an `op` command with the cached session for a specific account.
