@@ -61,6 +61,26 @@ pub fn hide_window(app: &tauri::AppHandle) {
     }
 }
 
+/// Launch SSH connection safely without shell interpolation.
+/// Uses Command::arg() to prevent shell injection.
+pub fn exec_ssh(host: &str, user: Option<&str>) -> Result<(), String> {
+    if dry_run::is_enabled() {
+        return dry_run::exec_ssh(host, user);
+    }
+    let terminal = get_terminal_cmd();
+    let mut cmd = Command::new(&terminal);
+    cmd.arg("ssh");
+    cmd.arg("--"); // Prevent option injection (e.g., host starting with "-")
+    if let Some(u) = user {
+        cmd.arg(format!("{}@{}", u, host));
+    } else {
+        cmd.arg(host);
+    }
+    cmd.spawn()
+        .map_err(|e| format!("Failed to launch SSH: {e}"))?;
+    Ok(())
+}
+
 /// Open a path with xdg-open.
 pub fn xdg_open(path: &str) -> Result<(), String> {
     if dry_run::is_enabled() {

@@ -11,20 +11,18 @@ fn match_files_in_dirs(dirs: &[PathBuf], query: &str, limit: usize) -> Vec<Searc
                 let name = entry.file_name().to_string_lossy().to_string();
                 if name.to_lowercase().contains(&query_lower) {
                     let path = entry.path();
-                    let open_cmd = format!(
-                        "xdg-open '{}'",
-                        path.display().to_string().replace('\'', "'\\''")
-                    );
                     results.push(SearchResult {
                         id: path.display().to_string(),
-                        name: name.clone(),
+                        name,
                         description: path
                             .parent()
                             .map(|p| p.display().to_string())
                             .unwrap_or_default(),
                         icon: "".into(),
                         category: "file".into(),
-                        exec: open_cmd,
+                        // Security: exec intentionally empty. handle_file uses result.id
+                        // with xdg_open via Command::arg() to prevent shell injection
+                        exec: String::new(),
                     });
                 }
                 if results.len() >= limit {

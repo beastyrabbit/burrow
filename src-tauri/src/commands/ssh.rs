@@ -14,6 +14,26 @@ pub fn parse_ssh_config_content(content: &str) -> Vec<SshHost> {
     let mut current_hostname = String::new();
     let mut current_user = String::new();
 
+    let flush_host = |name: &str, hostname: &str, user: &str, hosts: &mut Vec<SshHost>| {
+        if name.is_empty() || name == "*" {
+            return;
+        }
+        for alias in name.split_whitespace() {
+            if alias == "*" || alias.contains('?') {
+                continue;
+            }
+            hosts.push(SshHost {
+                name: alias.to_string(),
+                hostname: if hostname.is_empty() {
+                    alias.to_string()
+                } else {
+                    hostname.to_string()
+                },
+                user: user.to_string(),
+            });
+        }
+    };
+
     for line in content.lines() {
         let line = line.trim();
         if line.is_empty() || line.starts_with('#') {
@@ -24,23 +44,7 @@ pub fn parse_ssh_config_content(content: &str) -> Vec<SshHost> {
             .strip_prefix("Host ")
             .or_else(|| line.strip_prefix("Host\t"))
         {
-            // Flush previous host block
-            if !current_name.is_empty() && current_name != "*" {
-                for name in current_name.split_whitespace() {
-                    if name == "*" || name.contains('?') {
-                        continue;
-                    }
-                    hosts.push(SshHost {
-                        name: name.to_string(),
-                        hostname: if current_hostname.is_empty() {
-                            name.to_string()
-                        } else {
-                            current_hostname.clone()
-                        },
-                        user: current_user.clone(),
-                    });
-                }
-            }
+            flush_host(&current_name, &current_hostname, &current_user, &mut hosts);
             current_name = host.trim().to_string();
             current_hostname.clear();
             current_user.clear();
@@ -58,23 +62,7 @@ pub fn parse_ssh_config_content(content: &str) -> Vec<SshHost> {
         }
     }
 
-    if !current_name.is_empty() && current_name != "*" {
-        for name in current_name.split_whitespace() {
-            if name == "*" || name.contains('?') {
-                continue;
-            }
-            hosts.push(SshHost {
-                name: name.to_string(),
-                hostname: if current_hostname.is_empty() {
-                    name.to_string()
-                } else {
-                    current_hostname.clone()
-                },
-                user: current_user.clone(),
-            });
-        }
-    }
-
+    flush_host(&current_name, &current_hostname, &current_user, &mut hosts);
     hosts
 }
 
@@ -112,11 +100,8 @@ pub fn filter_hosts(hosts: Vec<SshHost>, query: &str) -> Vec<SearchResult> {
                 description: format!("{}{}", user_prefix, h.hostname),
                 icon: "".into(),
                 category: "ssh".into(),
-                exec: format!(
-                    "kitty ssh '{}{}'",
-                    user_prefix,
-                    h.name.replace('\'', "'\\''")
-                ),
+                // Store host alias only; handler uses safe Command args (no shell interpolation)
+                exec: h.name.clone(),
             }
         })
         .collect()
@@ -266,10 +251,11 @@ Host *
     }
 
     #[test]
-    fn result_exec_uses_kitty() {
+    fn result_exec_contains_host_alias() {
         let hosts = parse_ssh_config_content(SAMPLE_CONFIG);
         let results = filter_hosts(hosts, "server1");
-        assert!(results[0].exec.starts_with("kitty ssh"));
+        // exec now contains just the Host alias (no shell command)
+        assert_eq!(results[0].exec, "server1");
     }
 
     #[test]
@@ -295,5 +281,27 @@ Host *
         let hosts = parse_ssh_config_content(&config);
         let results = filter_hosts(hosts, "host");
         assert_eq!(results.len(), 10);
+    }
+
+    #[test]
+    fn malicious_hostname_stored_as_literal() {
+        // Verify that shell metacharacters are stored literally, not escaped for shell execution
+        // The fix: exec contains just the host alias; handler passes it safely via Command::arg()
+        let config = "Host evil$(whoami)\n    HostName 127.0.0.1\n";
+        let hosts = parse_ssh_config_content(config);
+        let results = filter_hosts(hosts, "evil");
+        assert_eq!(results.len(), 1);
+        // The literal host name is stored, no shell escaping needed
+        assert_eq!(results[0].exec, "evil$(whoami)");
+        assert_eq!(results[0].name, "evil$(whoami)");
+    }
+
+    #[test]
+    fn backtick_hostname_stored_as_literal() {
+        let config = "Host evil`id`\n    HostName 127.0.0.1\n";
+        let hosts = parse_ssh_config_content(config);
+        let results = filter_hosts(hosts, "evil");
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].exec, "evil`id`");
     }
 }

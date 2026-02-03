@@ -3,7 +3,8 @@ use crate::actions::utils;
 use crate::commands::onepass;
 use crate::router::SearchResult;
 
-/// Check whether a category string is recognized by the action dispatcher.
+/// Check whether a category string has a handler in the action dispatcher.
+/// Note: "chat" category is handled separately by the frontend and is intentionally excluded.
 pub fn is_valid_category(category: &str) -> bool {
     matches!(
         category,
@@ -31,7 +32,7 @@ pub fn handle_action(
         "app" | "history" | "special" => handle_launch(result, app),
         "ssh" => handle_ssh(result, modifier),
         "math" => handle_math(result, modifier),
-        "action" => Ok(()), // Defensive no-op: frontend dispatches via run_setting
+        "action" => Ok(()), // No-op: "action" results are dispatched by frontend via run_setting() command
         "info" => Ok(()),
         _ => Err(format!("Unknown category: {}", result.category)),
     }
@@ -124,16 +125,23 @@ fn handle_launch(result: &SearchResult, app: &tauri::AppHandle) -> Result<(), St
 }
 
 fn handle_ssh(result: &SearchResult, modifier: Modifier) -> Result<(), String> {
+    // Data contract: exec = Host alias only, description = "user@hostname" or "hostname"
+    // This avoids shell interpolation by passing the alias directly to Command::arg()
+    let host = &result.exec;
+    let user = extract_user_from_description(&result.description);
+
     match modifier {
         Modifier::Ctrl => {
             // Copy "ssh user@host" to clipboard
-            // Parse from exec which is like "kitty ssh 'user@host'"
-            let ssh_target = extract_ssh_target(&result.exec);
-            utils::copy_to_clipboard(&format!("ssh {ssh_target}"))
+            let target = match &user {
+                Some(u) => format!("{}@{}", u, host),
+                None => host.clone(),
+            };
+            utils::copy_to_clipboard(&format!("ssh {target}"))
         }
         _ => {
-            // Default + Shift: launch SSH connection
-            utils::exec_shell(&result.exec)
+            // Default + Shift: launch SSH connection safely (no shell interpolation)
+            utils::exec_ssh(host, user.as_deref())
         }
     }
 }
@@ -149,18 +157,10 @@ fn handle_math(result: &SearchResult, modifier: Modifier) -> Result<(), String> 
     }
 }
 
-/// Extract the SSH target from an exec string like "kitty ssh 'user@host'"
-fn extract_ssh_target(exec: &str) -> String {
-    if let Some(idx) = exec.find("ssh ") {
-        let rest = &exec[idx + 4..];
-        rest.split_whitespace()
-            .last()
-            .unwrap_or(rest)
-            .trim_matches(&['\'', '"'][..])
-            .to_string()
-    } else {
-        exec.to_string()
-    }
+/// Extract the user from SSH description (format: "user@hostname" or "hostname").
+/// Returns Some(user) if present, None otherwise.
+fn extract_user_from_description(description: &str) -> Option<String> {
+    description.split_once('@').map(|(user, _)| user.to_string())
 }
 
 #[cfg(test)]
@@ -168,33 +168,21 @@ mod tests {
     use super::*;
 
     #[test]
-    fn extract_ssh_target_with_user() {
-        let exec = "kitty ssh 'admin@server1'";
-        assert_eq!(extract_ssh_target(exec), "admin@server1");
+    fn extract_user_from_description_with_user() {
+        let desc = "admin@192.168.1.10";
+        assert_eq!(extract_user_from_description(desc), Some("admin".to_string()));
     }
 
     #[test]
-    fn extract_ssh_target_no_user() {
-        let exec = "kitty ssh 'myhost'";
-        assert_eq!(extract_ssh_target(exec), "myhost");
+    fn extract_user_from_description_no_user() {
+        let desc = "192.168.1.10";
+        assert_eq!(extract_user_from_description(desc), None);
     }
 
     #[test]
-    fn extract_ssh_target_no_quotes() {
-        let exec = "kitty ssh admin@server1";
-        assert_eq!(extract_ssh_target(exec), "admin@server1");
-    }
-
-    #[test]
-    fn extract_ssh_target_double_quotes() {
-        let exec = r#"kitty ssh "admin@server1""#;
-        assert_eq!(extract_ssh_target(exec), "admin@server1");
-    }
-
-    #[test]
-    fn extract_ssh_target_empty_after_ssh() {
-        let exec = "kitty ssh ";
-        assert_eq!(extract_ssh_target(exec), "");
+    fn extract_user_from_description_hostname() {
+        let desc = "deploy@example.com";
+        assert_eq!(extract_user_from_description(desc), Some("deploy".to_string()));
     }
 
     #[test]

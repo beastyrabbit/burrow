@@ -55,7 +55,8 @@ Host local
     let results = filter_hosts(hosts, "prod");
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "prod");
-    assert!(results[0].exec.contains("kitty ssh"));
+    // exec now contains just the host alias (no shell command for security)
+    assert_eq!(results[0].exec, "prod");
 }
 
 #[test]
