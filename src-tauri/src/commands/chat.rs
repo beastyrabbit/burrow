@@ -39,7 +39,7 @@ async fn fetch_context(
     let embedding = match ollama::generate_embedding(query).await {
         Ok(e) => e,
         Err(e) => {
-            eprintln!("[chat] Failed to generate embedding for context: {e}");
+            tracing::debug!(error = %e, "failed to generate embedding for chat context");
             return vec![];
         }
     };
@@ -48,7 +48,7 @@ async fn fetch_context(
     let conn = match state.lock() {
         Ok(c) => c,
         Err(e) => {
-            eprintln!("[chat] Vector DB lock failed: {e}");
+            tracing::warn!(error = %e, "vector DB lock failed in chat");
             return vec![];
         }
     };
@@ -56,7 +56,7 @@ async fn fetch_context(
     let mut stmt = match conn.prepare("SELECT file_path, content_preview, embedding FROM vectors") {
         Ok(s) => s,
         Err(e) => {
-            eprintln!("[chat] Failed to prepare vector query: {e}");
+            tracing::warn!(error = %e, "failed to prepare chat vector query");
             return vec![];
         }
     };
@@ -69,7 +69,7 @@ async fn fetch_context(
     }) {
         Ok(r) => r,
         Err(e) => {
-            eprintln!("[chat] Failed to query vectors: {e}");
+            tracing::warn!(error = %e, "failed to query vectors for chat");
             return vec![];
         }
     };
@@ -78,7 +78,7 @@ async fn fetch_context(
         .filter_map(|r| match r {
             Ok(row) => Some(row),
             Err(e) => {
-                eprintln!("[chat] Skipping corrupt vector row: {e}");
+                tracing::trace!(error = %e, "skipping corrupt vector row in chat");
                 None
             }
         })

@@ -26,7 +26,7 @@ impl VectorDbState {
 fn vector_db_path() -> PathBuf {
     let dir = super::data_dir();
     if let Err(e) = std::fs::create_dir_all(&dir) {
-        eprintln!("[vectors] failed to create data dir {}: {e}", dir.display());
+        tracing::error!(path = %dir.display(), error = %e, "failed to create vector data dir");
     }
     dir.join("vectors.db")
 }
@@ -73,7 +73,7 @@ fn search_vectors(
         .filter_map(|r| match r {
             Ok(val) => Some(val),
             Err(e) => {
-                eprintln!("Warning: skipping corrupted vector row: {e}");
+                tracing::warn!(error = %e, "skipping corrupted vector row");
                 None
             }
         })

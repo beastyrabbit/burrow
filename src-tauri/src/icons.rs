@@ -17,15 +17,32 @@ pub fn resolve_icon(name: &str) -> String {
         return String::new();
     }
 
-    if let Some(cached) = ICON_CACHE.lock().unwrap().get(name) {
-        return cached.clone();
-    }
+    // Check cache first, recovering from poisoned mutex if needed
+    {
+        let cache = match ICON_CACHE.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => {
+                tracing::warn!("icon cache mutex poisoned, recovering");
+                poisoned.into_inner()
+            }
+        };
+
+        if let Some(cached) = cache.get(name) {
+            return cached.clone();
+        }
+    } // Release lock before doing I/O
 
     let result = resolve_icon_uncached(name);
-    ICON_CACHE
-        .lock()
-        .unwrap()
-        .insert(name.to_string(), result.clone());
+
+    // Re-acquire lock to insert result
+    let mut cache = match ICON_CACHE.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => {
+            tracing::warn!("icon cache mutex poisoned during insert, recovering");
+            poisoned.into_inner()
+        }
+    };
+    cache.insert(name.to_string(), result.clone());
     result
 }
 
@@ -61,7 +78,7 @@ fn file_to_data_uri(path: &Path) -> String {
         Some("svg") => "image/svg+xml",
         Some("xpm") => return String::new(),
         Some(ext) => {
-            eprintln!("[icons] unsupported format .{ext} for {}", path.display());
+            tracing::debug!(ext, path = %path.display(), "unsupported icon format");
             return String::new();
         }
         None => return String::new(),
@@ -70,7 +87,7 @@ fn file_to_data_uri(path: &Path) -> String {
     let bytes = match std::fs::read(path) {
         Ok(b) => b,
         Err(e) => {
-            eprintln!("[icons] failed to read {}: {e}", path.display());
+            tracing::debug!(path = %path.display(), error = %e, "failed to read icon file");
             return String::new();
         }
     };

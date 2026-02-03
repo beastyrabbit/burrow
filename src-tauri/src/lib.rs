@@ -6,6 +6,7 @@ pub mod config;
 pub mod dev_server;
 pub mod icons;
 pub mod indexer;
+pub mod logging;
 pub mod ollama;
 pub mod router;
 mod text_extract;
@@ -32,40 +33,39 @@ fn format_config_action(path: &std::path::Path, dry_run: bool) -> String {
 #[tauri::command]
 async fn run_setting(action: String, app: tauri::AppHandle) -> Result<String, String> {
     match action.as_str() {
-        "reindex" => {
+        "reindex" | "update" => {
             let progress_state = app.state::<indexer::IndexerState>();
             if progress_state.get().running {
                 return Ok("Indexer is already running".into());
             }
             let handle = app.clone();
+            let is_full = action == "reindex";
             tauri::async_runtime::spawn(async move {
-                let stats = indexer::index_all(&handle).await;
-                eprintln!(
-                    "[reindex] done: indexed={}, errors={}",
-                    stats.indexed, stats.errors
+                let stats = if is_full {
+                    indexer::index_all(&handle).await
+                } else {
+                    indexer::index_incremental(&handle).await
+                };
+                tracing::info!(
+                    action = if is_full { "reindex" } else { "update" },
+                    indexed = stats.indexed,
+                    skipped = stats.skipped,
+                    removed = stats.removed,
+                    errors = stats.errors,
+                    "indexer run complete"
                 );
             });
-            Ok("Reindexing started in background...".into())
-        }
-        "update" => {
-            let progress_state = app.state::<indexer::IndexerState>();
-            if progress_state.get().running {
-                return Ok("Indexer is already running".into());
+            Ok(if is_full {
+                "Reindexing started in background..."
+            } else {
+                "Incremental update started in background..."
             }
-            let handle = app.clone();
-            tauri::async_runtime::spawn(async move {
-                let stats = indexer::index_incremental(&handle).await;
-                eprintln!(
-                    "[update] done: indexed={}, skipped={}, removed={}, errors={}",
-                    stats.indexed, stats.skipped, stats.removed, stats.errors
-                );
-            });
-            Ok("Incremental update started in background...".into())
+            .into())
         }
         "config" => {
             let path = config::config_path();
             if actions::dry_run::is_enabled() {
-                eprintln!("[dry-run] open config: {}", path.display());
+                tracing::debug!(path = %path.display(), "[dry-run] open config");
                 return Ok(format_config_action(&path, true));
             }
             let editor = std::env::var("EDITOR").unwrap_or_else(|_| "xdg-open".into());
@@ -88,7 +88,7 @@ async fn run_setting(action: String, app: tauri::AppHandle) -> Result<String, St
             let last_indexed: Option<f64> = vconn
                 .query_row("SELECT MAX(indexed_at) FROM vectors", [], |r| r.get(0))
                 .ok();
-            drop(vconn);
+            drop(vconn); // Release vector DB lock before acquiring history DB lock
 
             let history_state = app.state::<history::DbState>();
             let hconn = history_state.lock()?;
@@ -146,6 +146,7 @@ async fn run_setting(action: String, app: tauri::AppHandle) -> Result<String, St
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    logging::init_logging();
     config::init_config();
 
     tauri::Builder::default()
@@ -153,26 +154,26 @@ pub fn run() {
         // toggle or focus the existing window instead of opening a duplicate.
         .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
             let Some(win) = app.get_webview_window("main") else {
-                eprintln!("[single-instance] main window not found, cannot toggle");
+                tracing::warn!("main window not found, cannot toggle");
                 return;
             };
 
             let should_hide = args.iter().any(|a| a == "toggle")
                 && win.is_visible().unwrap_or_else(|e| {
-                    eprintln!("[single-instance] failed to check visibility: {e}");
+                    tracing::warn!(error = %e, "failed to check window visibility");
                     false
                 });
 
             if should_hide {
                 if let Err(e) = win.hide() {
-                    eprintln!("[single-instance] failed to hide window: {e}");
+                    tracing::warn!(error = %e, "failed to hide window");
                 }
             } else {
                 if let Err(e) = win.show() {
-                    eprintln!("[single-instance] failed to show window: {e}");
+                    tracing::warn!(error = %e, "failed to show window");
                 }
                 if let Err(e) = win.set_focus() {
-                    eprintln!("[single-instance] failed to set focus: {e}");
+                    tracing::warn!(error = %e, "failed to set focus");
                 }
             }
         }))

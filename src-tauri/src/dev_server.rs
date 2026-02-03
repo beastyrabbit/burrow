@@ -154,16 +154,14 @@ pub fn start(app: tauri::AppHandle) {
         let listener = match tokio::net::TcpListener::bind("127.0.0.1:3001").await {
             Ok(l) => l,
             Err(e) => {
-                eprintln!("[dev-server] failed to bind on port 3001: {e}");
-                eprintln!(
-                    "[dev-server] is another instance running? Browser bridge will not work."
-                );
+                tracing::error!(error = %e, "failed to bind dev-server on port 3001");
+                tracing::error!("is another instance running? Browser bridge will not work.");
                 return;
             }
         };
-        eprintln!("[dev-server] HTTP bridge listening on http://127.0.0.1:3001");
+        tracing::info!("dev-server HTTP bridge listening on http://127.0.0.1:3001");
         if let Err(e) = axum::serve(listener, router).await {
-            eprintln!("[dev-server] server exited with error: {e}");
+            tracing::error!(error = %e, "dev-server exited with error");
         }
     });
 }

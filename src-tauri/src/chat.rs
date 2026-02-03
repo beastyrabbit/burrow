@@ -16,9 +16,9 @@ pub async fn generate_answer(
     context_snippets: &[ContextSnippet],
 ) -> Result<String, String> {
     if crate::actions::dry_run::is_enabled() {
-        eprintln!(
-            "[dry-run] generate_answer: {}",
-            crate::actions::dry_run::truncate(query, 80)
+        tracing::debug!(
+            query = %crate::actions::dry_run::truncate(query, 80),
+            "[dry-run] generate_answer"
         );
         return Ok("[dry-run] Chat disabled during testing".into());
     }

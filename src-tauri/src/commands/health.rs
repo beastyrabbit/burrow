@@ -50,7 +50,7 @@ pub async fn health_check(app: tauri::AppHandle) -> Result<HealthStatus, String>
 
 async fn check_ollama(url: &str) -> Result<(), String> {
     if crate::actions::dry_run::is_enabled() {
-        eprintln!("[dry-run] check_ollama: {url}");
+        tracing::debug!(url, "[dry-run] check_ollama");
         // Assume healthy in dry-run to avoid false alarms in tests
         return Ok(());
     }

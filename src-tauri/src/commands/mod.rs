@@ -20,7 +20,7 @@ pub fn data_dir() -> PathBuf {
     }
     dirs::data_local_dir()
         .unwrap_or_else(|| {
-            eprintln!("[warning] $HOME/$XDG_DATA_HOME not set, using current directory for data");
+            tracing::warn!("$HOME/$XDG_DATA_HOME not set, using current directory for data");
             PathBuf::from(".")
         })
         .join("burrow")
