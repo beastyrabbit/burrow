@@ -17,10 +17,7 @@ use tauri::Manager;
 fn hide_window(app: tauri::AppHandle) -> Result<(), String> {
     match app.get_webview_window("main") {
         Some(win) => win.hide().map_err(|e| e.to_string()),
-        None => {
-            eprintln!("[hide_window] main window not found");
-            Ok(())
-        }
+        None => Err("main window not found".into()),
     }
 }
 
@@ -84,7 +81,7 @@ async fn run_setting(action: String, app: tauri::AppHandle) -> Result<String, St
         }
         "stats" => {
             let vector_state = app.state::<vectors::VectorDbState>();
-            let vconn = vector_state.0.lock().map_err(|e| e.to_string())?;
+            let vconn = vector_state.lock()?;
             let file_count: i64 = vconn
                 .query_row("SELECT COUNT(*) FROM vectors", [], |r| r.get(0))
                 .map_err(|e| e.to_string())?;
@@ -94,7 +91,7 @@ async fn run_setting(action: String, app: tauri::AppHandle) -> Result<String, St
             drop(vconn);
 
             let history_state = app.state::<history::DbState>();
-            let hconn = history_state.0.lock().map_err(|e| e.to_string())?;
+            let hconn = history_state.lock()?;
             let launch_count: i64 = hconn
                 .query_row("SELECT COUNT(*) FROM launches", [], |r| r.get(0))
                 .map_err(|e| e.to_string())?;

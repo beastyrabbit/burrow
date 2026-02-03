@@ -41,7 +41,9 @@ impl Default for IndexerProgress {
     }
 }
 
-pub struct IndexerState(pub Mutex<IndexerProgress>);
+/// Thread-safe wrapper for indexer progress tracking.
+/// Inner field is private to enforce access through methods.
+pub struct IndexerState(Mutex<IndexerProgress>);
 
 impl Default for IndexerState {
     fn default() -> Self {
@@ -55,8 +57,9 @@ impl IndexerState {
     }
 
     fn update(&self, f: impl FnOnce(&mut IndexerProgress)) {
-        if let Ok(mut p) = self.0.lock() {
-            f(&mut p);
+        match self.0.lock() {
+            Ok(mut p) => f(&mut p),
+            Err(e) => eprintln!("[indexer] failed to acquire progress lock: {e}"),
         }
     }
 
@@ -163,8 +166,21 @@ pub async fn index_all(app: &tauri::AppHandle) -> IndexStats {
 
     // Drop all existing vectors first
     {
-        let conn = db.0.lock().unwrap();
-        conn.execute("DELETE FROM vectors", []).ok();
+        let conn = match db.lock() {
+            Ok(c) => c,
+            Err(e) => {
+                eprintln!("[indexer] failed to lock vector DB for reset: {e}");
+                progress.update(|p| {
+                    p.running = false;
+                    p.phase = "idle".into();
+                    p.last_result = format!("Failed to lock DB: {e}");
+                });
+                return stats;
+            }
+        };
+        if let Err(e) = conn.execute("DELETE FROM vectors", []) {
+            eprintln!("[indexer] failed to clear vectors table: {e}");
+        }
     }
 
     let paths = collect_indexable_paths(cfg);
@@ -190,7 +206,10 @@ pub async fn index_all(app: &tauri::AppHandle) -> IndexStats {
         .await
         {
             Ok(()) => stats.indexed += 1,
-            Err(_) => stats.errors += 1,
+            Err(e) => {
+                eprintln!("[indexer] failed to index {}: {e}", path.display());
+                stats.errors += 1;
+            }
         }
         stats.skipped = total - stats.indexed - stats.errors;
 
@@ -228,16 +247,40 @@ pub async fn index_incremental(app: &tauri::AppHandle) -> IndexStats {
 
     // Collect existing mtimes from DB
     let existing: std::collections::HashMap<String, f64> = {
-        let conn = db.0.lock().unwrap();
-        let mut stmt = conn
-            .prepare("SELECT file_path, file_mtime FROM vectors")
-            .unwrap();
-        stmt.query_map([], |row| {
+        let conn = match db.lock() {
+            Ok(c) => c,
+            Err(e) => {
+                eprintln!("[indexer] failed to lock vector DB for mtime query: {e}");
+                progress.update(|p| {
+                    p.running = false;
+                    p.phase = "idle".into();
+                    p.last_result = format!("Failed to lock DB: {e}");
+                });
+                return stats;
+            }
+        };
+        let mut stmt = match conn.prepare("SELECT file_path, file_mtime FROM vectors") {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("[indexer] failed to prepare mtime query: {e}");
+                progress.update(|p| {
+                    p.running = false;
+                    p.phase = "idle".into();
+                    p.last_result = format!("DB query failed: {e}");
+                });
+                return stats;
+            }
+        };
+        let result = match stmt.query_map([], |row| {
             Ok((row.get::<_, String>(0)?, row.get::<_, f64>(1)?))
-        })
-        .unwrap()
-        .filter_map(|r| r.ok())
-        .collect()
+        }) {
+            Ok(rows) => rows.filter_map(|r| r.ok()).collect(),
+            Err(e) => {
+                eprintln!("[indexer] failed to query mtimes: {e}");
+                std::collections::HashMap::new()
+            }
+        };
+        result
     };
 
     let all_paths = collect_indexable_paths(cfg);
@@ -279,7 +322,10 @@ pub async fn index_incremental(app: &tauri::AppHandle) -> IndexStats {
         .await
         {
             Ok(()) => stats.indexed += 1,
-            Err(_) => stats.errors += 1,
+            Err(e) => {
+                eprintln!("[indexer] failed to index {}: {e}", path.display());
+                stats.errors += 1;
+            }
         }
 
         progress.update(|p| {
@@ -324,28 +370,47 @@ async fn index_single_file(
     let mtime = file_mtime(path);
     let path_str = path.to_string_lossy().to_string();
 
-    let conn = state.0.lock().map_err(|e| e.to_string())?;
+    let conn = state.lock()?;
     vectors::insert_vector(&conn, &path_str, &preview, &embedding, model, mtime)
         .map_err(|e| e.to_string())
 }
 
 fn cleanup_stale(state: &VectorDbState, valid_paths: &std::collections::HashSet<String>) -> u32 {
-    let conn = state.0.lock().unwrap();
+    let conn = match state.lock() {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("[indexer] failed to lock vector DB for cleanup: {e}");
+            return 0;
+        }
+    };
+
     let paths: Vec<String> = {
-        let mut stmt = conn.prepare("SELECT file_path FROM vectors").unwrap();
-        stmt.query_map([], |row| row.get(0))
-            .unwrap()
-            .filter_map(|r| r.ok())
-            .collect()
+        let mut stmt = match conn.prepare("SELECT file_path FROM vectors") {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("[indexer] failed to prepare cleanup query: {e}");
+                return 0;
+            }
+        };
+        let result = match stmt.query_map([], |row| row.get(0)) {
+            Ok(rows) => rows.filter_map(|r| r.ok()).collect(),
+            Err(e) => {
+                eprintln!("[indexer] failed to query paths for cleanup: {e}");
+                return 0;
+            }
+        };
+        result
     };
 
     let mut removed = 0u32;
     for path in paths {
         // Remove if file no longer exists OR is no longer in the configured index dirs
         if !Path::new(&path).exists() || !valid_paths.contains(&path) {
-            conn.execute("DELETE FROM vectors WHERE file_path = ?1", [&path])
-                .ok();
-            removed += 1;
+            if let Err(e) = conn.execute("DELETE FROM vectors WHERE file_path = ?1", [&path]) {
+                eprintln!("[indexer] failed to delete stale vector for {}: {e}", path);
+            } else {
+                removed += 1;
+            }
         }
     }
     removed
@@ -496,12 +561,12 @@ mod tests {
         )
         .unwrap();
 
-        let state = VectorDbState(std::sync::Mutex::new(conn));
+        let state = VectorDbState::new(conn);
         let valid: std::collections::HashSet<String> = std::collections::HashSet::new();
         let removed = cleanup_stale(&state, &valid);
         assert_eq!(removed, 1);
 
-        let conn = state.0.lock().unwrap();
+        let conn = state.lock().unwrap();
         let count: i64 = conn
             .query_row("SELECT COUNT(*) FROM vectors", [], |r| r.get(0))
             .unwrap();
@@ -538,7 +603,7 @@ mod tests {
         )
         .unwrap();
 
-        let state = VectorDbState(std::sync::Mutex::new(conn));
+        let state = VectorDbState::new(conn);
         let valid: std::collections::HashSet<String> = [path_str].into_iter().collect();
         let removed = cleanup_stale(&state, &valid);
         assert_eq!(removed, 0);

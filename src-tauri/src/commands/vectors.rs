@@ -2,10 +2,26 @@ use crate::ollama;
 use crate::router::{Category, SearchResult};
 use rusqlite::Connection;
 use std::path::PathBuf;
-use std::sync::Mutex;
+use std::sync::{Mutex, MutexGuard};
 use tauri::{AppHandle, Manager};
 
-pub struct VectorDbState(pub Mutex<Connection>);
+/// Thread-safe wrapper for the vector database connection.
+/// Inner field is private to enforce access through the `lock()` method.
+pub struct VectorDbState(Mutex<Connection>);
+
+impl VectorDbState {
+    /// Create a new VectorDbState wrapping a database connection.
+    pub fn new(conn: Connection) -> Self {
+        Self(Mutex::new(conn))
+    }
+
+    /// Acquire a lock on the database connection.
+    pub fn lock(&self) -> Result<MutexGuard<'_, Connection>, String> {
+        self.0
+            .lock()
+            .map_err(|e| format!("vector DB lock failed: {e}"))
+    }
+}
 
 fn vector_db_path() -> PathBuf {
     let dir = super::data_dir();
@@ -35,7 +51,7 @@ fn create_vector_table(conn: &Connection) -> Result<(), rusqlite::Error> {
 pub fn init_vector_db(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
     let conn = Connection::open(vector_db_path())?;
     create_vector_table(&conn)?;
-    app.manage(VectorDbState(Mutex::new(conn)));
+    app.manage(VectorDbState::new(conn));
     Ok(())
 }
 
@@ -112,7 +128,7 @@ pub async fn search_by_content(query: &str, app: &AppHandle) -> Result<Vec<Searc
     let query_embedding = ollama::generate_embedding(query).await?;
 
     let state = app.state::<VectorDbState>();
-    let conn = state.0.lock().map_err(|e| e.to_string())?;
+    let conn = state.lock()?;
     search_vectors(
         &conn,
         &query_embedding,

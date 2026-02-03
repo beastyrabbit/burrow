@@ -1,10 +1,26 @@
 use crate::router::{Category, SearchResult};
 use rusqlite::Connection;
 use std::path::PathBuf;
-use std::sync::Mutex;
+use std::sync::{Mutex, MutexGuard};
 use tauri::{AppHandle, Manager};
 
-pub struct DbState(pub Mutex<Connection>);
+/// Thread-safe wrapper for the history database connection.
+/// Inner field is private to enforce access through the `lock()` method.
+pub struct DbState(Mutex<Connection>);
+
+impl DbState {
+    /// Create a new DbState wrapping a database connection.
+    pub fn new(conn: Connection) -> Self {
+        Self(Mutex::new(conn))
+    }
+
+    /// Acquire a lock on the database connection.
+    pub fn lock(&self) -> Result<MutexGuard<'_, Connection>, String> {
+        self.0
+            .lock()
+            .map_err(|e| format!("history DB lock failed: {e}"))
+    }
+}
 
 fn db_path() -> PathBuf {
     let dir = super::data_dir();
@@ -31,7 +47,7 @@ fn create_table(conn: &Connection) -> Result<(), rusqlite::Error> {
 pub fn init_db(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
     let conn = Connection::open(db_path())?;
     create_table(&conn)?;
-    app.manage(DbState(Mutex::new(conn)));
+    app.manage(DbState::new(conn));
     Ok(())
 }
 
@@ -67,7 +83,7 @@ fn query_frecent(conn: &Connection) -> Result<Vec<SearchResult>, rusqlite::Error
 
 pub fn get_frecent(app: &AppHandle) -> Result<Vec<SearchResult>, String> {
     let state = app.state::<DbState>();
-    let conn = state.0.lock().map_err(|e| e.to_string())?;
+    let conn = state.lock()?;
     query_frecent(&conn).map_err(|e| e.to_string())
 }
 
@@ -76,7 +92,7 @@ pub fn get_frecency_scores(
     app: &AppHandle,
 ) -> Result<std::collections::HashMap<String, f64>, String> {
     let state = app.state::<DbState>();
-    let conn = state.0.lock().map_err(|e| e.to_string())?;
+    let conn = state.lock()?;
     query_frecency_scores(&conn).map_err(|e| e.to_string())
 }
 
@@ -132,7 +148,7 @@ pub fn record_launch(
     app: AppHandle,
 ) -> Result<(), String> {
     let state = app.state::<DbState>();
-    let conn = state.0.lock().map_err(|e| e.to_string())?;
+    let conn = state.lock()?;
     insert_launch(&conn, &id, &name, &exec, &icon, &description).map_err(|e| e.to_string())
 }
 
