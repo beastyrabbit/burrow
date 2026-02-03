@@ -1,10 +1,96 @@
 use crate::commands::onepass_vault;
 use crate::router::{Category, SearchResult};
+use serde::Deserialize;
 use std::collections::HashMap;
 use std::process::Command;
 use std::sync::Mutex;
 use std::time::Duration;
 use zeroize::Zeroizing;
+
+/// Typed 1Password account from `op account list`.
+/// Schema mismatches surface immediately as parse errors.
+#[derive(Debug, Clone, Deserialize)]
+pub struct OpAccount {
+    /// Account UUID (preferred identifier)
+    #[serde(alias = "user_uuid")]
+    pub account_uuid: Option<String>,
+}
+
+impl OpAccount {
+    /// Get the account ID, preferring account_uuid over user_uuid.
+    pub fn id(&self) -> Option<&str> {
+        self.account_uuid.as_deref()
+    }
+}
+
+/// Typed 1Password item from `op item list`.
+/// Contains only the fields needed for listing/identification.
+#[derive(Debug, Clone, Deserialize)]
+pub struct OpListItem {
+    pub id: String,
+    #[serde(default)]
+    pub title: String,
+    #[serde(default)]
+    pub category: String,
+}
+
+/// URL entry in a 1Password item.
+#[derive(Debug, Clone, Deserialize)]
+pub struct OpUrl {
+    pub href: Option<String>,
+}
+
+/// Field entry in a 1Password item (for extracting username/password).
+#[derive(Debug, Clone, Deserialize)]
+pub struct OpField {
+    #[serde(default)]
+    pub label: String,
+    #[serde(default)]
+    pub id: String,
+    #[serde(default)]
+    pub purpose: String,
+    pub value: Option<String>,
+}
+
+/// Typed 1Password item detail from `op item get --reveal`.
+/// Contains full item data including secrets.
+#[derive(Debug, Clone, Deserialize)]
+pub struct OpItemDetail {
+    pub id: String,
+    #[serde(default)]
+    pub title: String,
+    #[serde(default)]
+    pub category: String,
+    #[serde(default)]
+    pub urls: Vec<OpUrl>,
+    #[serde(default)]
+    pub fields: Vec<OpField>,
+}
+
+impl OpItemDetail {
+    /// Extract a field value by label, id, or purpose (case-insensitive).
+    pub fn get_field(&self, field_name: &str) -> Option<&str> {
+        self.fields.iter().find_map(|f| {
+            if f.label.eq_ignore_ascii_case(field_name)
+                || f.id.eq_ignore_ascii_case(field_name)
+                || f.purpose.eq_ignore_ascii_case(field_name)
+            {
+                f.value.as_deref()
+            } else {
+                None
+            }
+        })
+    }
+
+    /// Extract the primary domain from the item's URLs.
+    pub fn primary_domain(&self) -> Option<String> {
+        self.urls
+            .first()
+            .and_then(|u| u.href.as_ref())
+            .and_then(|href| url::Url::parse(href).ok())
+            .and_then(|u| u.host_str().map(String::from))
+    }
+}
 
 /// Per-account session tokens (account_id → session token).
 static OP_SESSIONS: Mutex<Option<HashMap<String, Zeroizing<String>>>> = Mutex::new(None);
@@ -191,17 +277,12 @@ fn fetch_account_ids() -> Result<Vec<String>, String> {
         ));
     }
 
-    let accounts: Vec<serde_json::Value> =
-        serde_json::from_slice(&stdout).map_err(|e| e.to_string())?;
+    let accounts: Vec<OpAccount> = serde_json::from_slice(&stdout)
+        .map_err(|e| format!("Failed to parse account list: {e}"))?;
 
     let ids: Vec<String> = accounts
         .iter()
-        .filter_map(|a| {
-            a.get("account_uuid")
-                .or_else(|| a.get("user_uuid"))
-                .and_then(|id| id.as_str())
-                .map(String::from)
-        })
+        .filter_map(|a| a.id().map(String::from))
         .collect();
     eprintln!("[1pass] found {} account(s)", ids.len());
     Ok(ids)
@@ -243,36 +324,6 @@ fn fetch_icon_for_domain(domain: &str) -> Option<String> {
     Some(format!("data:image/x-icon;base64,{b64}"))
 }
 
-/// Extract primary domain from a 1Password item's URLs array.
-fn extract_domain(item: &serde_json::Value) -> Option<String> {
-    item.get("urls")?
-        .as_array()?
-        .first()?
-        .get("href")
-        .and_then(|h| h.as_str())
-        .and_then(|href| url::Url::parse(href).ok())
-        .and_then(|u| u.host_str().map(String::from))
-}
-
-/// Extract a field value from 1Password item JSON by field label or id.
-fn extract_field(item: &serde_json::Value, field_name: &str) -> Option<String> {
-    // Check fields array
-    if let Some(fields) = item.get("fields").and_then(|f| f.as_array()) {
-        for f in fields {
-            let label = f.get("label").and_then(|l| l.as_str()).unwrap_or("");
-            let id = f.get("id").and_then(|l| l.as_str()).unwrap_or("");
-            let purpose = f.get("purpose").and_then(|p| p.as_str()).unwrap_or("");
-            if label.eq_ignore_ascii_case(field_name)
-                || id.eq_ignore_ascii_case(field_name)
-                || purpose.eq_ignore_ascii_case(field_name)
-            {
-                return f.get("value").and_then(|v| v.as_str()).map(String::from);
-            }
-        }
-    }
-    None
-}
-
 /// Load all 1Password items into the in-memory vault.
 /// This signs into each account, fetches item details with secrets, and caches icons.
 pub fn load_vault() -> Result<String, String> {
@@ -301,7 +352,7 @@ pub fn load_vault() -> Result<String, String> {
     }
 
     // Fetch item list for each account
-    let mut all_list_items: Vec<(String, serde_json::Value)> = Vec::new();
+    let mut all_list_items: Vec<(String, OpListItem)> = Vec::new();
     let mut failed_accounts: Vec<String> = Vec::new();
     for account_id in &account_ids {
         eprintln!("[1pass] fetching items for account {account_id}...");
@@ -317,7 +368,7 @@ pub fn load_vault() -> Result<String, String> {
             }
         };
 
-        match serde_json::from_slice::<Vec<serde_json::Value>>(&output.stdout) {
+        match serde_json::from_slice::<Vec<OpListItem>>(&output.stdout) {
             Ok(items) => {
                 eprintln!("[1pass] account {account_id}: {} items", items.len());
                 for item in items {
@@ -340,13 +391,7 @@ pub fn load_vault() -> Result<String, String> {
     let mut vault_items: Vec<onepass_vault::VaultItemInput> = Vec::new();
 
     for (account_id, list_item) in &all_list_items {
-        let item_id = match list_item.get("id").and_then(|i| i.as_str()) {
-            Some(id) => id,
-            None => {
-                eprintln!("[1pass] skipping item with no id field");
-                continue;
-            }
-        };
+        let item_id = &list_item.id;
 
         let detail_output = match run_op_with_session(
             account_id,
@@ -367,7 +412,7 @@ pub fn load_vault() -> Result<String, String> {
             }
         };
 
-        let detail: serde_json::Value = match serde_json::from_slice(&detail_output.stdout) {
+        let detail: OpItemDetail = match serde_json::from_slice(&detail_output.stdout) {
             Ok(v) => v,
             Err(e) => {
                 eprintln!("[1pass] failed to parse item {item_id}: {e}");
@@ -375,28 +420,19 @@ pub fn load_vault() -> Result<String, String> {
             }
         };
 
-        let title = detail
-            .get("title")
-            .and_then(|t| t.as_str())
-            .unwrap_or("")
-            .to_string();
-        let category = detail
-            .get("category")
-            .and_then(|c| c.as_str())
-            .unwrap_or("")
-            .to_string();
-        let username = extract_field(&detail, "username").unwrap_or_default();
-        let password = extract_field(&detail, "password").unwrap_or_default();
+        let username = detail.get_field("username").unwrap_or_default().to_string();
+        let password = detail.get_field("password").unwrap_or_default().to_string();
 
         // Fetch icon
-        let icon_b64 = extract_domain(&detail)
+        let icon_b64 = detail
+            .primary_domain()
             .and_then(|domain| fetch_icon_for_domain(&domain))
             .unwrap_or_default();
 
         vault_items.push(onepass_vault::VaultItemInput {
-            id: item_id.to_string(),
-            title,
-            category,
+            id: item_id.clone(),
+            title: detail.title,
+            category: detail.category,
             icon_b64,
             account_id: account_id.clone(),
             username,
@@ -498,9 +534,13 @@ mod tests {
     }
 
     #[test]
-    fn extract_field_from_item_json() {
-        let item: serde_json::Value = serde_json::from_str(
+    fn op_item_detail_get_field() {
+        let item: OpItemDetail = serde_json::from_str(
             r#"{
+                "id": "test-id",
+                "title": "Test",
+                "category": "LOGIN",
+                "urls": [],
                 "fields": [
                     {"label": "username", "value": "myuser"},
                     {"label": "password", "purpose": "PASSWORD", "value": "mypass"}
@@ -508,35 +548,71 @@ mod tests {
             }"#,
         )
         .unwrap();
-        assert_eq!(extract_field(&item, "username"), Some("myuser".into()));
-        assert_eq!(extract_field(&item, "password"), Some("mypass".into()));
-        assert_eq!(extract_field(&item, "nonexistent"), None);
+        assert_eq!(item.get_field("username"), Some("myuser"));
+        assert_eq!(item.get_field("password"), Some("mypass"));
+        assert_eq!(item.get_field("nonexistent"), None);
     }
 
     #[test]
-    fn extract_field_by_purpose() {
-        let item: serde_json::Value = serde_json::from_str(
+    fn op_item_detail_get_field_by_purpose() {
+        let item: OpItemDetail = serde_json::from_str(
             r#"{
+                "id": "test-id",
+                "title": "Test",
                 "fields": [
                     {"label": "pw", "purpose": "PASSWORD", "value": "secret123"}
                 ]
             }"#,
         )
         .unwrap();
-        assert_eq!(extract_field(&item, "PASSWORD"), Some("secret123".into()));
+        assert_eq!(item.get_field("PASSWORD"), Some("secret123"));
     }
 
     #[test]
-    fn extract_domain_from_urls() {
-        let item: serde_json::Value =
-            serde_json::from_str(r#"{"urls": [{"href": "https://github.com/login"}]}"#).unwrap();
-        assert_eq!(extract_domain(&item), Some("github.com".into()));
+    fn op_item_detail_primary_domain() {
+        let item: OpItemDetail = serde_json::from_str(
+            r#"{"id": "test", "urls": [{"href": "https://github.com/login"}]}"#,
+        )
+        .unwrap();
+        assert_eq!(item.primary_domain(), Some("github.com".into()));
     }
 
     #[test]
-    fn extract_domain_no_urls() {
-        let item: serde_json::Value = serde_json::from_str(r#"{"title": "test"}"#).unwrap();
-        assert_eq!(extract_domain(&item), None);
+    fn op_item_detail_no_urls() {
+        let item: OpItemDetail =
+            serde_json::from_str(r#"{"id": "test", "title": "test"}"#).unwrap();
+        assert_eq!(item.primary_domain(), None);
+    }
+
+    #[test]
+    fn op_account_id_parsing() {
+        // Test account_uuid takes precedence
+        let account: OpAccount = serde_json::from_str(r#"{"account_uuid": "uuid-123"}"#).unwrap();
+        assert_eq!(account.id(), Some("uuid-123"));
+
+        // Test user_uuid fallback via alias
+        let account: OpAccount = serde_json::from_str(r#"{"user_uuid": "user-456"}"#).unwrap();
+        assert_eq!(account.id(), Some("user-456"));
+
+        // Test empty account
+        let account: OpAccount = serde_json::from_str(r#"{}"#).unwrap();
+        assert_eq!(account.id(), None);
+    }
+
+    #[test]
+    fn op_list_item_parsing() {
+        let item: OpListItem =
+            serde_json::from_str(r#"{"id": "item-1", "title": "GitHub", "category": "LOGIN"}"#)
+                .unwrap();
+        assert_eq!(item.id, "item-1");
+        assert_eq!(item.title, "GitHub");
+        assert_eq!(item.category, "LOGIN");
+
+        // Test with missing optional fields (should use defaults)
+        let item: OpListItem = serde_json::from_str(r#"{"id": "item-2"}"#).unwrap();
+        assert_eq!(item.id, "item-2");
+        assert_eq!(item.title, "");
+        assert_eq!(item.category, "");
     }
 
     #[test]
