@@ -23,8 +23,7 @@ pub fn exec_shell(cmd: &str) -> Result<(), String> {
 }
 
 pub fn copy_to_clipboard(text: &str) -> Result<(), String> {
-    let truncated: String = text.chars().take(40).collect();
-    eprintln!("[dry-run] copy_to_clipboard: {truncated}");
+    eprintln!("[dry-run] copy_to_clipboard: {}", truncate(text, 40));
     Ok(())
 }
 
@@ -54,6 +53,15 @@ pub fn open_in_vscode(path: &str) -> Result<(), String> {
 
 pub fn launch_app(exec: &str) -> Result<(), String> {
     eprintln!("[dry-run] launch_app: {exec}");
+    Ok(())
+}
+
+pub fn exec_ssh(host: &str, user: Option<&str>) -> Result<(), String> {
+    let target = match user {
+        Some(u) => format!("{}@{}", u, host),
+        None => host.to_string(),
+    };
+    eprintln!("[dry-run] exec_ssh: {target}");
     Ok(())
 }
 

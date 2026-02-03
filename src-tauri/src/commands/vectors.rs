@@ -82,14 +82,15 @@ fn search_vectors(
                 .file_name()
                 .map(|f| f.to_string_lossy().to_string())
                 .unwrap_or_else(|| path.clone());
-            let open_cmd = format!("xdg-open '{}'", path.replace('\'', "'\\''"));
             SearchResult {
                 id: path.clone(),
                 name,
                 description: format!("{:.0}% — {}", score * 100.0, preview),
                 icon: "".into(),
                 category: "vector".into(),
-                exec: open_cmd,
+                // Security: exec intentionally empty. handle_file uses result.id
+                // with xdg_open via Command::arg() to prevent shell injection
+                exec: String::new(),
             }
         })
         .collect())
