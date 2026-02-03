@@ -88,7 +88,7 @@ async fn run_setting(action: String, app: tauri::AppHandle) -> Result<String, St
             let last_indexed: Option<f64> = vconn
                 .query_row("SELECT MAX(indexed_at) FROM vectors", [], |r| r.get(0))
                 .ok();
-            drop(vconn);
+            drop(vconn); // Release vector DB lock before acquiring history DB lock
 
             let history_state = app.state::<history::DbState>();
             let hconn = history_state.lock()?;

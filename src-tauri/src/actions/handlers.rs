@@ -96,7 +96,6 @@ fn handle_onepass(
         .strip_prefix("op-vault-item:")
         .ok_or_else(|| "Could not extract 1Password item ID".to_string())?;
 
-    // Hide window immediately
     utils::hide_window(app);
 
     match modifier {

@@ -240,6 +240,10 @@ function App() {
       await invoke("execute_action", { result: item, modifier });
     } catch (err) {
       console.error("Execute action failed:", err);
+      const errMsg = err instanceof Error ? err.message : String(err);
+      setNotification(`✗ Action failed: ${errMsg}`);
+      if (notificationTimer.current) clearTimeout(notificationTimer.current);
+      notificationTimer.current = setTimeout(() => setNotification(""), 6000);
     }
   }, [results, selectedIndex, query]);
 

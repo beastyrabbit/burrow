@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 
 /// Extract plain text from a file at the given path, truncated to `max_chars` characters.
 ///
-/// Supports plain text/code files (txt, md, rs, ts, js, py, etc.),
+/// Supports plain text/code files (txt, md, rs, ts, js, py, csv, rtf, etc.),
 /// PDF, DOCX, DOC (requires `libreoffice` on `$PATH`), PPTX, XLSX/XLS/ODS, and ODF (odt, odp).
 ///
 /// Returns `Err` if the format is unsupported or extraction fails.
@@ -30,8 +30,13 @@ fn read_text_file(path: &Path, max_chars: usize) -> Result<String, String> {
 
 fn extract_pdf(path: &Path, max_chars: usize) -> Result<String, String> {
     let bytes = std::fs::read(path).map_err(|e| e.to_string())?;
-    let text = pdf_extract::extract_text_from_mem(&bytes).map_err(|e| e.to_string())?;
-    Ok(text.chars().take(max_chars).collect())
+    // Use catch_unwind because pdf_extract can panic on malformed PDFs
+    let result = std::panic::catch_unwind(|| pdf_extract::extract_text_from_mem(&bytes));
+    match result {
+        Ok(Ok(text)) => Ok(text.chars().take(max_chars).collect()),
+        Ok(Err(e)) => Err(format!("PDF extraction failed: {e}")),
+        Err(_) => Err(format!("PDF extraction panicked for: {}", path.display())),
+    }
 }
 
 fn extract_docx(path: &Path, max_chars: usize) -> Result<String, String> {

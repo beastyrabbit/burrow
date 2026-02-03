@@ -164,7 +164,9 @@ fn signin(account_id: &str) -> Result<String, String> {
         Some(status) if status.success() => {
             let mut stdout = String::new();
             if let Some(mut out) = child.stdout.take() {
-                out.read_to_string(&mut stdout).ok();
+                if let Err(e) = out.read_to_string(&mut stdout) {
+                    tracing::warn!(error = %e, "failed to read op signin stdout");
+                }
             }
             let token = stdout.trim().to_string();
             if token.is_empty() {
@@ -177,7 +179,9 @@ fn signin(account_id: &str) -> Result<String, String> {
         Some(_) => {
             let mut stderr = String::new();
             if let Some(mut err) = child.stderr.take() {
-                err.read_to_string(&mut stderr).ok();
+                if let Err(e) = err.read_to_string(&mut stderr) {
+                    tracing::warn!(error = %e, "failed to read op signin stderr");
+                }
             }
             Err(format!(
                 "op signin failed for {account_id}: {}",
@@ -185,8 +189,12 @@ fn signin(account_id: &str) -> Result<String, String> {
             ))
         }
         None => {
-            child.kill().ok();
-            child.wait().ok();
+            if let Err(e) = child.kill() {
+                tracing::warn!(error = %e, "failed to kill timed-out op signin process");
+            }
+            if let Err(e) = child.wait() {
+                tracing::warn!(error = %e, "failed to wait for killed op signin process");
+            }
             Err(format!("op signin timed out for {account_id}"))
         }
     }
@@ -217,10 +225,14 @@ fn run_op_once(args: &[&str], token: &str) -> Result<std::process::Output, Strin
             let mut stdout = Vec::new();
             let mut stderr = Vec::new();
             if let Some(mut out) = child.stdout.take() {
-                out.read_to_end(&mut stdout).ok();
+                if let Err(e) = out.read_to_end(&mut stdout) {
+                    tracing::warn!(error = %e, "failed to read op stdout");
+                }
             }
             if let Some(mut err) = child.stderr.take() {
-                err.read_to_end(&mut stderr).ok();
+                if let Err(e) = err.read_to_end(&mut stderr) {
+                    tracing::warn!(error = %e, "failed to read op stderr");
+                }
             }
             Ok(std::process::Output {
                 status,
@@ -229,8 +241,12 @@ fn run_op_once(args: &[&str], token: &str) -> Result<std::process::Output, Strin
             })
         }
         None => {
-            child.kill().ok();
-            child.wait().ok();
+            if let Err(e) = child.kill() {
+                tracing::warn!(error = %e, "failed to kill timed-out op process");
+            }
+            if let Err(e) = child.wait() {
+                tracing::warn!(error = %e, "failed to wait for killed op process");
+            }
             Err("op command timed out after 30s".into())
         }
     }
@@ -276,21 +292,29 @@ fn fetch_account_ids() -> Result<Vec<String>, String> {
     {
         Some(s) => s,
         None => {
-            child.kill().ok();
-            child.wait().ok();
+            if let Err(e) = child.kill() {
+                tracing::warn!(error = %e, "failed to kill timed-out op account list process");
+            }
+            if let Err(e) = child.wait() {
+                tracing::warn!(error = %e, "failed to wait for killed op account list process");
+            }
             return Err("op account list timed out after 30s".into());
         }
     };
 
     let mut stdout = Vec::new();
     if let Some(mut out) = child.stdout.take() {
-        out.read_to_end(&mut stdout).ok();
+        if let Err(e) = out.read_to_end(&mut stdout) {
+            tracing::warn!(error = %e, "failed to read op account list stdout");
+        }
     }
 
     if !status.success() {
         let mut stderr = Vec::new();
         if let Some(mut err) = child.stderr.take() {
-            err.read_to_end(&mut stderr).ok();
+            if let Err(e) = err.read_to_end(&mut stderr) {
+                tracing::warn!(error = %e, "failed to read op account list stderr");
+            }
         }
         return Err(format!(
             "op account list failed: {}",
@@ -339,9 +363,13 @@ fn fetch_icon_for_domain(domain: &str) -> Option<String> {
         return None;
     }
 
-    // Cache to disk (ignore errors)
-    let _ = std::fs::create_dir_all(&cache_dir);
-    let _ = std::fs::write(&cache_file, &bytes);
+    // Cache to disk (log errors but don't fail)
+    if let Err(e) = std::fs::create_dir_all(&cache_dir) {
+        tracing::debug!(error = %e, "failed to create icon cache directory");
+    }
+    if let Err(e) = std::fs::write(&cache_file, &bytes) {
+        tracing::debug!(path = %cache_file.display(), error = %e, "failed to cache icon");
+    }
 
     let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
     Some(format!("data:image/x-icon;base64,{b64}"))
