@@ -13,6 +13,22 @@ pub struct AppConfig {
     pub indexer: IndexerConfig,
     pub history: HistoryConfig,
     pub search: SearchConfig,
+    pub onepass: OnePassConfig,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct OnePassConfig {
+    /// Minutes of idle time before the vault is cleared. Set to 0 to disable idle timeout.
+    pub idle_timeout_minutes: u32,
+}
+
+impl Default for OnePassConfig {
+    fn default() -> Self {
+        Self {
+            idle_timeout_minutes: 10,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -395,6 +411,23 @@ max_content_chars = 2048
         assert_eq!(cfg.indexer.interval_hours, 12);
         assert_eq!(cfg.indexer.file_extensions, vec!["rs", "py"]);
         assert_eq!(cfg.indexer.max_content_chars, 2048);
+    }
+
+    #[test]
+    fn default_onepass_config() {
+        let cfg = AppConfig::default();
+        assert_eq!(cfg.onepass.idle_timeout_minutes, 10);
+    }
+
+    #[test]
+    fn parse_onepass_config() {
+        let cfg = parse_config(
+            r#"
+[onepass]
+idle_timeout_minutes = 30
+"#,
+        );
+        assert_eq!(cfg.onepass.idle_timeout_minutes, 30);
     }
 
     #[test]

@@ -42,21 +42,26 @@ fn handle_onepass(
     modifier: Modifier,
     app: &tauri::AppHandle,
 ) -> Result<(), String> {
-    if result.exec == "op-refresh-cache" {
-        onepass::refresh_op_cache()?;
+    if result.exec == "op-load-vault" {
+        // Spawn in a thread because load_vault does blocking I/O + stdin prompts
+        std::thread::spawn(|| match onepass::load_vault() {
+            Ok(msg) => eprintln!("[1pass] {msg}"),
+            Err(e) => eprintln!("[1pass] vault load failed: {e}"),
+        });
         return Ok(());
     }
 
-    let item_id = onepass::extract_item_id(&result.exec)
+    let item_id = result
+        .exec
+        .strip_prefix("op-vault-item:")
         .ok_or_else(|| "Could not extract 1Password item ID".to_string())?;
 
-    // Hide window immediately so 1Password biometric prompts are not blocked
+    // Hide window immediately
     utils::hide_window(app);
 
     match modifier {
         Modifier::Shift => {
-            // Copy password to clipboard (runs in background thread)
-            let id = item_id.clone();
+            let id = item_id.to_string();
             std::thread::spawn(move || match onepass::get_password(&id) {
                 Ok(pw) => {
                     if let Err(e) = utils::copy_to_clipboard(&pw) {
@@ -68,8 +73,7 @@ fn handle_onepass(
             Ok(())
         }
         Modifier::Ctrl => {
-            // Copy username to clipboard (runs in background thread)
-            let id = item_id.clone();
+            let id = item_id.to_string();
             std::thread::spawn(move || match onepass::get_username(&id) {
                 Ok(user) => {
                     if let Err(e) = utils::copy_to_clipboard(&user) {
@@ -81,9 +85,7 @@ fn handle_onepass(
             Ok(())
         }
         _ => {
-            // Default: fetch password then type via wtype.
-            // 1s delay lets the focused window receive input after Burrow hides.
-            let id = item_id.clone();
+            let id = item_id.to_string();
             std::thread::spawn(move || match onepass::get_password(&id) {
                 Ok(pw) => {
                     std::thread::sleep(std::time::Duration::from_secs(1));

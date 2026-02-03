@@ -116,6 +116,12 @@ struct ExecuteActionBody {
     modifier: Modifier,
 }
 
+async fn load_vault() -> Result<Json<String>, (StatusCode, String)> {
+    crate::commands::onepass::load_vault()
+        .map(Json)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))
+}
+
 async fn hide_window(State(app): State<AppState>) -> Result<Json<()>, (StatusCode, String)> {
     crate::hide_window(app)
         .map(Json)
@@ -132,6 +138,7 @@ pub fn start(app: tauri::AppHandle) {
         .route("/api/run_setting", post(run_setting))
         .route("/api/execute_action", post(execute_action))
         .route("/api/hide_window", post(hide_window))
+        .route("/api/load_vault", post(load_vault))
         .layer(
             CorsLayer::new()
                 .allow_origin(AllowOrigin::predicate(|origin, _| {

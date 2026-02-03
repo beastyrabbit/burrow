@@ -23,7 +23,7 @@ freedesktop_entry_parser = "2"
 glob = "0.3"
 tokio = { version = "1", features = ["rt-multi-thread", "process"] }
 toml = "0.9"
-reqwest = { version = "0.13", features = ["json"] }
+reqwest = { version = "0.13", features = ["blocking", "json"] }
 walkdir = "2"
 pdf-extract = "0.10"
 calamine = "0.32"
@@ -37,6 +37,8 @@ base64 = "0.22.1"
 axum = "0.8.8"
 tower-http = { version = "0.6.8", features = ["cors"] }
 tauri-plugin-single-instance = "2.3.7"
+zeroize = { version = "1.8.2", features = ["derive"] }
+url = "2.5.8"
 
 [dev-dependencies]
 tempfile = "3"
