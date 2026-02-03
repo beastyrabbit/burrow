@@ -1,5 +1,5 @@
 use crate::icons;
-use crate::router::SearchResult;
+use crate::router::{Category, SearchResult};
 use freedesktop_entry_parser::parse_entry;
 use nucleo::pattern::{CaseMatching, Normalization, Pattern};
 use nucleo::Matcher;
@@ -184,17 +184,17 @@ fn fuzzy_search(entries: &[DesktopEntry], query: &str) -> Vec<SearchResult> {
     scored
         .into_iter()
         .take(10)
-        .map(|(_, app)| entry_to_result(app, "app"))
+        .map(|(_, app)| entry_to_result(app, Category::App))
         .collect()
 }
 
-fn entry_to_result(entry: &DesktopEntry, category: &str) -> SearchResult {
+fn entry_to_result(entry: &DesktopEntry, category: Category) -> SearchResult {
     SearchResult {
         id: entry.id.clone(),
         name: entry.name.clone(),
         description: entry.comment.clone(),
         icon: icons::resolve_icon(&entry.icon),
-        category: category.into(),
+        category,
         exec: entry.exec.clone(),
     }
 }
@@ -220,13 +220,13 @@ fn sort_apps_by_frecency(
 
     let mut results: Vec<SearchResult> = with_history
         .into_iter()
-        .map(|(entry, _)| entry_to_result(entry, "history"))
+        .map(|(entry, _)| entry_to_result(entry, Category::History))
         .collect();
 
     results.extend(
         without_history
             .into_iter()
-            .map(|entry| entry_to_result(entry, "app")),
+            .map(|entry| entry_to_result(entry, Category::App)),
     );
 
     results
@@ -370,7 +370,7 @@ mod tests {
     fn fuzzy_returns_app_category() {
         let entries = vec![make_entry("ff", "Firefox", "firefox")];
         let results = fuzzy_search(&entries, "Firefox");
-        assert_eq!(results[0].category, "app");
+        assert_eq!(results[0].category, Category::App);
     }
 
     #[test]
@@ -402,8 +402,8 @@ mod tests {
         let results = sort_apps_by_frecency(&apps, &scores);
         let names: Vec<&str> = results.iter().map(|r| r.name.as_str()).collect();
         assert_eq!(names, vec!["Firefox", "Alpha", "Zzz App"]);
-        assert_eq!(results[0].category, "history");
-        assert_eq!(results[1].category, "app");
+        assert_eq!(results[0].category, Category::History);
+        assert_eq!(results[1].category, Category::App);
     }
 
     #[test]
@@ -419,7 +419,7 @@ mod tests {
         let results = sort_apps_by_frecency(&apps, &scores);
         let names: Vec<&str> = results.iter().map(|r| r.name.as_str()).collect();
         assert_eq!(names, vec!["Alpha", "Middle", "Zzz"]);
-        assert!(results.iter().all(|r| r.category == "app"));
+        assert!(results.iter().all(|r| r.category == Category::App));
     }
 
     #[test]
@@ -438,7 +438,7 @@ mod tests {
         let results = sort_apps_by_frecency(&apps, &scores);
         let names: Vec<&str> = results.iter().map(|r| r.name.as_str()).collect();
         assert_eq!(names, vec!["App B", "App C", "App A"]);
-        assert!(results.iter().all(|r| r.category == "history"));
+        assert!(results.iter().all(|r| r.category == Category::History));
     }
 
     // --- launch_app ---

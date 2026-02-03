@@ -2,7 +2,7 @@ use std::sync::Mutex;
 use std::time::{Duration, Instant};
 use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
 
-use crate::router::SearchResult;
+use crate::router::{Category, SearchResult};
 
 #[derive(Zeroize, ZeroizeOnDrop)]
 struct SecretFields {
@@ -169,7 +169,7 @@ pub fn search_to_results(query: &str) -> Vec<SearchResult> {
             name: m.title,
             description: format!("{} · ⏎ type pw · ⇧ copy pw · ^C copy user", m.category),
             icon: m.icon_b64,
-            category: "onepass".into(),
+            category: Category::Onepass,
             exec: format!("op-vault-item:{}", m.id),
         })
         .collect()
@@ -276,7 +276,7 @@ mod tests {
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].id, "op-id-0");
         assert_eq!(results[0].exec, "op-vault-item:id-0");
-        assert_eq!(results[0].category, "onepass");
+        assert_eq!(results[0].category, Category::Onepass);
         clear_vault();
     }
 

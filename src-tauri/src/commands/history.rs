@@ -1,4 +1,4 @@
-use crate::router::SearchResult;
+use crate::router::{Category, SearchResult};
 use rusqlite::Connection;
 use std::path::PathBuf;
 use std::sync::Mutex;
@@ -50,7 +50,7 @@ fn query_frecent(conn: &Connection) -> Result<Vec<SearchResult>, rusqlite::Error
                 exec: row.get(2)?,
                 icon: row.get(3)?,
                 description: row.get(4)?,
-                category: "history".into(),
+                category: Category::History,
             })
         })?
         .filter_map(|r| match r {
@@ -221,7 +221,7 @@ mod tests {
         let conn = test_db();
         insert_launch(&conn, "a", "App", "app", "", "").unwrap();
         let results = query_frecent(&conn).unwrap();
-        assert_eq!(results[0].category, "history");
+        assert_eq!(results[0].category, Category::History);
     }
 
     #[test]

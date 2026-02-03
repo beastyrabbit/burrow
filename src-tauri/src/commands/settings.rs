@@ -1,4 +1,4 @@
-use crate::router::SearchResult;
+use crate::router::{Category, SearchResult};
 
 struct SettingDef {
     id: &'static str,
@@ -54,7 +54,7 @@ pub fn search_settings(query: &str) -> Result<Vec<SearchResult>, String> {
             name: s.name.to_string(),
             description: s.description.to_string(),
             icon: "".into(),
-            category: "action".into(),
+            category: Category::Action,
             exec: "".into(),
         })
         .collect();
@@ -109,7 +109,7 @@ mod tests {
     fn results_have_action_category() {
         let results = search_settings("").unwrap();
         for r in &results {
-            assert_eq!(r.category, "action");
+            assert_eq!(r.category, Category::Action);
         }
     }
 

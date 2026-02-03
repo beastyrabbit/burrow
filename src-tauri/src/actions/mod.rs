@@ -18,6 +18,7 @@ pub async fn execute_action(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::router::Category;
 
     #[test]
     fn info_category_is_noop() {
@@ -27,10 +28,10 @@ mod tests {
             name: "Info".into(),
             description: "".into(),
             icon: "".into(),
-            category: "info".into(),
+            category: Category::Info,
             exec: "".into(),
         };
-        assert!(handlers::is_valid_category(&result.category));
+        assert!(handlers::is_valid_category(result.category));
     }
 
     #[test]
@@ -40,9 +41,9 @@ mod tests {
             name: "= 5".into(),
             description: "".into(),
             icon: "".into(),
-            category: "math".into(),
+            category: Category::Math,
             exec: "".into(),
         };
-        assert!(handlers::is_valid_category(&result.category));
+        assert!(handlers::is_valid_category(result.category));
     }
 }

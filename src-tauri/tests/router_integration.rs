@@ -1,20 +1,20 @@
 use burrow_lib::commands::math::try_calculate;
 use burrow_lib::commands::settings::search_settings;
 use burrow_lib::commands::ssh::{filter_hosts, parse_ssh_config_content};
-use burrow_lib::router::{classify_query, RouteKind};
+use burrow_lib::router::{classify_query, Category, RouteKind};
 
 #[test]
 fn math_expression_returns_result() {
     let result = try_calculate("2+2").unwrap();
     assert_eq!(result.name, "= 4");
-    assert_eq!(result.category, "math");
+    assert_eq!(result.category, Category::Math);
 }
 
 #[test]
 fn settings_prefix_returns_actions() {
     let results = search_settings("reindex").unwrap();
     assert_eq!(results.len(), 1);
-    assert_eq!(results[0].category, "action");
+    assert_eq!(results[0].category, Category::Action);
 }
 
 #[test]
@@ -63,7 +63,7 @@ Host local
 fn all_settings_have_consistent_structure() {
     let results = search_settings("").unwrap();
     for r in &results {
-        assert_eq!(r.category, "action");
+        assert_eq!(r.category, Category::Action);
         assert!(r.exec.is_empty());
         assert!(r.name.starts_with(':'));
         assert!(!r.id.is_empty());

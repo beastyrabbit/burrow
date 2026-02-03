@@ -1,4 +1,4 @@
-use crate::router::SearchResult;
+use crate::router::{Category, SearchResult};
 
 struct SpecialCommand {
     name: &'static str,
@@ -24,7 +24,7 @@ pub fn search_special(query: &str) -> Result<Vec<SearchResult>, String> {
             name: cmd.name.to_string(),
             description: cmd.description.to_string(),
             icon: cmd.icon.to_string(),
-            category: "special".into(),
+            category: Category::Special,
             exec: cmd.exec_command.to_string(),
         })
         .collect())
@@ -45,7 +45,7 @@ mod tests {
         let results = search_special("cowork").unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].name, "cowork");
-        assert_eq!(results[0].category, "special");
+        assert_eq!(results[0].category, Category::Special);
     }
 
     #[test]

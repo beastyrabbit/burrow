@@ -1,5 +1,5 @@
 use crate::commands::onepass_vault;
-use crate::router::SearchResult;
+use crate::router::{Category, SearchResult};
 use std::collections::HashMap;
 use std::process::Command;
 use std::sync::Mutex;
@@ -438,7 +438,7 @@ pub async fn search_onepass(query: &str) -> Result<Vec<SearchResult>, String> {
             name: "Load 1Password Data".into(),
             description: "Sign in and load all vault items into memory".into(),
             icon: "".into(),
-            category: "onepass".into(),
+            category: Category::Onepass,
             exec: "op-load-vault".into(),
         }])
     }

@@ -1,13 +1,30 @@
 use crate::commands::{apps, files, math, onepass, settings, special, ssh, vectors};
 use serde::{Deserialize, Serialize};
 
+/// The category of a search result, determining how it's displayed and handled.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum Category {
+    App,
+    History,
+    File,
+    Ssh,
+    Onepass,
+    Math,
+    Vector,
+    Chat,
+    Info,
+    Action,
+    Special,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct SearchResult {
     pub id: String,
     pub name: String,
     pub description: String,
     pub icon: String,
-    pub category: String,
+    pub category: Category,
     pub exec: String,
 }
 
@@ -73,7 +90,7 @@ fn build_chat_results(q: &str) -> Vec<SearchResult> {
             name: "Type a question after ?".into(),
             description: "Press Enter to ask AI".into(),
             icon: "".into(),
-            category: "info".into(),
+            category: Category::Info,
             exec: "".into(),
         }]
     } else {
@@ -82,7 +99,7 @@ fn build_chat_results(q: &str) -> Vec<SearchResult> {
             name: format!("Ask: {q}"),
             description: "Press Enter to get an AI answer".into(),
             icon: "".into(),
-            category: "chat".into(),
+            category: Category::Chat,
             exec: "".into(),
         }]
     }
@@ -285,5 +302,81 @@ mod tests {
             "expected name to contain query, got: {}",
             results[0].name
         );
+    }
+
+    // --- Category serialization ---
+
+    #[test]
+    fn category_serializes_to_lowercase() {
+        use serde_json;
+
+        assert_eq!(serde_json::to_string(&Category::App).unwrap(), "\"app\"");
+        assert_eq!(
+            serde_json::to_string(&Category::History).unwrap(),
+            "\"history\""
+        );
+        assert_eq!(serde_json::to_string(&Category::File).unwrap(), "\"file\"");
+        assert_eq!(serde_json::to_string(&Category::Ssh).unwrap(), "\"ssh\"");
+        assert_eq!(
+            serde_json::to_string(&Category::Onepass).unwrap(),
+            "\"onepass\""
+        );
+        assert_eq!(serde_json::to_string(&Category::Math).unwrap(), "\"math\"");
+        assert_eq!(
+            serde_json::to_string(&Category::Vector).unwrap(),
+            "\"vector\""
+        );
+        assert_eq!(serde_json::to_string(&Category::Chat).unwrap(), "\"chat\"");
+        assert_eq!(serde_json::to_string(&Category::Info).unwrap(), "\"info\"");
+        assert_eq!(
+            serde_json::to_string(&Category::Action).unwrap(),
+            "\"action\""
+        );
+        assert_eq!(
+            serde_json::to_string(&Category::Special).unwrap(),
+            "\"special\""
+        );
+    }
+
+    #[test]
+    fn category_deserializes_from_lowercase() {
+        use serde_json;
+
+        assert_eq!(
+            serde_json::from_str::<Category>("\"app\"").unwrap(),
+            Category::App
+        );
+        assert_eq!(
+            serde_json::from_str::<Category>("\"math\"").unwrap(),
+            Category::Math
+        );
+        assert_eq!(
+            serde_json::from_str::<Category>("\"ssh\"").unwrap(),
+            Category::Ssh
+        );
+    }
+
+    #[test]
+    fn search_result_serialization_roundtrip() {
+        use serde_json;
+
+        let result = SearchResult {
+            id: "test-id".into(),
+            name: "Test".into(),
+            description: "A test result".into(),
+            icon: "".into(),
+            category: Category::Math,
+            exec: "".into(),
+        };
+
+        let json = serde_json::to_string(&result).unwrap();
+        assert!(
+            json.contains("\"category\":\"math\""),
+            "Expected category to serialize as \"math\", got: {}",
+            json
+        );
+
+        let parsed: SearchResult = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.category, Category::Math);
     }
 }

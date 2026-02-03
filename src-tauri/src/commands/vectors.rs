@@ -1,5 +1,5 @@
 use crate::ollama;
-use crate::router::SearchResult;
+use crate::router::{Category, SearchResult};
 use rusqlite::Connection;
 use std::path::PathBuf;
 use std::sync::Mutex;
@@ -87,7 +87,7 @@ fn search_vectors(
                 name,
                 description: format!("{:.0}% — {}", score * 100.0, preview),
                 icon: "".into(),
-                category: "vector".into(),
+                category: Category::Vector,
                 // Security: exec intentionally empty. handle_file uses result.id
                 // with xdg_open via Command::arg() to prevent shell injection
                 exec: String::new(),
@@ -104,7 +104,7 @@ pub async fn search_by_content(query: &str, app: &AppHandle) -> Result<Vec<Searc
             name: "Vector search is disabled".into(),
             description: "Enable in ~/.config/burrow/config.toml".into(),
             icon: "".into(),
-            category: "info".into(),
+            category: Category::Info,
             exec: "".into(),
         }]);
     }
@@ -191,7 +191,7 @@ mod tests {
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].id, "/home/user/doc.txt");
         assert_eq!(results[0].name, "doc.txt");
-        assert_eq!(results[0].category, "vector");
+        assert_eq!(results[0].category, Category::Vector);
     }
 
     #[test]
