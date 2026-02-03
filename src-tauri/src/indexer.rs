@@ -91,6 +91,7 @@ impl IndexerState {
         self.update(|p| {
             p.running = false;
             p.phase = "idle".into();
+            p.current_file.clear();
             p.last_result = error;
         });
     }
