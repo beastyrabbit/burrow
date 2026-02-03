@@ -163,7 +163,7 @@ pub async fn index_all(app: &tauri::AppHandle) -> IndexStats {
 
     // Drop all existing vectors first
     {
-        let conn = db.0.lock().unwrap();
+        let conn = db.lock().unwrap();
         conn.execute("DELETE FROM vectors", []).ok();
     }
 
@@ -228,7 +228,7 @@ pub async fn index_incremental(app: &tauri::AppHandle) -> IndexStats {
 
     // Collect existing mtimes from DB
     let existing: std::collections::HashMap<String, f64> = {
-        let conn = db.0.lock().unwrap();
+        let conn = db.lock().unwrap();
         let mut stmt = conn
             .prepare("SELECT file_path, file_mtime FROM vectors")
             .unwrap();
@@ -324,13 +324,13 @@ async fn index_single_file(
     let mtime = file_mtime(path);
     let path_str = path.to_string_lossy().to_string();
 
-    let conn = state.0.lock().map_err(|e| e.to_string())?;
+    let conn = state.lock()?;
     vectors::insert_vector(&conn, &path_str, &preview, &embedding, model, mtime)
         .map_err(|e| e.to_string())
 }
 
 fn cleanup_stale(state: &VectorDbState, valid_paths: &std::collections::HashSet<String>) -> u32 {
-    let conn = state.0.lock().unwrap();
+    let conn = state.lock().unwrap();
     let paths: Vec<String> = {
         let mut stmt = conn.prepare("SELECT file_path FROM vectors").unwrap();
         stmt.query_map([], |row| row.get(0))
@@ -496,12 +496,12 @@ mod tests {
         )
         .unwrap();
 
-        let state = VectorDbState(std::sync::Mutex::new(conn));
+        let state = VectorDbState::new(conn);
         let valid: std::collections::HashSet<String> = std::collections::HashSet::new();
         let removed = cleanup_stale(&state, &valid);
         assert_eq!(removed, 1);
 
-        let conn = state.0.lock().unwrap();
+        let conn = state.lock().unwrap();
         let count: i64 = conn
             .query_row("SELECT COUNT(*) FROM vectors", [], |r| r.get(0))
             .unwrap();
@@ -538,7 +538,7 @@ mod tests {
         )
         .unwrap();
 
-        let state = VectorDbState(std::sync::Mutex::new(conn));
+        let state = VectorDbState::new(conn);
         let valid: std::collections::HashSet<String> = [path_str].into_iter().collect();
         let removed = cleanup_stale(&state, &valid);
         assert_eq!(removed, 0);

@@ -45,10 +45,10 @@ async fn fetch_context(
     };
 
     let state = app.state::<VectorDbState>();
-    let conn = match state.0.lock() {
+    let conn = match state.lock() {
         Ok(c) => c,
         Err(e) => {
-            eprintln!("[chat] Vector DB lock poisoned: {e}");
+            eprintln!("[chat] Vector DB lock failed: {e}");
             return vec![];
         }
     };

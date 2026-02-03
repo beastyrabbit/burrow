@@ -73,7 +73,7 @@ async fn check_ollama(url: &str) -> Result<(), String> {
 
 fn check_vector_db(app: &tauri::AppHandle) -> Result<(), String> {
     let state = app.state::<VectorDbState>();
-    let conn = state.0.lock().map_err(|e| e.to_string())?;
+    let conn = state.lock()?;
     conn.execute_batch("SELECT 1")
         .map_err(|e| format!("query failed ({e})"))?;
     Ok(())
