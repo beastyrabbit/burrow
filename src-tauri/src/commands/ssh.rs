@@ -1,4 +1,4 @@
-use crate::router::SearchResult;
+use crate::router::{Category, SearchResult};
 use std::fs;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -99,7 +99,7 @@ pub fn filter_hosts(hosts: Vec<SshHost>, query: &str) -> Vec<SearchResult> {
                 name: h.name.clone(),
                 description: format!("{}{}", user_prefix, h.hostname),
                 icon: "".into(),
-                category: "ssh".into(),
+                category: Category::Ssh,
                 // Store host alias only; handler uses safe Command args (no shell interpolation)
                 exec: h.name.clone(),
             }
@@ -247,7 +247,7 @@ Host *
     fn result_has_ssh_category() {
         let hosts = parse_ssh_config_content(SAMPLE_CONFIG);
         let results = filter_hosts(hosts, "server1");
-        assert_eq!(results[0].category, "ssh");
+        assert_eq!(results[0].category, Category::Ssh);
     }
 
     #[test]

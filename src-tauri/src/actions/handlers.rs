@@ -1,23 +1,23 @@
 use crate::actions::modifier::Modifier;
 use crate::actions::utils;
 use crate::commands::onepass;
-use crate::router::SearchResult;
+use crate::router::{Category, SearchResult};
 
-/// Check whether a category string has a handler in the action dispatcher.
-/// Note: "chat" category is handled separately by the frontend and is intentionally excluded.
-pub fn is_valid_category(category: &str) -> bool {
+/// Check whether a category has a handler in the action dispatcher.
+/// Note: Chat category is handled separately by the frontend and is intentionally excluded.
+pub fn is_valid_category(category: Category) -> bool {
     matches!(
         category,
-        "onepass"
-            | "file"
-            | "vector"
-            | "app"
-            | "history"
-            | "ssh"
-            | "math"
-            | "action"
-            | "info"
-            | "special"
+        Category::Onepass
+            | Category::File
+            | Category::Vector
+            | Category::App
+            | Category::History
+            | Category::Ssh
+            | Category::Math
+            | Category::Action
+            | Category::Info
+            | Category::Special
     )
 }
 
@@ -26,15 +26,15 @@ pub fn handle_action(
     modifier: Modifier,
     app: &tauri::AppHandle,
 ) -> Result<(), String> {
-    match result.category.as_str() {
-        "onepass" => handle_onepass(result, modifier, app),
-        "file" | "vector" => handle_file(result, modifier, app),
-        "app" | "history" | "special" => handle_launch(result, app),
-        "ssh" => handle_ssh(result, modifier),
-        "math" => handle_math(result, modifier),
-        "action" => Ok(()), // No-op: "action" results are dispatched by frontend via run_setting() command
-        "info" => Ok(()),
-        _ => Err(format!("Unknown category: {}", result.category)),
+    match result.category {
+        Category::Onepass => handle_onepass(result, modifier, app),
+        Category::File | Category::Vector => handle_file(result, modifier, app),
+        Category::App | Category::History | Category::Special => handle_launch(result, app),
+        Category::Ssh => handle_ssh(result, modifier),
+        Category::Math => handle_math(result, modifier),
+        Category::Action => Ok(()), // No-op: action results are dispatched by frontend via run_setting() command
+        Category::Info => Ok(()),
+        Category::Chat => Ok(()), // Handled by frontend
     }
 }
 
@@ -160,7 +160,9 @@ fn handle_math(result: &SearchResult, modifier: Modifier) -> Result<(), String> 
 /// Extract the user from SSH description (format: "user@hostname" or "hostname").
 /// Returns Some(user) if present, None otherwise.
 fn extract_user_from_description(description: &str) -> Option<String> {
-    description.split_once('@').map(|(user, _)| user.to_string())
+    description
+        .split_once('@')
+        .map(|(user, _)| user.to_string())
 }
 
 #[cfg(test)]
@@ -170,7 +172,10 @@ mod tests {
     #[test]
     fn extract_user_from_description_with_user() {
         let desc = "admin@192.168.1.10";
-        assert_eq!(extract_user_from_description(desc), Some("admin".to_string()));
+        assert_eq!(
+            extract_user_from_description(desc),
+            Some("admin".to_string())
+        );
     }
 
     #[test]
@@ -182,7 +187,10 @@ mod tests {
     #[test]
     fn extract_user_from_description_hostname() {
         let desc = "deploy@example.com";
-        assert_eq!(extract_user_from_description(desc), Some("deploy".to_string()));
+        assert_eq!(
+            extract_user_from_description(desc),
+            Some("deploy".to_string())
+        );
     }
 
     #[test]
@@ -192,26 +200,34 @@ mod tests {
             name: "= 42".into(),
             description: "6*7 = 42".into(),
             icon: "".into(),
-            category: "math".into(),
+            category: Category::Math,
             exec: "".into(),
         };
         assert!(handle_math(&result, Modifier::None).is_ok());
     }
 
     #[test]
-    fn unknown_category_is_invalid() {
-        assert!(!is_valid_category("unknown"));
-        assert!(!is_valid_category(""));
-        assert!(!is_valid_category("ONEPASS"));
+    fn chat_category_is_not_handled_by_dispatcher() {
+        // Chat is handled by frontend, not by handle_action dispatcher
+        assert!(!is_valid_category(Category::Chat));
     }
 
     #[test]
-    fn all_known_categories_are_valid() {
-        for cat in &[
-            "onepass", "file", "vector", "app", "history", "ssh", "math", "action", "info",
-            "special",
-        ] {
-            assert!(is_valid_category(cat), "{cat} should be valid");
+    fn all_dispatchable_categories_are_valid() {
+        let categories = [
+            Category::Onepass,
+            Category::File,
+            Category::Vector,
+            Category::App,
+            Category::History,
+            Category::Ssh,
+            Category::Math,
+            Category::Action,
+            Category::Info,
+            Category::Special,
+        ];
+        for cat in categories {
+            assert!(is_valid_category(cat), "{cat:?} should be valid");
         }
     }
 }

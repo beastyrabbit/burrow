@@ -1,4 +1,4 @@
-use crate::router::SearchResult;
+use crate::router::{Category, SearchResult};
 
 /// Returns true if the input looks like it could be a math expression.
 fn looks_like_math(input: &str) -> bool {
@@ -30,7 +30,7 @@ pub fn try_calculate(input: &str) -> Option<SearchResult> {
                 name: format!("= {display}"),
                 description: format!("{trimmed} = {display}"),
                 icon: "".into(),
-                category: "math".into(),
+                category: Category::Math,
                 exec: "".into(),
             })
         }
@@ -46,7 +46,7 @@ mod tests {
     fn basic_addition() {
         let r = try_calculate("1+3").unwrap();
         assert_eq!(r.name, "= 4");
-        assert_eq!(r.category, "math");
+        assert_eq!(r.category, Category::Math);
     }
 
     #[test]
@@ -122,7 +122,7 @@ mod tests {
     fn result_has_correct_fields() {
         let r = try_calculate("1+1").unwrap();
         assert_eq!(r.id, "math-result");
-        assert_eq!(r.category, "math");
+        assert_eq!(r.category, Category::Math);
         assert!(r.exec.is_empty());
         assert!(r.icon.is_empty());
         assert!(r.description.contains("1+1"));

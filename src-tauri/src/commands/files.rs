@@ -1,4 +1,4 @@
-use crate::router::SearchResult;
+use crate::router::{Category, SearchResult};
 use std::path::PathBuf;
 
 fn match_files_in_dirs(dirs: &[PathBuf], query: &str, limit: usize) -> Vec<SearchResult> {
@@ -19,7 +19,7 @@ fn match_files_in_dirs(dirs: &[PathBuf], query: &str, limit: usize) -> Vec<Searc
                             .map(|p| p.display().to_string())
                             .unwrap_or_default(),
                         icon: "".into(),
-                        category: "file".into(),
+                        category: Category::File,
                         // Security: exec intentionally empty. handle_file uses result.id
                         // with xdg_open via Command::arg() to prevent shell injection
                         exec: String::new(),
@@ -116,7 +116,7 @@ mod tests {
         let dir = setup_test_dir();
         let dirs = vec![dir.path().to_path_buf()];
         let results = match_files_in_dirs(&dirs, "readme", 10);
-        assert_eq!(results[0].category, "file");
+        assert_eq!(results[0].category, Category::File);
     }
 
     #[test]
