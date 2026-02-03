@@ -2,6 +2,8 @@ use crate::actions::modifier::Modifier;
 use crate::actions::utils;
 use crate::commands::onepass;
 use crate::router::{Category, SearchResult};
+use serde::Serialize;
+use tauri::Emitter;
 
 /// Check whether a category has a handler in the action dispatcher.
 /// Note: Chat category is handled separately by the frontend and is intentionally excluded.
@@ -38,6 +40,13 @@ pub fn handle_action(
     }
 }
 
+/// Payload for vault-load-result events sent to the frontend.
+#[derive(Clone, Serialize)]
+pub struct VaultLoadResult {
+    pub ok: bool,
+    pub message: String,
+}
+
 fn handle_onepass(
     result: &SearchResult,
     modifier: Modifier,
@@ -45,9 +54,23 @@ fn handle_onepass(
 ) -> Result<(), String> {
     if result.exec == "op-load-vault" {
         // Spawn in a thread because load_vault does blocking I/O + stdin prompts
-        std::thread::spawn(|| match onepass::load_vault() {
-            Ok(msg) => eprintln!("[1pass] {msg}"),
-            Err(e) => eprintln!("[1pass] vault load failed: {e}"),
+        let app_handle = app.clone();
+        std::thread::spawn(move || {
+            let result = onepass::load_vault();
+            let (ok, message) = match result {
+                Ok(msg) => {
+                    eprintln!("[1pass] {msg}");
+                    (true, msg)
+                }
+                Err(e) => {
+                    eprintln!("[1pass] vault load failed: {e}");
+                    (false, e)
+                }
+            };
+            let payload = VaultLoadResult { ok, message };
+            if let Err(e) = app_handle.emit("vault-load-result", payload) {
+                eprintln!("[1pass] failed to emit vault-load-result event: {e}");
+            }
         });
         return Ok(());
     }

@@ -17,6 +17,10 @@ export default defineConfig(async () => ({
             __dirname,
             "src/mock-tauri.ts"
           ),
+          "@tauri-apps/api/event": path.resolve(
+            __dirname,
+            "src/mock-tauri.ts"
+          ),
         },
   },
   clearScreen: false,

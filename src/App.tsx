@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { parseModifier } from "./types";
 import { CategoryIcon } from "./category-icons";
 import "./styles.css";
@@ -61,6 +62,7 @@ function App() {
   const visibilityEpoch = useRef(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLUListElement>(null);
+  const queryRef = useRef(query);
 
   const doSearch = useCallback(async (q: string) => {
     try {
@@ -99,6 +101,29 @@ function App() {
     const interval = setInterval(checkHealth, 30000);
     return () => clearInterval(interval);
   }, []);
+
+  // Keep queryRef in sync with query state
+  useEffect(() => {
+    queryRef.current = query;
+  }, [query]);
+
+  // Listen for vault-load-result events from 1Password load action
+  useEffect(() => {
+    const unlisten = listen<{ ok: boolean; message: string }>("vault-load-result", (event) => {
+      const { ok, message } = event.payload;
+      const prefix = ok ? "✓ " : "✗ ";
+      setNotification(prefix + message);
+      if (notificationTimer.current) clearTimeout(notificationTimer.current);
+      notificationTimer.current = setTimeout(() => setNotification(""), ok ? 4000 : 8000);
+      // Refresh search to show loaded items (use ref to get current query without re-subscribing)
+      if (ok) {
+        doSearch(queryRef.current);
+      }
+    });
+    return () => {
+      unlisten.then((fn) => fn());
+    };
+  }, [doSearch]);
 
   // Clear input when window is hidden
   useEffect(() => {
