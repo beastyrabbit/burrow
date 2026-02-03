@@ -149,6 +149,9 @@
 - Flatpak/Snap app dirs are already in `XDG_DATA_DIRS` on this system — adding them again in `desktop_dirs()` causes duplicates without dedup
 - GitHub repo owner is `beastyrabbit` (not `beasty`)
 - CodeRabbit is incremental — it won't re-review already-reviewed commits. Post `@coderabbitai review` comment on PR to trigger review of latest push.
+- `Zeroizing<String>` doesn't implement `PartialEq<&str>` — use `&*val` in test assertions: `assert_eq!(&*get_password("id").unwrap(), "expected")`
+- All `op` CLI calls must use `spawn` + `wait-timeout` (not blocking `Command::output()`) — signin gets 120s (user interaction), other calls get 30s
+- `env_override_openrouter_api_key` test is flaky when a real `OPENROUTER_API_KEY` env var is set in the shell — known issue, retry on failure
 
 ## Reference Repos
 
