@@ -17,10 +17,7 @@ use tauri::Manager;
 fn hide_window(app: tauri::AppHandle) -> Result<(), String> {
     match app.get_webview_window("main") {
         Some(win) => win.hide().map_err(|e| e.to_string()),
-        None => {
-            eprintln!("[hide_window] main window not found");
-            Ok(())
-        }
+        None => Err("main window not found".into()),
     }
 }
 

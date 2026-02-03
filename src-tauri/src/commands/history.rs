@@ -16,7 +16,9 @@ impl DbState {
 
     /// Acquire a lock on the database connection.
     pub fn lock(&self) -> Result<MutexGuard<'_, Connection>, String> {
-        self.0.lock().map_err(|e| e.to_string())
+        self.0
+            .lock()
+            .map_err(|e| format!("history DB lock failed: {e}"))
     }
 }
 
