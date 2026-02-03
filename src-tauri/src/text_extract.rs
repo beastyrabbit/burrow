@@ -53,7 +53,7 @@ fn extract_pptx(path: &Path, max_chars: usize) -> Result<String, String> {
                 }
             }
             Err(e) => {
-                eprintln!("[text_extract] warning: failed to read zip index {i}: {e}");
+                tracing::trace!(index = i, error = %e, "failed to read zip index");
                 None
             }
         })
@@ -77,7 +77,7 @@ fn extract_pptx(path: &Path, max_chars: usize) -> Result<String, String> {
             Ok(mut entry) => {
                 let mut xml = String::new();
                 if let Err(e) = entry.read_to_string(&mut xml) {
-                    eprintln!("[text_extract] warning: failed to read slide {name}: {e}");
+                    tracing::trace!(slide = %name, error = %e, "failed to read slide");
                     continue;
                 }
                 let text = strip_xml_tags(&xml);
@@ -94,7 +94,7 @@ fn extract_pptx(path: &Path, max_chars: usize) -> Result<String, String> {
                 }
             }
             Err(e) => {
-                eprintln!("[text_extract] warning: failed to access slide {name}: {e}");
+                tracing::trace!(slide = %name, error = %e, "failed to access slide");
             }
         }
     }
@@ -143,48 +143,49 @@ fn extract_zip_xml(path: &Path, xml_paths: &[&str], max_chars: usize) -> Result<
 fn extract_spreadsheet(path: &Path, max_chars: usize) -> Result<String, String> {
     use calamine::{open_workbook_auto, Data, Reader};
 
+    fn cell_to_string(cell: &Data) -> String {
+        match cell {
+            Data::Empty => String::new(),
+            Data::String(s) | Data::DateTimeIso(s) | Data::DurationIso(s) => s.clone(),
+            Data::Float(f) => f.to_string(),
+            Data::Int(i) => i.to_string(),
+            Data::Bool(b) => b.to_string(),
+            Data::Error(e) => format!("{e:?}"),
+            Data::DateTime(dt) => dt.to_string(),
+        }
+    }
+
     let mut workbook = open_workbook_auto(path).map_err(|e| e.to_string())?;
     let sheet_names: Vec<String> = workbook.sheet_names().to_vec();
     let mut result = String::new();
     let mut char_count = 0usize;
 
     for name in &sheet_names {
-        match workbook.worksheet_range(name) {
-            Ok(range) => {
-                for row in range.rows() {
-                    let cells: Vec<String> = row
-                        .iter()
-                        .map(|cell| match cell {
-                            Data::Empty => String::new(),
-                            Data::String(s) => s.clone(),
-                            Data::Float(f) => f.to_string(),
-                            Data::Int(i) => i.to_string(),
-                            Data::Bool(b) => b.to_string(),
-                            Data::Error(e) => format!("{e:?}"),
-                            Data::DateTime(dt) => dt.to_string(),
-                            Data::DateTimeIso(s) => s.clone(),
-                            Data::DurationIso(s) => s.clone(),
-                        })
-                        .collect();
-                    let line = cells.join("\t");
-                    if !line.trim().is_empty() {
-                        if !result.is_empty() {
-                            result.push('\n');
-                            char_count += 1;
-                        }
-                        result.push_str(&line);
-                        char_count += line.chars().count();
-                        if char_count >= max_chars {
-                            return Ok(result.chars().take(max_chars).collect());
-                        }
-                    }
-                }
-            }
+        let range = match workbook.worksheet_range(name) {
+            Ok(r) => r,
             Err(e) => {
-                eprintln!(
-                    "[text_extract] warning: failed to read sheet '{}': {e}",
-                    name
-                );
+                tracing::trace!(sheet = %name, error = %e, "failed to read spreadsheet sheet");
+                continue;
+            }
+        };
+
+        for row in range.rows() {
+            let line: String = row
+                .iter()
+                .map(cell_to_string)
+                .collect::<Vec<_>>()
+                .join("\t");
+            if line.trim().is_empty() {
+                continue;
+            }
+            if !result.is_empty() {
+                result.push('\n');
+                char_count += 1;
+            }
+            result.push_str(&line);
+            char_count += line.chars().count();
+            if char_count >= max_chars {
+                return Ok(result.chars().take(max_chars).collect());
             }
         }
     }

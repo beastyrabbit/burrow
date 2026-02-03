@@ -31,19 +31,31 @@ struct Vault {
 static VAULT: Mutex<Option<Vault>> = Mutex::new(None);
 
 /// Check whether the vault is loaded and not expired.
+/// Also refreshes the last_access timestamp to prevent TOCTOU race conditions.
 pub fn is_vault_loaded() -> bool {
-    let guard = match VAULT.lock() {
+    let mut guard = match VAULT.lock() {
         Ok(g) => g,
-        Err(_) => return false,
+        Err(poisoned) => {
+            tracing::warn!("vault mutex poisoned in is_vault_loaded, recovering");
+            poisoned.into_inner()
+        }
     };
-    match guard.as_ref() {
-        Some(v) => v.last_access.elapsed() < v.timeout,
+    match guard.as_mut() {
+        Some(v) => {
+            if v.last_access.elapsed() < v.timeout {
+                // Refresh last_access to prevent TOCTOU race
+                v.last_access = Instant::now();
+                true
+            } else {
+                false
+            }
+        }
         None => false,
     }
 }
 
 /// Store items in the vault, replacing any existing contents.
-/// Logs a warning if the mutex is poisoned (items will be lost).
+/// Recovers from poisoned mutex to ensure items are always stored.
 pub fn store_items(items: Vec<VaultItemInput>, timeout: Duration) {
     let vault_items: Vec<VaultItem> = items
         .into_iter()
@@ -60,20 +72,22 @@ pub fn store_items(items: Vec<VaultItemInput>, timeout: Duration) {
         })
         .collect();
 
+    let item_count = vault_items.len();
     let now = Instant::now();
-    match VAULT.lock() {
-        Ok(mut guard) => {
-            *guard = Some(Vault {
-                items: vault_items,
-                loaded_at: now,
-                last_access: now,
-                timeout,
-            });
+    let mut guard = match VAULT.lock() {
+        Ok(g) => g,
+        Err(poisoned) => {
+            tracing::warn!("vault mutex poisoned in store_items, recovering");
+            poisoned.into_inner()
         }
-        Err(e) => {
-            eprintln!("[1pass] VAULT mutex poisoned in store_items: {e}");
-        }
-    }
+    };
+    *guard = Some(Vault {
+        items: vault_items,
+        loaded_at: now,
+        last_access: now,
+        timeout,
+    });
+    tracing::debug!(item_count, "vault items stored");
 }
 
 /// Input struct for populating the vault (no zeroize needed — caller builds and hands off).
@@ -88,10 +102,17 @@ pub struct VaultItemInput {
 }
 
 /// Access the vault with expiry check and last-access touch.
-/// Returns `Err` if the vault is not loaded, expired, or the mutex is poisoned.
+/// Returns `Err` if the vault is not loaded or expired.
+/// Recovers from poisoned mutex gracefully.
 /// The callback receives the live vault reference.
 fn with_vault<T>(f: impl FnOnce(&Vault) -> Result<T, String>) -> Result<T, String> {
-    let mut guard = VAULT.lock().map_err(|e| e.to_string())?;
+    let mut guard = match VAULT.lock() {
+        Ok(g) => g,
+        Err(poisoned) => {
+            tracing::warn!("vault mutex poisoned in with_vault, recovering");
+            poisoned.into_inner()
+        }
+    };
     let vault = guard.as_mut().ok_or("Vault not loaded")?;
 
     if vault.last_access.elapsed() >= vault.timeout {
@@ -176,15 +197,17 @@ pub fn search_to_results(query: &str) -> Vec<SearchResult> {
 }
 
 /// Clear the vault, zeroizing all secrets on drop.
+/// SECURITY: Always clears the vault, even if mutex is poisoned.
 pub fn clear_vault() {
-    match VAULT.lock() {
-        Ok(mut guard) => {
-            *guard = None;
+    let mut guard = match VAULT.lock() {
+        Ok(g) => g,
+        Err(poisoned) => {
+            tracing::warn!("vault mutex poisoned in clear_vault, recovering to clear secrets");
+            poisoned.into_inner()
         }
-        Err(e) => {
-            eprintln!("[1pass] VAULT mutex poisoned in clear_vault, secrets may linger: {e}");
-        }
-    }
+    };
+    *guard = None;
+    tracing::debug!("vault cleared");
 }
 
 #[cfg(test)]

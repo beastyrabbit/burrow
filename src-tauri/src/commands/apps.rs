@@ -238,7 +238,7 @@ pub fn get_all_apps_with_frecency(app: &tauri::AppHandle) -> Result<Vec<SearchRe
     let scores = match super::history::get_frecency_scores(app) {
         Ok(s) => s,
         Err(e) => {
-            eprintln!("Warning: failed to load frecency scores, falling back to alphabetical: {e}");
+            tracing::warn!(error = %e, "failed to load frecency scores, falling back to alphabetical");
             std::collections::HashMap::new()
         }
     };

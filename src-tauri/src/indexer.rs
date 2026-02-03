@@ -59,12 +59,40 @@ impl IndexerState {
     fn update(&self, f: impl FnOnce(&mut IndexerProgress)) {
         match self.0.lock() {
             Ok(mut p) => f(&mut p),
-            Err(e) => eprintln!("[indexer] failed to acquire progress lock: {e}"),
+            Err(e) => tracing::error!(error = %e, "failed to acquire progress lock"),
         }
     }
 
     pub fn get(&self) -> IndexerProgress {
         self.0.lock().map(|p| p.clone()).unwrap_or_default()
+    }
+
+    fn start(&self) {
+        self.update(|p| {
+            p.running = true;
+            p.phase = "scanning".into();
+            p.processed = 0;
+            p.total = 0;
+            p.errors = 0;
+            p.current_file.clear();
+        });
+    }
+
+    fn finish(&self, result: String) {
+        self.update(|p| {
+            p.running = false;
+            p.phase = "idle".into();
+            p.current_file.clear();
+            p.last_result = result;
+        });
+    }
+
+    fn finish_with_error(&self, error: String) {
+        self.update(|p| {
+            p.running = false;
+            p.phase = "idle".into();
+            p.last_result = error;
+        });
     }
 }
 
@@ -155,31 +183,20 @@ pub async fn index_all(app: &tauri::AppHandle) -> IndexStats {
     let progress = app.state::<IndexerState>();
     let mut stats = IndexStats::default();
 
-    progress.update(|p| {
-        p.running = true;
-        p.phase = "scanning".into();
-        p.processed = 0;
-        p.total = 0;
-        p.errors = 0;
-        p.current_file.clear();
-    });
+    progress.start();
 
     // Drop all existing vectors first
     {
         let conn = match db.lock() {
             Ok(c) => c,
             Err(e) => {
-                eprintln!("[indexer] failed to lock vector DB for reset: {e}");
-                progress.update(|p| {
-                    p.running = false;
-                    p.phase = "idle".into();
-                    p.last_result = format!("Failed to lock DB: {e}");
-                });
+                tracing::error!(error = %e, "failed to lock vector DB for reset");
+                progress.finish_with_error(format!("Failed to lock DB: {e}"));
                 return stats;
             }
         };
         if let Err(e) = conn.execute("DELETE FROM vectors", []) {
-            eprintln!("[indexer] failed to clear vectors table: {e}");
+            tracing::error!(error = %e, "failed to clear vectors table");
         }
     }
 
@@ -207,7 +224,7 @@ pub async fn index_all(app: &tauri::AppHandle) -> IndexStats {
         {
             Ok(()) => stats.indexed += 1,
             Err(e) => {
-                eprintln!("[indexer] failed to index {}: {e}", path.display());
+                tracing::debug!(path = %path.display(), error = %e, "failed to index file");
                 stats.errors += 1;
             }
         }
@@ -219,14 +236,10 @@ pub async fn index_all(app: &tauri::AppHandle) -> IndexStats {
         });
     }
 
-    let result = format!("Indexed {} files, {} errors", stats.indexed, stats.errors);
-    progress.update(|p| {
-        p.running = false;
-        p.phase = "idle".into();
-        p.current_file.clear();
-        p.last_result = result;
-    });
-
+    progress.finish(format!(
+        "Indexed {} files, {} errors",
+        stats.indexed, stats.errors
+    ));
     stats
 }
 
@@ -236,38 +249,23 @@ pub async fn index_incremental(app: &tauri::AppHandle) -> IndexStats {
     let progress = app.state::<IndexerState>();
     let mut stats = IndexStats::default();
 
-    progress.update(|p| {
-        p.running = true;
-        p.phase = "scanning".into();
-        p.processed = 0;
-        p.total = 0;
-        p.errors = 0;
-        p.current_file.clear();
-    });
+    progress.start();
 
     // Collect existing mtimes from DB
     let existing: std::collections::HashMap<String, f64> = {
         let conn = match db.lock() {
             Ok(c) => c,
             Err(e) => {
-                eprintln!("[indexer] failed to lock vector DB for mtime query: {e}");
-                progress.update(|p| {
-                    p.running = false;
-                    p.phase = "idle".into();
-                    p.last_result = format!("Failed to lock DB: {e}");
-                });
+                tracing::error!(error = %e, "failed to lock vector DB for mtime query");
+                progress.finish_with_error(format!("Failed to lock DB: {e}"));
                 return stats;
             }
         };
         let mut stmt = match conn.prepare("SELECT file_path, file_mtime FROM vectors") {
             Ok(s) => s,
             Err(e) => {
-                eprintln!("[indexer] failed to prepare mtime query: {e}");
-                progress.update(|p| {
-                    p.running = false;
-                    p.phase = "idle".into();
-                    p.last_result = format!("DB query failed: {e}");
-                });
+                tracing::error!(error = %e, "failed to prepare mtime query");
+                progress.finish_with_error(format!("DB query failed: {e}"));
                 return stats;
             }
         };
@@ -276,7 +274,7 @@ pub async fn index_incremental(app: &tauri::AppHandle) -> IndexStats {
         }) {
             Ok(rows) => rows.filter_map(|r| r.ok()).collect(),
             Err(e) => {
-                eprintln!("[indexer] failed to query mtimes: {e}");
+                tracing::warn!(error = %e, "failed to query mtimes");
                 std::collections::HashMap::new()
             }
         };
@@ -323,7 +321,7 @@ pub async fn index_incremental(app: &tauri::AppHandle) -> IndexStats {
         {
             Ok(()) => stats.indexed += 1,
             Err(e) => {
-                eprintln!("[indexer] failed to index {}: {e}", path.display());
+                tracing::debug!(path = %path.display(), error = %e, "failed to index file");
                 stats.errors += 1;
             }
         }
@@ -342,17 +340,10 @@ pub async fn index_incremental(app: &tauri::AppHandle) -> IndexStats {
         .collect();
     stats.removed = cleanup_stale(&db, &valid_paths);
 
-    let result = format!(
+    progress.finish(format!(
         "Indexed {}, skipped {}, removed {}, {} errors",
         stats.indexed, stats.skipped, stats.removed, stats.errors
-    );
-    progress.update(|p| {
-        p.running = false;
-        p.phase = "idle".into();
-        p.current_file.clear();
-        p.last_result = result;
-    });
-
+    ));
     stats
 }
 
@@ -379,7 +370,7 @@ fn cleanup_stale(state: &VectorDbState, valid_paths: &std::collections::HashSet<
     let conn = match state.lock() {
         Ok(c) => c,
         Err(e) => {
-            eprintln!("[indexer] failed to lock vector DB for cleanup: {e}");
+            tracing::error!(error = %e, "failed to lock vector DB for cleanup");
             return 0;
         }
     };
@@ -388,14 +379,14 @@ fn cleanup_stale(state: &VectorDbState, valid_paths: &std::collections::HashSet<
         let mut stmt = match conn.prepare("SELECT file_path FROM vectors") {
             Ok(s) => s,
             Err(e) => {
-                eprintln!("[indexer] failed to prepare cleanup query: {e}");
+                tracing::error!(error = %e, "failed to prepare cleanup query");
                 return 0;
             }
         };
         let result = match stmt.query_map([], |row| row.get(0)) {
             Ok(rows) => rows.filter_map(|r| r.ok()).collect(),
             Err(e) => {
-                eprintln!("[indexer] failed to query paths for cleanup: {e}");
+                tracing::error!(error = %e, "failed to query paths for cleanup");
                 return 0;
             }
         };
@@ -407,7 +398,7 @@ fn cleanup_stale(state: &VectorDbState, valid_paths: &std::collections::HashSet<
         // Remove if file no longer exists OR is no longer in the configured index dirs
         if !Path::new(&path).exists() || !valid_paths.contains(&path) {
             if let Err(e) = conn.execute("DELETE FROM vectors WHERE file_path = ?1", [&path]) {
-                eprintln!("[indexer] failed to delete stale vector for {}: {e}", path);
+                tracing::warn!(path, error = %e, "failed to delete stale vector");
             } else {
                 removed += 1;
             }
@@ -425,9 +416,12 @@ pub fn start_background_indexer(app: tauri::AppHandle) {
     tauri::async_runtime::spawn(async move {
         loop {
             let stats = index_incremental(&app).await;
-            eprintln!(
-                "[indexer] indexed={}, skipped={}, removed={}, errors={}",
-                stats.indexed, stats.skipped, stats.removed, stats.errors
+            tracing::info!(
+                indexed = stats.indexed,
+                skipped = stats.skipped,
+                removed = stats.removed,
+                errors = stats.errors,
+                "background indexer run complete"
             );
             let interval = config::get_config().indexer.interval_hours;
             tokio::time::sleep(std::time::Duration::from_secs(interval * 3600)).await;

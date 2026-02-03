@@ -39,6 +39,9 @@ tower-http = { version = "0.6.8", features = ["cors"] }
 tauri-plugin-single-instance = "2.3.7"
 zeroize = { version = "1.8.2", features = ["derive"] }
 url = "2.5.8"
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.22", features = ["env-filter"] }
+tracing-appender = "0.2.4"
 
 [dev-dependencies]
 tempfile = "3"

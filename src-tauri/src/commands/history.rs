@@ -25,7 +25,7 @@ impl DbState {
 fn db_path() -> PathBuf {
     let dir = super::data_dir();
     if let Err(e) = std::fs::create_dir_all(&dir) {
-        eprintln!("[history] failed to create data dir {}: {e}", dir.display());
+        tracing::error!(path = %dir.display(), error = %e, "failed to create history data dir");
     }
     dir.join("history.db")
 }
@@ -72,7 +72,7 @@ fn query_frecent(conn: &Connection) -> Result<Vec<SearchResult>, rusqlite::Error
         .filter_map(|r| match r {
             Ok(val) => Some(val),
             Err(e) => {
-                eprintln!("Warning: skipping corrupted history row: {e}");
+                tracing::warn!(error = %e, "skipping corrupted history row");
                 None
             }
         })
@@ -110,7 +110,7 @@ fn query_frecency_scores(
         .filter_map(|r| match r {
             Ok(val) => Some(val),
             Err(e) => {
-                eprintln!("Warning: skipping corrupted history row: {e}");
+                tracing::warn!(error = %e, "skipping corrupted history row");
                 None
             }
         })

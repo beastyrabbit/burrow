@@ -76,16 +76,16 @@ fn handle_onepass(
         std::thread::spawn(move || {
             let payload = match onepass::load_vault() {
                 Ok(msg) => {
-                    eprintln!("[1pass] {msg}");
+                    tracing::info!(message = %msg, "1Password vault loaded");
                     VaultLoadResult::success(msg)
                 }
                 Err(e) => {
-                    eprintln!("[1pass] vault load failed: {e}");
+                    tracing::warn!(error = %e, "1Password vault load failed");
                     VaultLoadResult::failure(e)
                 }
             };
             if let Err(e) = app_handle.emit("vault-load-result", payload) {
-                eprintln!("[1pass] failed to emit vault-load-result event: {e}");
+                tracing::error!(error = %e, "failed to emit vault-load-result event");
             }
         });
         return Ok(());
@@ -105,10 +105,10 @@ fn handle_onepass(
             std::thread::spawn(move || match onepass::get_password(&id) {
                 Ok(pw) => {
                     if let Err(e) = utils::copy_to_clipboard(&pw) {
-                        eprintln!("[1pass] copy password failed: {e}");
+                        tracing::warn!(error = %e, "1Password copy password failed");
                     }
                 }
-                Err(e) => eprintln!("[1pass] get password failed: {e}"),
+                Err(e) => tracing::warn!(error = %e, "1Password get password failed"),
             });
             Ok(())
         }
@@ -117,10 +117,10 @@ fn handle_onepass(
             std::thread::spawn(move || match onepass::get_username(&id) {
                 Ok(user) => {
                     if let Err(e) = utils::copy_to_clipboard(&user) {
-                        eprintln!("[1pass] copy username failed: {e}");
+                        tracing::warn!(error = %e, "1Password copy username failed");
                     }
                 }
-                Err(e) => eprintln!("[1pass] get username failed: {e}"),
+                Err(e) => tracing::warn!(error = %e, "1Password get username failed"),
             });
             Ok(())
         }
@@ -134,10 +134,10 @@ fn handle_onepass(
                         .arg(&pw)
                         .status()
                     {
-                        eprintln!("[1pass] wtype failed (is wtype installed?): {e}");
+                        tracing::warn!(error = %e, "wtype failed (is wtype installed?)");
                     }
                 }
-                Err(e) => eprintln!("[1pass] get password failed: {e}"),
+                Err(e) => tracing::warn!(error = %e, "1Password get password failed"),
             });
             Ok(())
         }

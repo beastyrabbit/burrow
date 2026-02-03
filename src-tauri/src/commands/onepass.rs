@@ -96,29 +96,50 @@ impl OpItemDetail {
 static OP_SESSIONS: Mutex<Option<HashMap<String, Zeroizing<String>>>> = Mutex::new(None);
 
 fn get_session(account_id: &str) -> Option<Zeroizing<String>> {
-    OP_SESSIONS.lock().ok()?.as_ref()?.get(account_id).cloned()
+    let guard = match OP_SESSIONS.lock() {
+        Ok(g) => g,
+        Err(poisoned) => {
+            tracing::warn!("session mutex poisoned in get_session, recovering");
+            poisoned.into_inner()
+        }
+    };
+    guard.as_ref()?.get(account_id).cloned()
 }
 
 fn set_session(account_id: &str, token: String) {
-    if let Ok(mut guard) = OP_SESSIONS.lock() {
-        let map = guard.get_or_insert_with(HashMap::new);
-        map.insert(account_id.to_string(), Zeroizing::new(token));
-    }
+    let mut guard = match OP_SESSIONS.lock() {
+        Ok(g) => g,
+        Err(poisoned) => {
+            tracing::warn!("session mutex poisoned in set_session, recovering");
+            poisoned.into_inner()
+        }
+    };
+    let map = guard.get_or_insert_with(HashMap::new);
+    map.insert(account_id.to_string(), Zeroizing::new(token));
+    tracing::debug!(account_id, "session token stored");
 }
 
 fn clear_session(account_id: &str) {
-    if let Ok(mut guard) = OP_SESSIONS.lock() {
-        if let Some(map) = guard.as_mut() {
-            map.remove(account_id);
+    let mut guard = match OP_SESSIONS.lock() {
+        Ok(g) => g,
+        Err(poisoned) => {
+            tracing::warn!("session mutex poisoned in clear_session, recovering");
+            poisoned.into_inner()
         }
+    };
+    if let Some(map) = guard.as_mut() {
+        map.remove(account_id);
+        tracing::debug!(account_id, "session token cleared");
     }
 }
 
 #[cfg(test)]
 fn clear_all_sessions() {
-    if let Ok(mut guard) = OP_SESSIONS.lock() {
-        *guard = None;
-    }
+    let mut guard = match OP_SESSIONS.lock() {
+        Ok(g) => g,
+        Err(poisoned) => poisoned.into_inner(),
+    };
+    *guard = None;
 }
 
 /// Sign in to a specific 1Password account.
@@ -127,7 +148,7 @@ fn signin(account_id: &str) -> Result<String, String> {
     use std::io::Read;
     use wait_timeout::ChildExt;
 
-    eprintln!("[1pass] signing in to account {account_id}...");
+    tracing::info!(account_id, "signing in to 1Password account");
     let mut child = Command::new("op")
         .args(["signin", "--account", account_id, "--raw"])
         .stdin(std::process::Stdio::inherit())
@@ -150,7 +171,7 @@ fn signin(account_id: &str) -> Result<String, String> {
                 return Err(format!("op signin returned empty token for {account_id}"));
             }
             set_session(account_id, token.clone());
-            eprintln!("[1pass] session token acquired for {account_id}");
+            tracing::debug!(account_id, "session token acquired");
             Ok(token)
         }
         Some(_) => {
@@ -223,7 +244,7 @@ fn run_op_with_session(account_id: &str, args: &[&str]) -> Result<std::process::
         if output.status.success() {
             return Ok(output);
         }
-        eprintln!("[1pass] session expired for {account_id}, re-authenticating...");
+        tracing::debug!(account_id, "session expired, re-authenticating");
         clear_session(account_id);
     }
 
@@ -241,7 +262,7 @@ fn fetch_account_ids() -> Result<Vec<String>, String> {
     use std::io::Read;
     use wait_timeout::ChildExt;
 
-    eprintln!("[1pass] fetching account list...");
+    tracing::debug!("fetching 1Password account list");
     let mut child = Command::new("op")
         .args(["account", "list", "--format=json"])
         .stdout(std::process::Stdio::piped())
@@ -284,20 +305,22 @@ fn fetch_account_ids() -> Result<Vec<String>, String> {
         .iter()
         .filter_map(|a| a.id().map(String::from))
         .collect();
-    eprintln!("[1pass] found {} account(s)", ids.len());
+    tracing::debug!(count = ids.len(), "found 1Password accounts");
     Ok(ids)
 }
 
 /// Fetch icon for a domain via DuckDuckGo icon proxy, returning base64 data URI.
 fn fetch_icon_for_domain(domain: &str) -> Option<String> {
+    use base64::Engine;
+
     let cache_dir = dirs::cache_dir()
         .unwrap_or_else(|| std::path::PathBuf::from("/tmp"))
         .join("burrow/1password-icons");
+    let cache_file = cache_dir.join(format!("{}.png", domain.replace('/', "_")));
 
     // Check cache first
-    let cache_file = cache_dir.join(format!("{}.png", domain.replace('/', "_")));
     if let Ok(bytes) = std::fs::read(&cache_file) {
-        let b64 = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &bytes);
+        let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
         return Some(format!("data:image/x-icon;base64,{b64}"));
     }
 
@@ -312,15 +335,15 @@ fn fetch_icon_for_domain(domain: &str) -> Option<String> {
         return None;
     }
     let bytes = resp.bytes().ok()?;
-    if bytes.is_empty() || bytes.len() < 100 {
+    if bytes.len() < 100 {
         return None;
     }
 
-    // Cache to disk
-    std::fs::create_dir_all(&cache_dir).ok();
-    std::fs::write(&cache_file, &bytes).ok();
+    // Cache to disk (ignore errors)
+    let _ = std::fs::create_dir_all(&cache_dir);
+    let _ = std::fs::write(&cache_file, &bytes);
 
-    let b64 = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &bytes);
+    let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
     Some(format!("data:image/x-icon;base64,{b64}"))
 }
 
@@ -328,7 +351,7 @@ fn fetch_icon_for_domain(domain: &str) -> Option<String> {
 /// This signs into each account, fetches item details with secrets, and caches icons.
 pub fn load_vault() -> Result<String, String> {
     if crate::actions::dry_run::is_enabled() {
-        eprintln!("[dry-run] load_vault");
+        tracing::debug!("[dry-run] load_vault");
         return Ok("dry-run: vault load skipped".into());
     }
 
@@ -355,14 +378,14 @@ pub fn load_vault() -> Result<String, String> {
     let mut all_list_items: Vec<(String, OpListItem)> = Vec::new();
     let mut failed_accounts: Vec<String> = Vec::new();
     for account_id in &account_ids {
-        eprintln!("[1pass] fetching items for account {account_id}...");
+        tracing::debug!(account_id, "fetching items for account");
         let output = match run_op_with_session(
             account_id,
             &["item", "list", "--account", account_id, "--format=json"],
         ) {
             Ok(o) => o,
             Err(e) => {
-                eprintln!("[1pass] failed to list items for {account_id}: {e}");
+                tracing::warn!(account_id, error = %e, "failed to list items for account");
                 failed_accounts.push(account_id.clone());
                 continue;
             }
@@ -370,22 +393,19 @@ pub fn load_vault() -> Result<String, String> {
 
         match serde_json::from_slice::<Vec<OpListItem>>(&output.stdout) {
             Ok(items) => {
-                eprintln!("[1pass] account {account_id}: {} items", items.len());
+                tracing::debug!(account_id, count = items.len(), "fetched items for account");
                 for item in items {
                     all_list_items.push((account_id.clone(), item));
                 }
             }
             Err(e) => {
-                eprintln!("[1pass] failed to parse items for {account_id}: {e}");
+                tracing::warn!(account_id, error = %e, "failed to parse items for account");
                 failed_accounts.push(account_id.clone());
             }
         }
     }
 
-    eprintln!(
-        "[1pass] fetching details for {} items...",
-        all_list_items.len()
-    );
+    tracing::debug!(count = all_list_items.len(), "fetching item details");
 
     // Fetch full item details (with --reveal for secrets)
     let mut vault_items: Vec<onepass_vault::VaultItemInput> = Vec::new();
@@ -407,7 +427,7 @@ pub fn load_vault() -> Result<String, String> {
         ) {
             Ok(o) => o,
             Err(e) => {
-                eprintln!("[1pass] failed to get item {item_id}: {e}");
+                tracing::debug!(item_id, error = %e, "failed to get item");
                 continue;
             }
         };
@@ -415,7 +435,7 @@ pub fn load_vault() -> Result<String, String> {
         let detail: OpItemDetail = match serde_json::from_slice(&detail_output.stdout) {
             Ok(v) => v,
             Err(e) => {
-                eprintln!("[1pass] failed to parse item {item_id}: {e}");
+                tracing::debug!(item_id, error = %e, "failed to parse item");
                 continue;
             }
         };
@@ -442,7 +462,7 @@ pub fn load_vault() -> Result<String, String> {
 
     let count = vault_items.len();
     onepass_vault::store_items(vault_items, timeout);
-    eprintln!("[1pass] vault loaded with {count} items");
+    tracing::info!(count, "1Password vault loaded");
     if failed_accounts.is_empty() {
         Ok(format!("Loaded {count} 1Password items"))
     } else {
@@ -461,7 +481,7 @@ pub async fn search_onepass(query: &str) -> Result<Vec<SearchResult>, String> {
     }
 
     if crate::actions::dry_run::is_enabled() {
-        eprintln!("[dry-run] search_onepass: {query}");
+        tracing::debug!(query, "[dry-run] search_onepass");
         return Ok(vec![]);
     }
 

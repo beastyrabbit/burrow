@@ -18,41 +18,41 @@ fn parse_truthy(val: &str) -> bool {
 }
 
 pub fn exec_shell(cmd: &str) -> Result<(), String> {
-    eprintln!("[dry-run] exec_shell: {cmd}");
+    tracing::debug!(cmd, "[dry-run] exec_shell");
     Ok(())
 }
 
 pub fn copy_to_clipboard(text: &str) -> Result<(), String> {
-    eprintln!("[dry-run] copy_to_clipboard: {}", truncate(text, 40));
+    tracing::debug!(text = truncate(text, 40), "[dry-run] copy_to_clipboard");
     Ok(())
 }
 
 pub fn type_text_wayland(_text: &str, _app: &tauri::AppHandle) -> Result<(), String> {
-    eprintln!("[dry-run] type_text_wayland");
+    tracing::debug!("[dry-run] type_text_wayland");
     Ok(())
 }
 
 pub fn hide_window(_app: &tauri::AppHandle) {
-    eprintln!("[dry-run] hide_window");
+    tracing::debug!("[dry-run] hide_window");
 }
 
 pub fn xdg_open(path: &str) -> Result<(), String> {
-    eprintln!("[dry-run] xdg_open: {path}");
+    tracing::debug!(path, "[dry-run] xdg_open");
     Ok(())
 }
 
 pub fn open_dir_in_terminal(path: &str) -> Result<(), String> {
-    eprintln!("[dry-run] open_dir_in_terminal: {path}");
+    tracing::debug!(path, "[dry-run] open_dir_in_terminal");
     Ok(())
 }
 
 pub fn open_in_vscode(path: &str) -> Result<(), String> {
-    eprintln!("[dry-run] open_in_vscode: {path}");
+    tracing::debug!(path, "[dry-run] open_in_vscode");
     Ok(())
 }
 
 pub fn launch_app(exec: &str) -> Result<(), String> {
-    eprintln!("[dry-run] launch_app: {exec}");
+    tracing::debug!(exec, "[dry-run] launch_app");
     Ok(())
 }
 
@@ -61,7 +61,7 @@ pub fn exec_ssh(host: &str, user: Option<&str>) -> Result<(), String> {
         Some(u) => format!("{}@{}", u, host),
         None => host.to_string(),
     };
-    eprintln!("[dry-run] exec_ssh: {target}");
+    tracing::debug!(target, "[dry-run] exec_ssh");
     Ok(())
 }
 
