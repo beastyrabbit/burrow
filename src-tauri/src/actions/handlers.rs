@@ -2,6 +2,8 @@ use crate::actions::modifier::Modifier;
 use crate::actions::utils;
 use crate::commands::onepass;
 use crate::router::{Category, SearchResult};
+use serde::Serialize;
+use tauri::Emitter;
 
 /// Check whether a category has a handler in the action dispatcher.
 /// Note: Chat category is handled separately by the frontend and is intentionally excluded.
@@ -38,6 +40,31 @@ pub fn handle_action(
     }
 }
 
+/// Payload for vault-load-result events sent to the frontend.
+#[derive(Clone, Serialize, Debug, PartialEq)]
+pub struct VaultLoadResult {
+    pub ok: bool,
+    pub message: String,
+}
+
+impl VaultLoadResult {
+    /// Create a success result with the given message.
+    pub fn success(message: impl Into<String>) -> Self {
+        Self {
+            ok: true,
+            message: message.into(),
+        }
+    }
+
+    /// Create a failure result with the given error message.
+    pub fn failure(message: impl Into<String>) -> Self {
+        Self {
+            ok: false,
+            message: message.into(),
+        }
+    }
+}
+
 fn handle_onepass(
     result: &SearchResult,
     modifier: Modifier,
@@ -45,9 +72,21 @@ fn handle_onepass(
 ) -> Result<(), String> {
     if result.exec == "op-load-vault" {
         // Spawn in a thread because load_vault does blocking I/O + stdin prompts
-        std::thread::spawn(|| match onepass::load_vault() {
-            Ok(msg) => eprintln!("[1pass] {msg}"),
-            Err(e) => eprintln!("[1pass] vault load failed: {e}"),
+        let app_handle = app.clone();
+        std::thread::spawn(move || {
+            let payload = match onepass::load_vault() {
+                Ok(msg) => {
+                    eprintln!("[1pass] {msg}");
+                    VaultLoadResult::success(msg)
+                }
+                Err(e) => {
+                    eprintln!("[1pass] vault load failed: {e}");
+                    VaultLoadResult::failure(e)
+                }
+            };
+            if let Err(e) = app_handle.emit("vault-load-result", payload) {
+                eprintln!("[1pass] failed to emit vault-load-result event: {e}");
+            }
         });
         return Ok(());
     }
@@ -229,5 +268,71 @@ mod tests {
         for cat in categories {
             assert!(is_valid_category(cat), "{cat:?} should be valid");
         }
+    }
+
+    #[test]
+    fn vault_load_result_success_constructs_correctly() {
+        let result = VaultLoadResult::success("Loaded 42 items from vault");
+        assert!(result.ok, "success result should have ok=true");
+        assert_eq!(result.message, "Loaded 42 items from vault");
+    }
+
+    #[test]
+    fn vault_load_result_failure_constructs_correctly() {
+        let result = VaultLoadResult::failure("Authentication failed");
+        assert!(!result.ok, "failure result should have ok=false");
+        assert_eq!(result.message, "Authentication failed");
+    }
+
+    #[test]
+    fn vault_load_result_serializes_to_json() {
+        let success = VaultLoadResult::success("Loaded 5 items");
+        let json = serde_json::to_string(&success).expect("should serialize");
+        assert!(json.contains(r#""ok":true"#), "JSON should contain ok:true");
+        assert!(
+            json.contains(r#""message":"Loaded 5 items""#),
+            "JSON should contain message"
+        );
+
+        let failure = VaultLoadResult::failure("Network error");
+        let json = serde_json::to_string(&failure).expect("should serialize");
+        assert!(
+            json.contains(r#""ok":false"#),
+            "JSON should contain ok:false"
+        );
+        assert!(
+            json.contains(r#""message":"Network error""#),
+            "JSON should contain error message"
+        );
+    }
+
+    #[test]
+    fn vault_load_result_from_result_type() {
+        // Simulate the pattern used in handle_onepass
+        let ok_result: Result<String, String> = Ok("Loaded 10 items".to_string());
+        let payload = match ok_result {
+            Ok(msg) => VaultLoadResult::success(msg),
+            Err(e) => VaultLoadResult::failure(e),
+        };
+        assert_eq!(
+            payload,
+            VaultLoadResult {
+                ok: true,
+                message: "Loaded 10 items".to_string()
+            }
+        );
+
+        let err_result: Result<String, String> = Err("op CLI not found".to_string());
+        let payload = match err_result {
+            Ok(msg) => VaultLoadResult::success(msg),
+            Err(e) => VaultLoadResult::failure(e),
+        };
+        assert_eq!(
+            payload,
+            VaultLoadResult {
+                ok: false,
+                message: "op CLI not found".to_string()
+            }
+        );
     }
 }
