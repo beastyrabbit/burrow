@@ -63,8 +63,12 @@ function App() {
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLUListElement>(null);
   const queryRef = useRef(query);
-  const mouseEnabledRef = useRef(false);
-  const mouseStartRef = useRef<{ x: number; y: number } | null>(null);
+  // Mouse hover state machine: initial -> tracking -> enabled (resets on window hide)
+  const mouseStateRef = useRef<
+    | { phase: "initial" }
+    | { phase: "tracking"; start: { x: number; y: number } }
+    | { phase: "enabled" }
+  >({ phase: "initial" });
 
   const doSearch = useCallback(async (q: string) => {
     try {
@@ -136,8 +140,7 @@ function App() {
         setSelectedIndex(0);
         setChatAnswer("");
         setChatLoading(false);
-        mouseEnabledRef.current = false;
-        mouseStartRef.current = null;
+        mouseStateRef.current = { phase: "initial" };
       }
     };
     document.addEventListener("visibilitychange", onVisibilityChange);
@@ -149,15 +152,16 @@ function App() {
   useEffect(() => {
     const THRESHOLD = 10;
     const onMouseMove = (e: MouseEvent) => {
-      if (mouseEnabledRef.current) return;
-      if (!mouseStartRef.current) {
-        mouseStartRef.current = { x: e.clientX, y: e.clientY };
+      const state = mouseStateRef.current;
+      if (state.phase === "enabled") return;
+      if (state.phase === "initial") {
+        mouseStateRef.current = { phase: "tracking", start: { x: e.clientX, y: e.clientY } };
         return;
       }
-      const dx = e.clientX - mouseStartRef.current.x;
-      const dy = e.clientY - mouseStartRef.current.y;
+      const dx = e.clientX - state.start.x;
+      const dy = e.clientY - state.start.y;
       if (dx * dx + dy * dy > THRESHOLD * THRESHOLD) {
-        mouseEnabledRef.current = true;
+        mouseStateRef.current = { phase: "enabled" };
       }
     };
     window.addEventListener("mousemove", onMouseMove);
@@ -333,7 +337,7 @@ function App() {
           <li
             key={item.id}
             className={`result-item ${i === selectedIndex ? "selected" : ""}`}
-            onMouseEnter={() => { if (mouseEnabledRef.current) setSelectedIndex(i); }}
+            onMouseEnter={() => { if (mouseStateRef.current.phase === "enabled") setSelectedIndex(i); }}
             onClick={() => executeAction(null, item)}
           >
             <ResultIcon icon={item.icon} category={item.category} />
