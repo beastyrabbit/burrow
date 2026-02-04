@@ -160,12 +160,44 @@ fn handle_file(
     }
 }
 
+/// Escape user input for safe shell interpolation.
+/// Handles: backslashes, single quotes, double quotes, backticks, dollar signs, semicolons, pipes, ampersands.
+fn escape_shell_input(input: &str) -> String {
+    let mut escaped = String::with_capacity(input.len() * 2);
+    for c in input.chars() {
+        match c {
+            '\\' => escaped.push_str("\\\\"),
+            '\'' => escaped.push_str("'\\''"),
+            '"' => escaped.push_str("\\\""),
+            '`' => escaped.push_str("\\`"),
+            '$' => escaped.push_str("\\$"),
+            ';' => escaped.push_str("\\;"),
+            '|' => escaped.push_str("\\|"),
+            '&' => escaped.push_str("\\&"),
+            '>' => escaped.push_str("\\>"),
+            '<' => escaped.push_str("\\<"),
+            '(' => escaped.push_str("\\("),
+            ')' => escaped.push_str("\\)"),
+            '\n' => escaped.push_str("\\n"),
+            '\r' => escaped.push_str("\\r"),
+            _ => escaped.push(c),
+        }
+    }
+    escaped
+}
+
 /// Resolve final command, applying secondary input if provided.
 fn resolve_exec(result: &SearchResult, secondary_input: Option<&str>) -> String {
     match (&result.input_spec, secondary_input) {
         (Some(spec), Some(input)) if !input.is_empty() => {
-            // Escape quotes for shell safety
-            let escaped = input.replace('\'', "'\\''").replace('"', "\\\"");
+            if !spec.template.contains("{}") {
+                tracing::warn!(
+                    template = %spec.template,
+                    "input_spec template missing {{}} placeholder; input will be ignored"
+                );
+                return result.exec.clone();
+            }
+            let escaped = escape_shell_input(input);
             spec.template.replace("{}", &escaped)
         }
         _ => result.exec.clone(),
@@ -470,6 +502,183 @@ mod tests {
             output.contains("say \\\"hello\\\""),
             "should escape double quotes, got: {}",
             output
+        );
+    }
+
+    #[test]
+    fn resolve_exec_escapes_backticks() {
+        let result = SearchResult {
+            id: "test".into(),
+            name: "Test".into(),
+            description: "".into(),
+            icon: "".into(),
+            category: Category::Special,
+            exec: "base".into(),
+            input_spec: Some(InputSpec {
+                placeholder: "".into(),
+                template: "echo \"{}\"".into(),
+            }),
+        };
+        let output = resolve_exec(&result, Some("`whoami`"));
+        assert!(
+            output.contains("\\`whoami\\`"),
+            "should escape backticks, got: {}",
+            output
+        );
+    }
+
+    #[test]
+    fn resolve_exec_escapes_dollar_substitution() {
+        let result = SearchResult {
+            id: "test".into(),
+            name: "Test".into(),
+            description: "".into(),
+            icon: "".into(),
+            category: Category::Special,
+            exec: "base".into(),
+            input_spec: Some(InputSpec {
+                placeholder: "".into(),
+                template: "echo \"{}\"".into(),
+            }),
+        };
+        let output = resolve_exec(&result, Some("$(rm -rf /)"));
+        assert!(
+            output.contains("\\$\\(rm -rf /\\)"),
+            "should escape $() command substitution, got: {}",
+            output
+        );
+    }
+
+    #[test]
+    fn resolve_exec_escapes_semicolon() {
+        let result = SearchResult {
+            id: "test".into(),
+            name: "Test".into(),
+            description: "".into(),
+            icon: "".into(),
+            category: Category::Special,
+            exec: "base".into(),
+            input_spec: Some(InputSpec {
+                placeholder: "".into(),
+                template: "echo \"{}\"".into(),
+            }),
+        };
+        let output = resolve_exec(&result, Some("foo; rm -rf /"));
+        assert!(
+            output.contains("foo\\; rm -rf /"),
+            "should escape semicolons, got: {}",
+            output
+        );
+    }
+
+    #[test]
+    fn resolve_exec_escapes_pipe_and_ampersand() {
+        let result = SearchResult {
+            id: "test".into(),
+            name: "Test".into(),
+            description: "".into(),
+            icon: "".into(),
+            category: Category::Special,
+            exec: "base".into(),
+            input_spec: Some(InputSpec {
+                placeholder: "".into(),
+                template: "echo \"{}\"".into(),
+            }),
+        };
+        let output = resolve_exec(&result, Some("a | b && c"));
+        assert!(
+            output.contains("a \\| b \\&\\& c"),
+            "should escape pipes and ampersands, got: {}",
+            output
+        );
+    }
+
+    #[test]
+    fn resolve_exec_escapes_redirects() {
+        let result = SearchResult {
+            id: "test".into(),
+            name: "Test".into(),
+            description: "".into(),
+            icon: "".into(),
+            category: Category::Special,
+            exec: "base".into(),
+            input_spec: Some(InputSpec {
+                placeholder: "".into(),
+                template: "echo \"{}\"".into(),
+            }),
+        };
+        let output = resolve_exec(&result, Some("a > /etc/passwd < /dev/null"));
+        assert!(
+            output.contains("a \\> /etc/passwd \\< /dev/null"),
+            "should escape redirects, got: {}",
+            output
+        );
+    }
+
+    #[test]
+    fn resolve_exec_escapes_backslashes() {
+        let result = SearchResult {
+            id: "test".into(),
+            name: "Test".into(),
+            description: "".into(),
+            icon: "".into(),
+            category: Category::Special,
+            exec: "base".into(),
+            input_spec: Some(InputSpec {
+                placeholder: "".into(),
+                template: "echo \"{}\"".into(),
+            }),
+        };
+        let output = resolve_exec(&result, Some("path\\to\\file"));
+        assert!(
+            output.contains("path\\\\to\\\\file"),
+            "should escape backslashes, got: {}",
+            output
+        );
+    }
+
+    #[test]
+    fn resolve_exec_template_without_placeholder_returns_base_exec() {
+        let result = SearchResult {
+            id: "test".into(),
+            name: "Test".into(),
+            description: "".into(),
+            icon: "".into(),
+            category: Category::Special,
+            exec: "base-command".into(),
+            input_spec: Some(InputSpec {
+                placeholder: "Enter input".into(),
+                template: "broken-template-no-placeholder".into(),
+            }),
+        };
+        let output = resolve_exec(&result, Some("ignored-input"));
+        assert_eq!(
+            output, "base-command",
+            "should return base exec when template has no placeholder"
+        );
+    }
+
+    // --- escape_shell_input tests ---
+
+    #[test]
+    fn escape_shell_input_simple_text() {
+        assert_eq!(escape_shell_input("hello world"), "hello world");
+    }
+
+    #[test]
+    fn escape_shell_input_all_dangerous_chars() {
+        // Input contains: ' " \ ` $ ; | & > < ( )
+        let input = r#"'"\`$;|&><()"#;
+        // Expected: '\'' \" \\ \` \$ \; \| \& \> \< \( \)
+        let expected = r#"'\''\"\\\`\$\;\|\&\>\<\(\)"#;
+        assert_eq!(escape_shell_input(input), expected);
+    }
+
+    #[test]
+    fn escape_shell_input_newlines() {
+        assert_eq!(
+            escape_shell_input("line1\nline2\rline3"),
+            "line1\\nline2\\rline3"
         );
     }
 }

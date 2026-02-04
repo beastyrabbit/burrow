@@ -68,7 +68,8 @@ function App() {
   const [secondaryMode, setSecondaryMode] = useState<{
     active: boolean;
     result: SearchResult | null;
-  }>({ active: false, result: null });
+    previousQuery: string;
+  }>({ active: false, result: null, previousQuery: "" });
   const [secondaryInput, setSecondaryInput] = useState("");
   const notificationTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const visibilityEpoch = useRef(0);
@@ -155,7 +156,7 @@ function App() {
         setSelectedIndex(0);
         setChatAnswer("");
         setChatLoading(false);
-        setSecondaryMode({ active: false, result: null });
+        setSecondaryMode({ active: false, result: null, previousQuery: "" });
         setSecondaryInput("");
         mouseStateRef.current = { phase: "initial" };
       }
@@ -223,7 +224,7 @@ function App() {
 
     // Check if we should enter secondary mode (result has input_spec and not already in secondary mode)
     if (item.input_spec && !secondaryMode.active) {
-      setSecondaryMode({ active: true, result: item });
+      setSecondaryMode({ active: true, result: item, previousQuery: query });
       setQuery("");
       setSecondaryInput("");
       return;
@@ -243,7 +244,7 @@ function App() {
 
     // Reset secondary mode after capturing input
     if (secondaryMode.active) {
-      setSecondaryMode({ active: false, result: null });
+      setSecondaryMode({ active: false, result: null, previousQuery: "" });
       setSecondaryInput("");
     }
 
@@ -319,14 +320,12 @@ function App() {
       switch (e.key) {
         case "ArrowDown":
           e.preventDefault();
-          // Disable navigation in secondary mode (no results to navigate)
           if (!secondaryMode.active) {
             setSelectedIndex((i) => Math.min(i + 1, results.length - 1));
           }
           break;
         case "ArrowUp":
           e.preventDefault();
-          // Disable navigation in secondary mode
           if (!secondaryMode.active) {
             setSelectedIndex((i) => Math.max(i - 1, 0));
           }
@@ -337,11 +336,12 @@ function App() {
           break;
         case "Escape":
           e.preventDefault();
-          // In secondary mode, exit back to frecent view
           if (secondaryMode.active) {
-            setSecondaryMode({ active: false, result: null });
+            const restoredQuery = secondaryMode.previousQuery;
+            setSecondaryMode({ active: false, result: null, previousQuery: "" });
             setSecondaryInput("");
-            doSearch("");
+            setQuery(restoredQuery);
+            doSearch(restoredQuery);
           } else {
             invoke("hide_window").catch((e) => console.error("hide_window failed:", e));
           }

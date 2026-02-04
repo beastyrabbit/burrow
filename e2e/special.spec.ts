@@ -37,7 +37,6 @@ test.describe("Special Commands", () => {
   test("#nonexistent shows no results", async ({ page }) => {
     const input = page.locator(".search-input");
     await input.fill("#nonexistent");
-    await page.waitForTimeout(200);
     const empty = page.locator(".result-item.empty");
     await expect(empty).toBeVisible();
     await expect(empty).toHaveText("No results");
@@ -65,7 +64,6 @@ test.describe("Secondary Input Mode", () => {
     ).toBeVisible();
 
     await input.press("Enter");
-    await page.waitForTimeout(100);
 
     // Input should now have secondary class
     await expect(input).toHaveClass(/secondary/);
@@ -83,7 +81,9 @@ test.describe("Secondary Input Mode", () => {
     ).toBeVisible();
 
     await input.press("Enter");
-    await page.waitForTimeout(100);
+
+    // Wait for secondary mode indicator
+    await expect(page.locator(".secondary-indicator")).toBeVisible();
 
     // Placeholder should be from input_spec
     await expect(input).toHaveAttribute(
@@ -100,7 +100,9 @@ test.describe("Secondary Input Mode", () => {
     ).toBeVisible();
 
     await input.press("Enter");
-    await page.waitForTimeout(100);
+
+    // Wait for secondary mode
+    await expect(page.locator(".secondary-indicator")).toBeVisible();
 
     // Input should be empty
     await expect(input).toHaveValue("");
@@ -114,13 +116,15 @@ test.describe("Secondary Input Mode", () => {
     ).toBeVisible();
 
     await input.press("Enter");
-    await page.waitForTimeout(100);
+
+    // Wait for secondary mode
+    await expect(page.locator(".secondary-indicator")).toBeVisible();
 
     // Results list should not be visible
     await expect(page.locator(".results-list")).not.toBeVisible();
   });
 
-  test("Escape in secondary mode exits to frecent", async ({ page }) => {
+  test("Escape in secondary mode exits and restores query", async ({ page }) => {
     const input = page.locator(".search-input");
     await input.fill("#cowork");
     await expect(
@@ -128,14 +132,12 @@ test.describe("Secondary Input Mode", () => {
     ).toBeVisible();
 
     await input.press("Enter");
-    await page.waitForTimeout(100);
 
     // Now in secondary mode
     await expect(input).toHaveClass(/secondary/);
 
     // Press Escape to exit
     await input.press("Escape");
-    await page.waitForTimeout(100);
 
     // Should no longer be in secondary mode
     await expect(input).not.toHaveClass(/secondary/);
@@ -143,6 +145,9 @@ test.describe("Secondary Input Mode", () => {
 
     // Should show results list again
     await expect(page.locator(".results-list")).toBeVisible();
+
+    // Query should be restored
+    await expect(input).toHaveValue("#cowork");
   });
 
   test("empty Enter in secondary mode triggers execute_action with base command", async ({
@@ -155,20 +160,21 @@ test.describe("Secondary Input Mode", () => {
     ).toBeVisible();
 
     await input.press("Enter");
-    await page.waitForTimeout(100);
+
+    // Wait for secondary mode
+    await expect(page.locator(".secondary-indicator")).toBeVisible();
 
     const logs: string[] = [];
     page.on("console", (msg) => logs.push(msg.text()));
 
     // Press Enter with empty input
     await input.press("Enter");
-    await page.waitForTimeout(200);
-
-    // Should have triggered execute_action
-    expect(logs.some((l) => l.includes("execute_action"))).toBe(true);
 
     // Should exit secondary mode
     await expect(input).not.toHaveClass(/secondary/);
+
+    // Should have triggered execute_action (check after UI update)
+    expect(logs.some((l) => l.includes("execute_action"))).toBe(true);
   });
 
   test("input + Enter in secondary mode triggers execute_action with input", async ({
@@ -181,7 +187,9 @@ test.describe("Secondary Input Mode", () => {
     ).toBeVisible();
 
     await input.press("Enter");
-    await page.waitForTimeout(100);
+
+    // Wait for secondary mode
+    await expect(page.locator(".secondary-indicator")).toBeVisible();
 
     // Type some input
     await input.fill("my-project");
@@ -191,13 +199,12 @@ test.describe("Secondary Input Mode", () => {
 
     // Press Enter with input
     await input.press("Enter");
-    await page.waitForTimeout(200);
-
-    // Should have triggered execute_action
-    expect(logs.some((l) => l.includes("execute_action"))).toBe(true);
 
     // Should exit secondary mode
     await expect(input).not.toHaveClass(/secondary/);
+
+    // Should have triggered execute_action
+    expect(logs.some((l) => l.includes("execute_action"))).toBe(true);
   });
 
   test("typing in secondary mode updates secondaryInput", async ({ page }) => {
@@ -208,7 +215,9 @@ test.describe("Secondary Input Mode", () => {
     ).toBeVisible();
 
     await input.press("Enter");
-    await page.waitForTimeout(100);
+
+    // Wait for secondary mode
+    await expect(page.locator(".secondary-indicator")).toBeVisible();
 
     // Type in secondary mode
     await input.fill("test-topic");
