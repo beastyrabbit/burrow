@@ -47,6 +47,23 @@ fn cmd_health(json: bool) -> i32 {
         Ok(rt) => rt,
         Err(code) => return code,
     };
+
+    // Try daemon first
+    if daemon::is_daemon_running().is_some() {
+        let result = rt.block_on(async {
+            let client = daemon::DaemonClient::new();
+            client.health().await
+        });
+
+        match result {
+            Ok(status) => return display_health_status(&status, json),
+            Err(e) => {
+                tracing::debug!(error = %e, "daemon health check failed, using standalone");
+            }
+        }
+    }
+
+    // Standalone fallback
     let status = match rt.block_on(health::health_check_standalone()) {
         Ok(s) => s,
         Err(e) => {
@@ -55,8 +72,12 @@ fn cmd_health(json: bool) -> i32 {
         }
     };
 
+    display_health_status(&status, json)
+}
+
+fn display_health_status(status: &health::HealthStatus, json: bool) -> i32 {
     if json {
-        if let Err(e) = super::output::print_json_compact(&status) {
+        if let Err(e) = super::output::print_json_compact(status) {
             print_error(&format!("JSON serialization failed: {e}"));
             return 1;
         }
@@ -92,6 +113,47 @@ struct StatsOutput {
 }
 
 fn cmd_stats(json: bool) -> i32 {
+    // Try daemon first
+    if daemon::is_daemon_running().is_some() {
+        let rt = match create_runtime() {
+            Ok(rt) => rt,
+            Err(code) => return code,
+        };
+
+        let result = rt.block_on(async {
+            let client = daemon::DaemonClient::new();
+            client.stats().await
+        });
+
+        match result {
+            Ok(stats) => return display_stats(&stats, json),
+            Err(e) => {
+                tracing::debug!(error = %e, "daemon stats failed, using standalone");
+            }
+        }
+    }
+
+    // Standalone fallback
+    stats_standalone(json)
+}
+
+fn display_stats(stats: &daemon::handlers::StatsResponse, json: bool) -> i32 {
+    if json {
+        if let Err(e) = super::output::print_json_compact(stats) {
+            print_error(&format!("JSON serialization failed: {e}"));
+            return 1;
+        }
+    } else {
+        let last_str = stats.last_indexed.as_deref().unwrap_or("never");
+        print_heading("Statistics");
+        print_kv("Indexed files", &stats.indexed_files.to_string());
+        print_kv("Launch history", &format!("{} entries", stats.launch_count));
+        print_kv("Last indexed", last_str);
+    }
+    0
+}
+
+fn stats_standalone(json: bool) -> i32 {
     let vconn = match vectors::open_vector_db() {
         Ok(c) => c,
         Err(e) => {
@@ -944,8 +1006,67 @@ fn format_uptime(secs: u64) -> String {
 // Chat commands
 // ============================================================================
 
-/// Execute chat with optional RAG context.
-fn execute_chat(query: &str, small: bool, use_rag: bool) -> i32 {
+fn cmd_chat(query: &str, small: bool) -> i32 {
+    if query.trim().is_empty() {
+        print_error("Query cannot be empty");
+        return 1;
+    }
+
+    // Try daemon first
+    if daemon::is_daemon_running().is_some() {
+        return delegate_chat_to_daemon(query, small, false);
+    }
+
+    // Standalone fallback
+    execute_chat_standalone(query, small, false)
+}
+
+fn cmd_chat_docs(query: &str, small: bool) -> i32 {
+    if query.trim().is_empty() {
+        print_error("Query cannot be empty");
+        return 1;
+    }
+
+    // Try daemon first
+    if daemon::is_daemon_running().is_some() {
+        return delegate_chat_to_daemon(query, small, true);
+    }
+
+    // Standalone fallback
+    execute_chat_standalone(query, small, true)
+}
+
+/// Delegate chat to daemon with longer timeout.
+fn delegate_chat_to_daemon(query: &str, small: bool, with_docs: bool) -> i32 {
+    let rt = match create_runtime() {
+        Ok(rt) => rt,
+        Err(code) => return code,
+    };
+
+    let client = daemon::DaemonClient::with_chat_timeout();
+    let result = rt.block_on(async {
+        if with_docs {
+            client.chat_docs(query, small).await
+        } else {
+            client.chat(query, small).await
+        }
+    });
+
+    match result {
+        Ok(resp) => {
+            print_info(&format!("Using {} via {}", resp.model, resp.provider));
+            println!("\n{}", resp.answer);
+            0
+        }
+        Err(e) => {
+            print_error(&format!("Chat failed: {e}"));
+            1
+        }
+    }
+}
+
+/// Execute chat with optional RAG context (standalone mode).
+fn execute_chat_standalone(query: &str, small: bool, use_rag: bool) -> i32 {
     let rt = match create_runtime() {
         Ok(rt) => rt,
         Err(code) => return code,
@@ -990,14 +1111,6 @@ fn execute_chat(query: &str, small: bool, use_rag: bool) -> i32 {
     }
 }
 
-fn cmd_chat_docs(query: &str, small: bool) -> i32 {
-    execute_chat(query, small, true)
-}
-
-fn cmd_chat(query: &str, small: bool) -> i32 {
-    execute_chat(query, small, false)
-}
-
 /// Fetch context snippets from vector DB for RAG
 fn fetch_context_for_query(
     rt: &tokio::runtime::Runtime,
@@ -1028,7 +1141,13 @@ fn fetch_context_for_query(
 
     let mut scored: Vec<(f32, String, String)> = vec![];
 
-    for row in rows.flatten() {
+    for row in rows.filter_map(|r| match r {
+        Ok(v) => Some(v),
+        Err(e) => {
+            tracing::warn!(error = %e, "skipping corrupted vector row in context query");
+            None
+        }
+    }) {
         let (path, preview, embedding_bytes) = row;
         let embedding = ollama::deserialize_embedding(&embedding_bytes);
         let score = ollama::cosine_similarity(&query_embedding, &embedding);
@@ -1063,6 +1182,59 @@ fn cmd_models(action: Option<ModelsAction>) -> i32 {
 }
 
 fn cmd_models_list() -> i32 {
+    // Try daemon first
+    if daemon::is_daemon_running().is_some() {
+        let rt = match create_runtime() {
+            Ok(rt) => rt,
+            Err(code) => return code,
+        };
+
+        let result = rt.block_on(async {
+            let client = daemon::DaemonClient::new();
+            client.models().await
+        });
+
+        match result {
+            Ok(models) => return display_models(&models),
+            Err(e) => {
+                tracing::debug!(error = %e, "daemon models list failed, using standalone");
+            }
+        }
+    }
+
+    // Standalone fallback
+    models_list_standalone()
+}
+
+fn display_models(models: &daemon::handlers::ModelsListResponse) -> i32 {
+    print_heading("Model Configuration");
+
+    println!();
+    print_kv(
+        "Embedding",
+        &format!("{} ({})", models.embedding.name, models.embedding.provider),
+    );
+
+    print_kv(
+        "Chat",
+        &format!("{} ({})", models.chat.name, models.chat.provider),
+    );
+
+    print_kv(
+        "Chat Large",
+        &format!(
+            "{} ({})",
+            models.chat_large.name, models.chat_large.provider
+        ),
+    );
+
+    println!();
+    print_info("Use 'burrow models set' to configure models interactively");
+
+    0
+}
+
+fn models_list_standalone() -> i32 {
     let cfg = config::get_config();
 
     print_heading("Model Configuration");

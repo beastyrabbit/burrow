@@ -386,6 +386,12 @@ pub fn get_config() -> &'static AppConfig {
         .expect("Config not initialized. Call init_config() first.")
 }
 
+/// Try to get the config, returning None if not initialized.
+/// Useful for contexts where config may not be available (e.g., library consumers, tests).
+pub fn try_get_config() -> Option<&'static AppConfig> {
+    CONFIG.get()
+}
+
 /// Update a specific model in the config file
 pub fn update_config_model(
     model_type: &str,

@@ -225,7 +225,7 @@ mod tests {
 
     #[test]
     fn serialize_roundtrip() {
-        let original = vec![1.0f32, -2.5, 3.14, 0.0, f32::MAX, f32::MIN];
+        let original = vec![1.0f32, -2.5, 7.123, 0.0, f32::MAX, f32::MIN];
         let bytes = serialize_embedding(&original);
         let recovered = deserialize_embedding(&bytes);
         assert_eq!(original, recovered);

@@ -1,6 +1,10 @@
-use super::handlers::{DaemonStatus, IndexerStartRequest, IndexerStartResponse, StatsResponse};
+use super::handlers::{
+    ChatRequest, ChatResponse, DaemonStatus, IndexerStartRequest, IndexerStartResponse,
+    ModelsListResponse, StatsResponse,
+};
 use super::socket::socket_path;
 use crate::commands::health::HealthStatus;
+use crate::config;
 use crate::indexer::IndexerProgress;
 use hyper_util::rt::TokioIo;
 use std::time::Duration;
@@ -17,16 +21,37 @@ impl Default for DaemonClient {
     }
 }
 
+/// Default timeout for most requests (5 seconds).
+const DEFAULT_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// Default chat timeout in seconds (matches config default).
+const DEFAULT_CHAT_TIMEOUT_SECS: u64 = 120;
+
+/// Extra buffer time for client-side timeout beyond server-side chat timeout.
+const CHAT_TIMEOUT_BUFFER_SECS: u64 = 10;
+
 impl DaemonClient {
     pub fn new() -> Self {
         Self {
-            timeout: Duration::from_secs(5),
+            timeout: DEFAULT_TIMEOUT,
         }
     }
 
     pub fn with_timeout(mut self, timeout: Duration) -> Self {
         self.timeout = timeout;
         self
+    }
+
+    /// Create a client with longer timeout for chat operations.
+    /// Reads from config with a buffer to ensure client doesn't timeout before server.
+    /// Falls back to default timeout if config not initialized.
+    pub fn with_chat_timeout() -> Self {
+        let timeout_secs = config::try_get_config()
+            .map(|cfg| cfg.ollama.chat_timeout_secs)
+            .unwrap_or(DEFAULT_CHAT_TIMEOUT_SECS);
+        Self {
+            timeout: Duration::from_secs(timeout_secs + CHAT_TIMEOUT_BUFFER_SECS),
+        }
     }
 
     /// Check if the daemon socket exists.
@@ -162,6 +187,35 @@ impl DaemonClient {
     pub async fn stats(&self) -> Result<StatsResponse, String> {
         self.get("/stats").await
     }
+
+    /// Chat without document context.
+    pub async fn chat(&self, query: &str, small: bool) -> Result<ChatResponse, String> {
+        self.post(
+            "/chat",
+            &ChatRequest {
+                query: query.to_string(),
+                small,
+            },
+        )
+        .await
+    }
+
+    /// Chat with document context (RAG).
+    pub async fn chat_docs(&self, query: &str, small: bool) -> Result<ChatResponse, String> {
+        self.post(
+            "/chat/docs",
+            &ChatRequest {
+                query: query.to_string(),
+                small,
+            },
+        )
+        .await
+    }
+
+    /// Get model configuration.
+    pub async fn models(&self) -> Result<ModelsListResponse, String> {
+        self.get("/models").await
+    }
 }
 
 #[cfg(test)]
@@ -171,13 +225,32 @@ mod tests {
     #[test]
     fn client_default_timeout() {
         let client = DaemonClient::new();
-        assert_eq!(client.timeout, Duration::from_secs(5));
+        assert_eq!(client.timeout, DEFAULT_TIMEOUT);
     }
 
     #[test]
     fn client_custom_timeout() {
         let client = DaemonClient::new().with_timeout(Duration::from_secs(10));
         assert_eq!(client.timeout, Duration::from_secs(10));
+    }
+
+    #[test]
+    fn client_chat_timeout_reads_config() {
+        // Initialize config for test
+        config::init_config();
+        let client = DaemonClient::with_chat_timeout();
+        let cfg = config::get_config();
+        let expected = Duration::from_secs(cfg.ollama.chat_timeout_secs + CHAT_TIMEOUT_BUFFER_SECS);
+        assert_eq!(client.timeout, expected);
+    }
+
+    #[test]
+    fn client_chat_timeout_fallback_without_config() {
+        // with_chat_timeout should not panic even if config is not initialized
+        // It falls back to DEFAULT_CHAT_TIMEOUT_SECS
+        let client = DaemonClient::with_chat_timeout();
+        // Should have some reasonable timeout (either from config or default)
+        assert!(client.timeout.as_secs() >= DEFAULT_CHAT_TIMEOUT_SECS);
     }
 
     #[test]
