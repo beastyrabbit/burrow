@@ -9,9 +9,9 @@ struct SpecialCommand {
 
 const COMMANDS: &[SpecialCommand] = &[SpecialCommand {
     name: "cowork",
-    description: "Open kitty in ~/cowork and run cc",
+    description: "Open kitty in ~/cowork and run Claude Code",
     icon: "",
-    exec_command: "kitty sh -c 'cd ~/cowork && cc'",
+    exec_command: "kitty sh -c 'cd ~/cowork && claude'",
 }];
 
 pub fn search_special(query: &str) -> Result<Vec<SearchResult>, String> {
