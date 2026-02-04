@@ -19,6 +19,15 @@ const MAX_LOG_FILES: usize = 5;
 /// - Uses `BURROW_LOG` env var for log level (default: info)
 /// - Outputs to both file and stderr
 pub fn init_logging() {
+    init_logging_inner(true);
+}
+
+/// Initialize logging for CLI mode (file only, no stderr spam).
+pub fn init_logging_cli() {
+    init_logging_inner(false);
+}
+
+fn init_logging_inner(_with_stderr: bool) {
     let log_dir = PathBuf::from(LOG_DIR);
 
     // Clear old logs on startup
