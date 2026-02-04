@@ -54,10 +54,12 @@ fn cmd_health(json: bool) -> i32 {
             client.health().await
         });
 
-        if let Ok(status) = result {
-            return display_health_status(&status, json);
+        match result {
+            Ok(status) => return display_health_status(&status, json),
+            Err(e) => {
+                tracing::debug!(error = %e, "daemon health check failed, using standalone");
+            }
         }
-        // Fall through to standalone on error
     }
 
     // Standalone fallback
@@ -122,10 +124,12 @@ fn cmd_stats(json: bool) -> i32 {
             client.stats().await
         });
 
-        if let Ok(stats) = result {
-            return display_stats(&stats, json);
+        match result {
+            Ok(stats) => return display_stats(&stats, json),
+            Err(e) => {
+                tracing::debug!(error = %e, "daemon stats failed, using standalone");
+            }
         }
-        // Fall through to standalone on error
     }
 
     // Standalone fallback
@@ -1173,10 +1177,12 @@ fn cmd_models_list() -> i32 {
             client.models().await
         });
 
-        if let Ok(models) = result {
-            return display_models(&models);
+        match result {
+            Ok(models) => return display_models(&models),
+            Err(e) => {
+                tracing::debug!(error = %e, "daemon models list failed, using standalone");
+            }
         }
-        // Fall through to standalone on error
     }
 
     // Standalone fallback

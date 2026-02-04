@@ -447,17 +447,26 @@ fn cleanup_stale_standalone(valid_paths: &std::collections::HashSet<String>) -> 
 
 // === Chat handlers ===
 
-async fn chat_handler(
-    Json(body): Json<ChatRequest>,
-) -> Result<Json<ChatResponse>, (StatusCode, String)> {
-    tracing::info!(query = %body.query.chars().take(50).collect::<String>(), small = body.small, "chat request");
-
-    let cfg = config::get_config();
-    let model = if body.small {
+/// Select chat model based on small flag
+fn select_chat_model(cfg: &config::AppConfig, small: bool) -> &config::ModelSpec {
+    if small {
         &cfg.models.chat
     } else {
         &cfg.models.chat_large
-    };
+    }
+}
+
+async fn chat_handler(
+    Json(body): Json<ChatRequest>,
+) -> Result<Json<ChatResponse>, (StatusCode, String)> {
+    if body.query.trim().is_empty() {
+        return Err((StatusCode::BAD_REQUEST, "Query cannot be empty".to_string()));
+    }
+
+    tracing::info!(query = %body.query.chars().take(50).collect::<String>(), small = body.small, "chat request");
+
+    let cfg = config::get_config();
+    let model = select_chat_model(cfg, body.small);
 
     let answer = chat::generate_chat(&body.query, &[], model)
         .await
@@ -473,14 +482,14 @@ async fn chat_handler(
 async fn chat_docs_handler(
     Json(body): Json<ChatRequest>,
 ) -> Result<Json<ChatResponse>, (StatusCode, String)> {
+    if body.query.trim().is_empty() {
+        return Err((StatusCode::BAD_REQUEST, "Query cannot be empty".to_string()));
+    }
+
     tracing::info!(query = %body.query.chars().take(50).collect::<String>(), small = body.small, "chat-docs request");
 
     let cfg = config::get_config();
-    let model = if body.small {
-        &cfg.models.chat
-    } else {
-        &cfg.models.chat_large
-    };
+    let model = select_chat_model(cfg, body.small);
 
     // Fetch context from vector DB
     let context = fetch_context_for_query(&body.query, cfg)
@@ -527,7 +536,13 @@ async fn fetch_context_for_query(
 
     let mut scored: Vec<(f32, String, String)> = vec![];
 
-    for row in rows.flatten() {
+    for row in rows.filter_map(|r| match r {
+        Ok(v) => Some(v),
+        Err(e) => {
+            tracing::warn!(error = %e, "skipping corrupted vector row in context query");
+            None
+        }
+    }) {
         let (path, preview, embedding_bytes) = row;
         let embedding = ollama::deserialize_embedding(&embedding_bytes);
         let score = ollama::cosine_similarity(&query_embedding, &embedding);

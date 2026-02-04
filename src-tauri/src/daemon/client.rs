@@ -4,6 +4,7 @@ use super::handlers::{
 };
 use super::socket::socket_path;
 use crate::commands::health::HealthStatus;
+use crate::config;
 use crate::indexer::IndexerProgress;
 use hyper_util::rt::TokioIo;
 use std::time::Duration;
@@ -23,8 +24,8 @@ impl Default for DaemonClient {
 /// Default timeout for most requests (5 seconds).
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(5);
 
-/// Timeout for chat requests which can take 60+ seconds.
-const CHAT_TIMEOUT: Duration = Duration::from_secs(120);
+/// Extra buffer time for client-side timeout beyond server-side chat timeout.
+const CHAT_TIMEOUT_BUFFER_SECS: u64 = 10;
 
 impl DaemonClient {
     pub fn new() -> Self {
@@ -39,9 +40,11 @@ impl DaemonClient {
     }
 
     /// Create a client with longer timeout for chat operations.
+    /// Reads from config with a buffer to ensure client doesn't timeout before server.
     pub fn with_chat_timeout() -> Self {
+        let cfg = config::get_config();
         Self {
-            timeout: CHAT_TIMEOUT,
+            timeout: Duration::from_secs(cfg.ollama.chat_timeout_secs + CHAT_TIMEOUT_BUFFER_SECS),
         }
     }
 
@@ -226,9 +229,13 @@ mod tests {
     }
 
     #[test]
-    fn client_chat_timeout() {
+    fn client_chat_timeout_reads_config() {
+        // Initialize config for test
+        config::init_config();
         let client = DaemonClient::with_chat_timeout();
-        assert_eq!(client.timeout, CHAT_TIMEOUT);
+        let cfg = config::get_config();
+        let expected = Duration::from_secs(cfg.ollama.chat_timeout_secs + CHAT_TIMEOUT_BUFFER_SECS);
+        assert_eq!(client.timeout, expected);
     }
 
     #[test]
