@@ -63,12 +63,15 @@ function App() {
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLUListElement>(null);
   const queryRef = useRef(query);
-  // Mouse hover state machine: initial -> tracking -> enabled (resets on window hide)
-  const mouseStateRef = useRef<
+
+  // Mouse hover state machine to prevent accidental selection when window appears under cursor.
+  // Phases: initial (waiting) -> tracking (measuring movement) -> enabled (hover active).
+  // Resets to "initial" when window is hidden.
+  type MouseHoverState =
     | { phase: "initial" }
     | { phase: "tracking"; start: { x: number; y: number } }
-    | { phase: "enabled" }
-  >({ phase: "initial" });
+    | { phase: "enabled" };
+  const mouseStateRef = useRef<MouseHoverState>({ phase: "initial" });
 
   const doSearch = useCallback(async (q: string) => {
     try {

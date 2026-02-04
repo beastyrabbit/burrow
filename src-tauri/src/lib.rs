@@ -187,11 +187,17 @@ pub fn run() {
             #[cfg(debug_assertions)]
             dev_server::start(app.handle().clone());
 
-            // Show window unless in headless mode (for testing)
+            // Show window unless in headless mode (BURROW_HEADLESS env var, for testing)
             if std::env::var("BURROW_HEADLESS").is_err() {
                 if let Some(win) = app.get_webview_window("main") {
-                    let _ = win.show();
-                    let _ = win.set_focus();
+                    if let Err(e) = win.show() {
+                        tracing::warn!(error = %e, "failed to show main window on startup");
+                    }
+                    if let Err(e) = win.set_focus() {
+                        tracing::warn!(error = %e, "failed to focus main window on startup");
+                    }
+                } else {
+                    tracing::error!("main window not found during setup");
                 }
             } else {
                 tracing::info!("headless mode: window stays hidden");
