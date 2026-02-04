@@ -26,12 +26,15 @@ pub fn is_valid_category(category: Category) -> bool {
 pub fn handle_action(
     result: &SearchResult,
     modifier: Modifier,
+    secondary_input: Option<&str>,
     app: &tauri::AppHandle,
 ) -> Result<(), String> {
     match result.category {
         Category::Onepass => handle_onepass(result, modifier, app),
         Category::File | Category::Vector => handle_file(result, modifier, app),
-        Category::App | Category::History | Category::Special => handle_launch(result, app),
+        Category::App | Category::History | Category::Special => {
+            handle_launch(result, app, secondary_input)
+        }
         Category::Ssh => handle_ssh(result, modifier),
         Category::Math => handle_math(result, modifier),
         Category::Action => Ok(()), // No-op: action results are dispatched by frontend via run_setting() command
@@ -157,9 +160,25 @@ fn handle_file(
     }
 }
 
-fn handle_launch(result: &SearchResult, app: &tauri::AppHandle) -> Result<(), String> {
+/// Resolve final command, applying secondary input if provided.
+fn resolve_exec(result: &SearchResult, secondary_input: Option<&str>) -> String {
+    match (&result.input_spec, secondary_input) {
+        (Some(spec), Some(input)) if !input.is_empty() => {
+            // Escape quotes for shell safety
+            let escaped = input.replace('\'', "'\\''").replace('"', "\\\"");
+            spec.template.replace("{}", &escaped)
+        }
+        _ => result.exec.clone(),
+    }
+}
+
+fn handle_launch(
+    result: &SearchResult,
+    app: &tauri::AppHandle,
+    secondary_input: Option<&str>,
+) -> Result<(), String> {
     utils::hide_window(app);
-    utils::exec_shell(&result.exec)
+    utils::exec_shell(&resolve_exec(result, secondary_input))
 }
 
 fn handle_ssh(result: &SearchResult, modifier: Modifier) -> Result<(), String> {
@@ -240,6 +259,7 @@ mod tests {
             icon: "".into(),
             category: Category::Math,
             exec: "".into(),
+            input_spec: None,
         };
         assert!(handle_math(&result, Modifier::None).is_ok());
     }
@@ -332,6 +352,124 @@ mod tests {
                 ok: false,
                 message: "op CLI not found".to_string()
             }
+        );
+    }
+
+    // --- resolve_exec tests ---
+
+    use crate::router::InputSpec;
+
+    #[test]
+    fn resolve_exec_without_input_spec_returns_exec() {
+        let result = SearchResult {
+            id: "test".into(),
+            name: "Test".into(),
+            description: "".into(),
+            icon: "".into(),
+            category: Category::App,
+            exec: "default-command".into(),
+            input_spec: None,
+        };
+        assert_eq!(
+            resolve_exec(&result, None),
+            "default-command",
+            "should return exec when no input_spec"
+        );
+        assert_eq!(
+            resolve_exec(&result, Some("ignored")),
+            "default-command",
+            "should return exec when input_spec is None even with secondary input"
+        );
+    }
+
+    #[test]
+    fn resolve_exec_with_input_spec_but_no_input_returns_exec() {
+        let result = SearchResult {
+            id: "test".into(),
+            name: "Test".into(),
+            description: "".into(),
+            icon: "".into(),
+            category: Category::Special,
+            exec: "base-command".into(),
+            input_spec: Some(InputSpec {
+                placeholder: "Enter value".into(),
+                template: "templated-command \"{}\"".into(),
+            }),
+        };
+        assert_eq!(
+            resolve_exec(&result, None),
+            "base-command",
+            "should return exec when secondary_input is None"
+        );
+        assert_eq!(
+            resolve_exec(&result, Some("")),
+            "base-command",
+            "should return exec when secondary_input is empty"
+        );
+    }
+
+    #[test]
+    fn resolve_exec_with_input_substitutes_template() {
+        let result = SearchResult {
+            id: "test".into(),
+            name: "Test".into(),
+            description: "".into(),
+            icon: "".into(),
+            category: Category::Special,
+            exec: "base-command".into(),
+            input_spec: Some(InputSpec {
+                placeholder: "Enter value".into(),
+                template: "templated-command \"{}\"".into(),
+            }),
+        };
+        assert_eq!(
+            resolve_exec(&result, Some("my-value")),
+            "templated-command \"my-value\"",
+            "should substitute input into template"
+        );
+    }
+
+    #[test]
+    fn resolve_exec_escapes_single_quotes() {
+        let result = SearchResult {
+            id: "test".into(),
+            name: "Test".into(),
+            description: "".into(),
+            icon: "".into(),
+            category: Category::Special,
+            exec: "base".into(),
+            input_spec: Some(InputSpec {
+                placeholder: "".into(),
+                template: "echo '{}'".into(),
+            }),
+        };
+        let output = resolve_exec(&result, Some("it's a test"));
+        assert!(
+            output.contains("it'\\''s a test"),
+            "should escape single quotes, got: {}",
+            output
+        );
+    }
+
+    #[test]
+    fn resolve_exec_escapes_double_quotes() {
+        let result = SearchResult {
+            id: "test".into(),
+            name: "Test".into(),
+            description: "".into(),
+            icon: "".into(),
+            category: Category::Special,
+            exec: "base".into(),
+            input_spec: Some(InputSpec {
+                placeholder: "".into(),
+                template: "echo \"{}\"".into(),
+            }),
+        };
+        let output = resolve_exec(&result, Some("say \"hello\""));
+        assert!(
+            output.contains("say \\\"hello\\\""),
+            "should escape double quotes, got: {}",
+            output
         );
     }
 }

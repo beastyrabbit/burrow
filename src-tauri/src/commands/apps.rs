@@ -196,6 +196,7 @@ fn entry_to_result(entry: &DesktopEntry, category: Category) -> SearchResult {
         icon: icons::resolve_icon(&entry.icon),
         category,
         exec: entry.exec.clone(),
+        input_spec: None,
     }
 }
 

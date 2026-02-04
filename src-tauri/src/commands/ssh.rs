@@ -102,6 +102,7 @@ pub fn filter_hosts(hosts: Vec<SshHost>, query: &str) -> Vec<SearchResult> {
                 category: Category::Ssh,
                 // Store host alias only; handler uses safe Command args (no shell interpolation)
                 exec: h.name.clone(),
+                input_spec: None,
             }
         })
         .collect()

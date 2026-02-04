@@ -5,6 +5,11 @@ import { parseModifier } from "./types";
 import { CategoryIcon } from "./category-icons";
 import "./styles.css";
 
+interface InputSpec {
+  placeholder: string;
+  template: string;
+}
+
 interface SearchResult {
   id: string;
   name: string;
@@ -12,6 +17,7 @@ interface SearchResult {
   icon: string;
   category: string;
   exec: string;
+  input_spec?: InputSpec;
 }
 
 const CATEGORY_LABELS: Record<string, string> = {
@@ -58,6 +64,12 @@ function App() {
   const [chatAnswer, setChatAnswer] = useState("");
   const [chatLoading, setChatLoading] = useState(false);
   const [healthOk, setHealthOk] = useState(true);
+  // Secondary input mode state
+  const [secondaryMode, setSecondaryMode] = useState<{
+    active: boolean;
+    result: SearchResult | null;
+  }>({ active: false, result: null });
+  const [secondaryInput, setSecondaryInput] = useState("");
   const notificationTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const visibilityEpoch = useRef(0);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -143,6 +155,8 @@ function App() {
         setSelectedIndex(0);
         setChatAnswer("");
         setChatLoading(false);
+        setSecondaryMode({ active: false, result: null });
+        setSecondaryInput("");
         mouseStateRef.current = { phase: "initial" };
       }
     };
@@ -203,8 +217,17 @@ function App() {
   }, [selectedIndex]);
 
   const executeAction = useCallback(async (e: React.KeyboardEvent | null, itemOverride?: SearchResult) => {
-    const item = itemOverride ?? results[selectedIndex];
+    // In secondary mode, use the stored result
+    const item = secondaryMode.active ? secondaryMode.result : (itemOverride ?? results[selectedIndex]);
     if (!item) return;
+
+    // Check if we should enter secondary mode (result has input_spec and not already in secondary mode)
+    if (item.input_spec && !secondaryMode.active) {
+      setSecondaryMode({ active: true, result: item });
+      setQuery("");
+      setSecondaryInput("");
+      return;
+    }
 
     const modifier = e
       ? parseModifier({
@@ -214,6 +237,15 @@ function App() {
           altgr: e.getModifierState("AltGraph"),
         })
       : "none";
+
+    // Get the secondary input value if we're in secondary mode
+    const currentSecondaryInput = secondaryMode.active ? secondaryInput : undefined;
+
+    // Reset secondary mode after capturing input
+    if (secondaryMode.active) {
+      setSecondaryMode({ active: false, result: null });
+      setSecondaryInput("");
+    }
 
     if (item.category === "chat") {
       const epoch = visibilityEpoch.current;
@@ -266,9 +298,13 @@ function App() {
       }
     }
 
-    // Dispatch to backend execute_action
+    // Dispatch to backend execute_action with optional secondary input
     try {
-      await invoke("execute_action", { result: item, modifier });
+      await invoke("execute_action", {
+        result: item,
+        modifier,
+        secondaryInput: currentSecondaryInput,
+      });
     } catch (err) {
       console.error("Execute action failed:", err);
       const errMsg = err instanceof Error ? err.message : String(err);
@@ -276,18 +312,24 @@ function App() {
       if (notificationTimer.current) clearTimeout(notificationTimer.current);
       notificationTimer.current = setTimeout(() => setNotification(""), 6000);
     }
-  }, [results, selectedIndex, query]);
+  }, [results, selectedIndex, query, secondaryMode, secondaryInput]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
       switch (e.key) {
         case "ArrowDown":
           e.preventDefault();
-          setSelectedIndex((i) => Math.min(i + 1, results.length - 1));
+          // Disable navigation in secondary mode (no results to navigate)
+          if (!secondaryMode.active) {
+            setSelectedIndex((i) => Math.min(i + 1, results.length - 1));
+          }
           break;
         case "ArrowUp":
           e.preventDefault();
-          setSelectedIndex((i) => Math.max(i - 1, 0));
+          // Disable navigation in secondary mode
+          if (!secondaryMode.active) {
+            setSelectedIndex((i) => Math.max(i - 1, 0));
+          }
           break;
         case "Enter":
           e.preventDefault();
@@ -295,11 +337,18 @@ function App() {
           break;
         case "Escape":
           e.preventDefault();
-          invoke("hide_window").catch((e) => console.error("hide_window failed:", e));
+          // In secondary mode, exit back to frecent view
+          if (secondaryMode.active) {
+            setSecondaryMode({ active: false, result: null });
+            setSecondaryInput("");
+            doSearch("");
+          } else {
+            invoke("hide_window").catch((e) => console.error("hide_window failed:", e));
+          }
           break;
       }
     },
-    [results.length, executeAction]
+    [results.length, executeAction, secondaryMode.active, doSearch]
   );
 
   const categoryLabel = (cat: string): string =>
@@ -310,15 +359,23 @@ function App() {
       <div className="search-container">
         <input
           ref={inputRef}
-          className="search-input"
+          className={`search-input ${secondaryMode.active ? "secondary" : ""}`}
           type="text"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search apps, files, SSH hosts..."
+          value={secondaryMode.active ? secondaryInput : query}
+          onChange={(e) =>
+            secondaryMode.active
+              ? setSecondaryInput(e.target.value)
+              : setQuery(e.target.value)
+          }
+          placeholder={
+            secondaryMode.active
+              ? secondaryMode.result?.input_spec?.placeholder
+              : "Search apps, files, SSH hosts..."
+          }
           autoFocus
           spellCheck={false}
         />
-        {!healthOk && (
+        {!healthOk && !secondaryMode.active && (
           <span
             className="health-indicator"
             title="System health issue — click to check"
@@ -335,28 +392,35 @@ function App() {
       {chatAnswer && !chatLoading && (
         <div className="chat-answer">{chatAnswer}</div>
       )}
-      <ul ref={listRef} className="results-list">
-        {results.map((item, i) => (
-          <li
-            key={item.id}
-            className={`result-item ${i === selectedIndex ? "selected" : ""}`}
-            onMouseEnter={() => { if (mouseStateRef.current.phase === "enabled") setSelectedIndex(i); }}
-            onClick={() => executeAction(null, item)}
-          >
-            <ResultIcon icon={item.icon} category={item.category} />
-            <div className="result-content">
-              <span className="result-name">{item.name}</span>
-              {item.description && (
-                <span className="result-desc">{item.description}</span>
-              )}
-            </div>
-            <span className="result-badge">{categoryLabel(item.category)}</span>
-          </li>
-        ))}
-        {results.length === 0 && query && (
-          <li className="result-item empty">No results</li>
-        )}
-      </ul>
+      {secondaryMode.active ? (
+        <div className="secondary-indicator">
+          <span className="secondary-name">{secondaryMode.result?.name}</span>
+          <span className="secondary-hint">Press Enter to confirm, Escape to cancel</span>
+        </div>
+      ) : (
+        <ul ref={listRef} className="results-list">
+          {results.map((item, i) => (
+            <li
+              key={item.id}
+              className={`result-item ${i === selectedIndex ? "selected" : ""}`}
+              onMouseEnter={() => { if (mouseStateRef.current.phase === "enabled") setSelectedIndex(i); }}
+              onClick={() => executeAction(null, item)}
+            >
+              <ResultIcon icon={item.icon} category={item.category} />
+              <div className="result-content">
+                <span className="result-name">{item.name}</span>
+                {item.description && (
+                  <span className="result-desc">{item.description}</span>
+                )}
+              </div>
+              <span className="result-badge">{categoryLabel(item.category)}</span>
+            </li>
+          ))}
+          {results.length === 0 && query && (
+            <li className="result-item empty">No results</li>
+          )}
+        </ul>
+      )}
     </div>
   );
 }
