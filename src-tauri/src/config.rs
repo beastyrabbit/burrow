@@ -19,6 +19,249 @@ pub struct AppConfig {
     pub daemon: DaemonConfig,
 }
 
+/// Check if a provider string is one of the supported values.
+fn is_valid_provider(s: &str) -> bool {
+    matches!(s, "ollama" | "openrouter")
+}
+
+/// Validate a numeric field is within [min, max], clamp if not, and push a warning.
+/// NOTE: For f32, NaN bypasses PartialOrd comparisons — callers must handle NaN separately.
+fn validate_range<T: PartialOrd + std::fmt::Display + Copy>(
+    warnings: &mut Vec<String>,
+    field: &str,
+    value: &mut T,
+    min: T,
+    max: T,
+) {
+    debug_assert!(
+        min <= max,
+        "validate_range: min ({min}) > max ({max}) for {field}"
+    );
+    if *value < min {
+        warnings.push(format!(
+            "config: {field} is invalid — expected {min}–{max}, got {value}, clamped to {min}"
+        ));
+        *value = min;
+    } else if *value > max {
+        warnings.push(format!(
+            "config: {field} is invalid — expected {min}–{max}, got {value}, clamped to {max}"
+        ));
+        *value = max;
+    }
+}
+
+impl AppConfig {
+    /// Validate config fields with bounded ranges or constrained values, clamping
+    /// out-of-bounds values and resetting invalid strings to defaults.
+    /// Returns a list of warnings for any fields that were corrected or that have
+    /// problematic configurations (e.g., missing API key, empty index dirs).
+    pub fn validate(&mut self) -> Vec<String> {
+        let mut w = Vec::new();
+        let defaults = AppConfig::default();
+
+        // ── Numeric ranges ───────────────────────────────────────
+        validate_range(
+            &mut w,
+            "ollama.timeout_secs",
+            &mut self.ollama.timeout_secs,
+            1,
+            300,
+        );
+        validate_range(
+            &mut w,
+            "ollama.chat_timeout_secs",
+            &mut self.ollama.chat_timeout_secs,
+            10,
+            600,
+        );
+        validate_range(
+            &mut w,
+            "vector_search.top_k",
+            &mut self.vector_search.top_k,
+            1,
+            100,
+        );
+        if self.vector_search.min_score.is_nan() {
+            w.push(format!(
+                "config: vector_search.min_score is invalid — expected 0.0–1.0, got NaN, reset to default {}",
+                defaults.vector_search.min_score
+            ));
+            self.vector_search.min_score = defaults.vector_search.min_score;
+        }
+        validate_range(
+            &mut w,
+            "vector_search.min_score",
+            &mut self.vector_search.min_score,
+            0.0,
+            1.0,
+        );
+        validate_range(
+            &mut w,
+            "vector_search.max_file_size_bytes",
+            &mut self.vector_search.max_file_size_bytes,
+            1024,
+            100_000_000,
+        );
+        validate_range(
+            &mut w,
+            "indexer.interval_hours",
+            &mut self.indexer.interval_hours,
+            1,
+            8760,
+        );
+        validate_range(
+            &mut w,
+            "indexer.max_content_chars",
+            &mut self.indexer.max_content_chars,
+            256,
+            1_000_000,
+        );
+        validate_range(
+            &mut w,
+            "history.max_results",
+            &mut self.history.max_results,
+            1,
+            100,
+        );
+        validate_range(
+            &mut w,
+            "search.max_results",
+            &mut self.search.max_results,
+            1,
+            100,
+        );
+        validate_range(
+            &mut w,
+            "search.debounce_ms",
+            &mut self.search.debounce_ms,
+            0,
+            2000,
+        );
+        validate_range(
+            &mut w,
+            "chat.max_context_snippets",
+            &mut self.chat.max_context_snippets,
+            1,
+            50,
+        );
+        validate_range(
+            &mut w,
+            "onepass.idle_timeout_minutes",
+            &mut self.onepass.idle_timeout_minutes,
+            0,
+            1440,
+        );
+        validate_range(
+            &mut w,
+            "daemon.startup_timeout_secs",
+            &mut self.daemon.startup_timeout_secs,
+            1,
+            60,
+        );
+
+        // ── String validations ───────────────────────────────────
+        self.ollama.url = self.ollama.url.trim().to_string();
+        if self.ollama.url.is_empty() {
+            w.push(format!(
+                "config: ollama.url is invalid — expected non-empty string, got \"\", reset to default \"{}\"",
+                defaults.ollama.url
+            ));
+            self.ollama.url = defaults.ollama.url.clone();
+        } else if !self.ollama.url.starts_with("http://")
+            && !self.ollama.url.starts_with("https://")
+        {
+            w.push(format!(
+                "config: ollama.url looks invalid — expected URL starting with http:// or https://, got \"{}\"",
+                self.ollama.url
+            ));
+        }
+
+        // Trim whitespace permanently (intentional mutation — " all " becomes "all")
+        self.vector_search.index_mode = self.vector_search.index_mode.trim().to_string();
+        if self.vector_search.index_mode != "all" && self.vector_search.index_mode != "custom" {
+            w.push(format!(
+                "config: vector_search.index_mode is invalid — expected \"all\" or \"custom\", got \"{}\", reset to default \"all\"",
+                self.vector_search.index_mode
+            ));
+            self.vector_search.index_mode = "all".into();
+        }
+
+        if self.indexer.file_extensions.is_empty() {
+            w.push(
+                "config: indexer.file_extensions is invalid — expected non-empty list, got empty list, reset to defaults".into()
+            );
+            self.indexer.file_extensions = defaults.indexer.file_extensions;
+        }
+
+        if self.vector_search.index_mode == "custom" && self.vector_search.index_dirs.is_empty() {
+            w.push(
+                "config: vector_search.index_dirs is empty but index_mode is \"custom\" — reset to index_mode \"all\"".into()
+            );
+            self.vector_search.index_mode = "all".into();
+        }
+
+        if self.vector_search.exclude_patterns.is_empty() {
+            w.push(
+                "config: vector_search.exclude_patterns is empty — system directories will not be excluded, reset to defaults".into()
+            );
+            self.vector_search.exclude_patterns = defaults.vector_search.exclude_patterns;
+        }
+
+        // ── Model specs ──────────────────────────────────────────
+        let model_specs = [
+            (
+                "models.embedding",
+                &mut self.models.embedding as &mut ModelSpec,
+                &defaults.models.embedding,
+            ),
+            ("models.chat", &mut self.models.chat, &defaults.models.chat),
+            (
+                "models.chat_large",
+                &mut self.models.chat_large,
+                &defaults.models.chat_large,
+            ),
+        ];
+        for (prefix, spec, default_spec) in model_specs {
+            let trimmed_name = spec.name.trim().to_string();
+            if trimmed_name.is_empty() {
+                w.push(format!(
+                    "config: {prefix}.name is invalid — expected non-empty string, got \"{}\", reset to default \"{}\"",
+                    spec.name, default_spec.name
+                ));
+                spec.name = default_spec.name.clone();
+            } else {
+                spec.name = trimmed_name;
+            }
+            // Trim whitespace permanently (intentional mutation — " ollama " becomes "ollama")
+            spec.provider = spec.provider.trim().to_string();
+            if !is_valid_provider(&spec.provider) {
+                w.push(format!(
+                    "config: {prefix}.provider is invalid — expected \"ollama\" or \"openrouter\", got \"{}\", reset to default \"{}\"",
+                    spec.provider, default_spec.provider
+                ));
+                spec.provider = default_spec.provider.clone();
+            }
+        }
+
+        // ── Cross-field: OpenRouter API key ──────────────────────
+        let uses_openrouter = [
+            &self.models.embedding,
+            &self.models.chat,
+            &self.models.chat_large,
+        ]
+        .iter()
+        .any(|m| m.provider == "openrouter");
+        self.openrouter.api_key = self.openrouter.api_key.trim().to_string();
+        if uses_openrouter && self.openrouter.api_key.is_empty() {
+            w.push(
+                "config: openrouter.api_key is empty but one or more models use \"openrouter\" provider — set BURROW_OPENROUTER_API_KEY or add api_key under [openrouter]".into()
+            );
+        }
+
+        w
+    }
+}
+
 /// A model specification with provider routing
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ModelSpec {
@@ -373,11 +616,17 @@ fn apply_env_overrides(mut cfg: AppConfig) -> AppConfig {
     cfg
 }
 
+/// Apply env overrides, validate, log any warnings, and return the finalized config.
+fn finalize_config(cfg: AppConfig) -> AppConfig {
+    let mut cfg = apply_env_overrides(cfg);
+    for w in &cfg.validate() {
+        tracing::warn!(message = %w, "config validation");
+    }
+    cfg
+}
+
 pub fn init_config() -> &'static AppConfig {
-    CONFIG.get_or_init(|| {
-        let cfg = load_config();
-        apply_env_overrides(cfg)
-    })
+    CONFIG.get_or_init(|| finalize_config(load_config()))
 }
 
 pub fn get_config() -> &'static AppConfig {
@@ -398,11 +647,29 @@ pub fn update_config_model(
     provider: &str,
     model_name: &str,
 ) -> Result<(), String> {
+    let model_name = model_name.trim();
+    let provider = provider.trim();
+    if model_name.is_empty() {
+        return Err("Model name cannot be empty".into());
+    }
+    if !is_valid_provider(provider) {
+        return Err(format!(
+            "Invalid provider: \"{provider}\". Must be \"ollama\" or \"openrouter\""
+        ));
+    }
+
     let path = config_path();
 
-    // Read existing config or create default
-    let content = std::fs::read_to_string(&path).unwrap_or_default();
-    let mut cfg: AppConfig = toml::from_str(&content).unwrap_or_default();
+    // Read existing config, failing explicitly on read/parse errors
+    // (NotFound is OK — we start from defaults)
+    let content = match std::fs::read_to_string(&path) {
+        Ok(c) => c,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
+        Err(e) => return Err(format!("Failed to read config at {}: {e}", path.display())),
+    };
+    let mut cfg: AppConfig = toml::from_str(&content).map_err(|e| {
+        format!("Config file has invalid TOML — fix it before updating models: {e}")
+    })?;
 
     // Update the appropriate model
     match model_type {
@@ -426,7 +693,8 @@ pub fn update_config_model(
         toml::to_string_pretty(&cfg).map_err(|e| format!("Failed to serialize config: {e}"))?;
 
     if let Some(dir) = path.parent() {
-        std::fs::create_dir_all(dir).ok();
+        std::fs::create_dir_all(dir)
+            .map_err(|e| format!("Failed to create config directory {}: {e}", dir.display()))?;
     }
 
     std::fs::write(&path, toml_str).map_err(|e| format!("Failed to write config: {e}"))?;
@@ -434,10 +702,11 @@ pub fn update_config_model(
     Ok(())
 }
 
-/// Reload config from file (useful after update_config_model)
+/// Reload config from file (useful after update_config_model).
+/// NOTE: Does NOT update the static CONFIG singleton — the Tauri process
+/// must be restarted for the new config to take effect via `get_config()`.
 pub fn reload_config() -> AppConfig {
-    let cfg = load_config();
-    apply_env_overrides(cfg)
+    finalize_config(load_config())
 }
 
 #[cfg(test)]
@@ -842,6 +1111,461 @@ startup_timeout_secs = 10
         std::env::set_var("BURROW_CONFIG_DIR", &custom_dir);
         let dir = config_dir();
         assert_eq!(dir, custom_dir);
+        std::env::remove_var("BURROW_CONFIG_DIR");
+    }
+
+    // ── Config validation tests ──────────────────────────────────────
+
+    /// Helper: validate a config modified by `setup`, assert it warns about `field`
+    /// and that `get_value` returns `expected` after validation (clamped for numerics,
+    /// reset for invalid strings).
+    fn assert_clamps<T: PartialEq + std::fmt::Debug>(
+        field: &str,
+        setup: impl FnOnce(&mut AppConfig),
+        get_value: impl FnOnce(&AppConfig) -> T,
+        expected: T,
+    ) {
+        let mut cfg = AppConfig::default();
+        setup(&mut cfg);
+        let warnings = cfg.validate();
+        assert!(
+            warnings.iter().any(|w| w.contains(field)),
+            "{field} should produce a warning, got: {warnings:?}"
+        );
+        assert_eq!(
+            get_value(&cfg),
+            expected,
+            "{field} should be clamped to {expected:?}"
+        );
+    }
+
+    /// Helper: validate a config modified by `setup`, assert NO warning about `field`.
+    fn assert_valid(field: &str, setup: impl FnOnce(&mut AppConfig)) {
+        let mut cfg = AppConfig::default();
+        setup(&mut cfg);
+        let warnings = cfg.validate();
+        assert!(
+            !warnings.iter().any(|w| w.contains(field)),
+            "{field} should not produce a warning, got: {warnings:?}"
+        );
+    }
+
+    #[test]
+    fn test_validate_valid_defaults() {
+        let mut cfg = AppConfig::default();
+        let warnings = cfg.validate();
+        assert!(
+            warnings.is_empty(),
+            "default config should pass validation, got: {warnings:?}"
+        );
+    }
+
+    #[test]
+    fn test_validate_ollama_timeout_bounds() {
+        assert_clamps(
+            "ollama.timeout_secs",
+            |c| c.ollama.timeout_secs = 0,
+            |c| c.ollama.timeout_secs,
+            1,
+        );
+        assert_clamps(
+            "ollama.timeout_secs",
+            |c| c.ollama.timeout_secs = 999,
+            |c| c.ollama.timeout_secs,
+            300,
+        );
+    }
+
+    #[test]
+    fn test_validate_chat_timeout_bounds() {
+        assert_clamps(
+            "ollama.chat_timeout_secs",
+            |c| c.ollama.chat_timeout_secs = 5,
+            |c| c.ollama.chat_timeout_secs,
+            10,
+        );
+    }
+
+    #[test]
+    fn test_validate_empty_ollama_url() {
+        assert_clamps(
+            "ollama.url",
+            |c| c.ollama.url = String::new(),
+            |c| c.ollama.url.clone(),
+            "http://localhost:11434".into(),
+        );
+    }
+
+    #[test]
+    fn test_validate_min_score_out_of_range() {
+        assert_clamps(
+            "vector_search.min_score",
+            |c| c.vector_search.min_score = 2.5,
+            |c| c.vector_search.min_score,
+            1.0,
+        );
+        assert_clamps(
+            "vector_search.min_score",
+            |c| c.vector_search.min_score = -0.5,
+            |c| c.vector_search.min_score,
+            0.0,
+        );
+    }
+
+    #[test]
+    fn test_validate_model_names() {
+        assert_clamps(
+            "models.embedding.name",
+            |c| c.models.embedding.name = String::new(),
+            |c| c.models.embedding.name.clone(),
+            "qwen3-embedding:8b".into(),
+        );
+        assert_clamps(
+            "models.chat.name",
+            |c| c.models.chat.name = String::new(),
+            |c| c.models.chat.name.clone(),
+            "gpt-oss:20b".into(),
+        );
+        assert_clamps(
+            "models.chat_large.name",
+            |c| c.models.chat_large.name = String::new(),
+            |c| c.models.chat_large.name.clone(),
+            "gpt-oss:120b".into(),
+        );
+    }
+
+    #[test]
+    fn test_validate_invalid_provider() {
+        assert_clamps(
+            "models.chat.provider",
+            |c| c.models.chat.provider = "invalid".into(),
+            |c| c.models.chat.provider.clone(),
+            "ollama".into(),
+        );
+    }
+
+    #[test]
+    fn test_validate_invalid_index_mode() {
+        assert_clamps(
+            "vector_search.index_mode",
+            |c| c.vector_search.index_mode = "partial".into(),
+            |c| c.vector_search.index_mode.clone(),
+            "all".into(),
+        );
+    }
+
+    #[test]
+    fn test_validate_numeric_field_clamping() {
+        assert_clamps(
+            "history.max_results",
+            |c| c.history.max_results = 0,
+            |c| c.history.max_results,
+            1,
+        );
+        assert_clamps(
+            "search.max_results",
+            |c| c.search.max_results = 0,
+            |c| c.search.max_results,
+            1,
+        );
+        assert_clamps(
+            "vector_search.top_k",
+            |c| c.vector_search.top_k = 0,
+            |c| c.vector_search.top_k,
+            1,
+        );
+        assert_clamps(
+            "vector_search.top_k",
+            |c| c.vector_search.top_k = 200,
+            |c| c.vector_search.top_k,
+            100,
+        );
+        assert_clamps(
+            "vector_search.max_file_size_bytes",
+            |c| c.vector_search.max_file_size_bytes = 512,
+            |c| c.vector_search.max_file_size_bytes,
+            1024,
+        );
+        assert_clamps(
+            "search.debounce_ms",
+            |c| c.search.debounce_ms = 5000,
+            |c| c.search.debounce_ms,
+            2000,
+        );
+        assert_clamps(
+            "chat.max_context_snippets",
+            |c| c.chat.max_context_snippets = 0,
+            |c| c.chat.max_context_snippets,
+            1,
+        );
+        assert_clamps(
+            "onepass.idle_timeout_minutes",
+            |c| c.onepass.idle_timeout_minutes = 9999,
+            |c| c.onepass.idle_timeout_minutes,
+            1440,
+        );
+        assert_clamps(
+            "daemon.startup_timeout_secs",
+            |c| c.daemon.startup_timeout_secs = 0,
+            |c| c.daemon.startup_timeout_secs,
+            1,
+        );
+    }
+
+    #[test]
+    fn test_validate_indexer_bounds() {
+        assert_clamps(
+            "indexer.interval_hours",
+            |c| c.indexer.interval_hours = 0,
+            |c| c.indexer.interval_hours,
+            1,
+        );
+        assert_clamps(
+            "indexer.max_content_chars",
+            |c| c.indexer.max_content_chars = 100,
+            |c| c.indexer.max_content_chars,
+            256,
+        );
+
+        let mut cfg = AppConfig::default();
+        cfg.indexer.file_extensions = vec![];
+        let warnings = cfg.validate();
+        assert!(
+            warnings
+                .iter()
+                .any(|w| w.contains("indexer.file_extensions")),
+            "should warn about empty file_extensions, got: {warnings:?}"
+        );
+        assert!(
+            !cfg.indexer.file_extensions.is_empty(),
+            "should reset to defaults"
+        );
+    }
+
+    #[test]
+    fn test_validate_multiple_errors() {
+        let mut cfg = AppConfig::default();
+        cfg.ollama.timeout_secs = 0;
+        cfg.vector_search.min_score = 5.0;
+        cfg.models.chat.provider = "bad".into();
+        cfg.history.max_results = 0;
+        cfg.indexer.file_extensions = vec![];
+        let warnings = cfg.validate();
+        assert!(
+            warnings.len() >= 5,
+            "should collect all errors at once, got {} warnings: {warnings:?}",
+            warnings.len()
+        );
+    }
+
+    #[test]
+    fn test_validate_zero_at_lower_bound_is_valid() {
+        assert_valid("search.debounce_ms", |c| c.search.debounce_ms = 0);
+        assert_valid("onepass.idle_timeout_minutes", |c| {
+            c.onepass.idle_timeout_minutes = 0
+        });
+    }
+
+    #[test]
+    fn test_validate_boundary_values_are_valid() {
+        // Lower boundaries
+        let mut cfg = AppConfig::default();
+        cfg.ollama.timeout_secs = 1;
+        cfg.ollama.chat_timeout_secs = 10;
+        cfg.vector_search.top_k = 1;
+        cfg.vector_search.min_score = 0.0;
+        cfg.vector_search.max_file_size_bytes = 1024;
+        cfg.indexer.interval_hours = 1;
+        cfg.indexer.max_content_chars = 256;
+        cfg.history.max_results = 1;
+        cfg.search.max_results = 1;
+        cfg.search.debounce_ms = 0;
+        cfg.chat.max_context_snippets = 1;
+        cfg.onepass.idle_timeout_minutes = 0;
+        cfg.daemon.startup_timeout_secs = 1;
+        let warnings = cfg.validate();
+        assert!(
+            warnings.is_empty(),
+            "lower boundary values should pass, got: {warnings:?}"
+        );
+
+        // Upper boundaries
+        let mut cfg = AppConfig::default();
+        cfg.ollama.timeout_secs = 300;
+        cfg.ollama.chat_timeout_secs = 600;
+        cfg.vector_search.top_k = 100;
+        cfg.vector_search.min_score = 1.0;
+        cfg.vector_search.max_file_size_bytes = 100_000_000;
+        cfg.indexer.interval_hours = 8760;
+        cfg.indexer.max_content_chars = 1_000_000;
+        cfg.history.max_results = 100;
+        cfg.search.max_results = 100;
+        cfg.search.debounce_ms = 2000;
+        cfg.chat.max_context_snippets = 50;
+        cfg.onepass.idle_timeout_minutes = 1440;
+        cfg.daemon.startup_timeout_secs = 60;
+        let warnings = cfg.validate();
+        assert!(
+            warnings.is_empty(),
+            "upper boundary values should pass, got: {warnings:?}"
+        );
+    }
+
+    #[test]
+    fn test_validate_nan_min_score() {
+        let mut cfg = AppConfig::default();
+        cfg.vector_search.min_score = f32::NAN;
+        let warnings = cfg.validate();
+        assert!(
+            warnings
+                .iter()
+                .any(|w| w.contains("vector_search.min_score")),
+            "should warn about NaN min_score, got: {warnings:?}"
+        );
+        assert!(
+            !cfg.vector_search.min_score.is_nan(),
+            "min_score should be reset from NaN"
+        );
+    }
+
+    #[test]
+    fn test_validate_empty_index_dirs_with_custom_mode() {
+        let mut cfg = AppConfig::default();
+        cfg.vector_search.index_mode = "custom".into();
+        cfg.vector_search.index_dirs = vec![];
+        let warnings = cfg.validate();
+        assert!(
+            warnings
+                .iter()
+                .any(|w| w.contains("vector_search.index_dirs")),
+            "should warn about empty index_dirs in custom mode, got: {warnings:?}"
+        );
+        assert_eq!(
+            cfg.vector_search.index_mode, "all",
+            "should reset index_mode to 'all' when custom has no dirs"
+        );
+    }
+
+    #[test]
+    fn test_validate_empty_index_dirs_with_all_mode_is_ok() {
+        assert_valid("vector_search.index_dirs", |c| {
+            c.vector_search.index_mode = "all".into();
+            c.vector_search.index_dirs = vec![];
+        });
+    }
+
+    #[test]
+    fn test_validate_empty_exclude_patterns() {
+        let mut cfg = AppConfig::default();
+        cfg.vector_search.exclude_patterns = vec![];
+        let warnings = cfg.validate();
+        assert!(
+            warnings
+                .iter()
+                .any(|w| w.contains("vector_search.exclude_patterns")),
+            "should warn about empty exclude_patterns, got: {warnings:?}"
+        );
+        assert!(
+            !cfg.vector_search.exclude_patterns.is_empty(),
+            "should reset to defaults"
+        );
+    }
+
+    #[test]
+    fn test_validate_openrouter_missing_api_key() {
+        let mut cfg = AppConfig::default();
+        cfg.models.chat_large.provider = "openrouter".into();
+        cfg.openrouter.api_key = String::new();
+        let warnings = cfg.validate();
+        assert!(
+            warnings.iter().any(|w| w.contains("openrouter.api_key")),
+            "should warn about missing API key when using openrouter, got: {warnings:?}"
+        );
+    }
+
+    #[test]
+    fn test_validate_openrouter_with_api_key_is_ok() {
+        let mut cfg = AppConfig::default();
+        cfg.models.chat_large.provider = "openrouter".into();
+        cfg.openrouter.api_key = "sk-test".into();
+        let warnings = cfg.validate();
+        assert!(
+            !warnings.iter().any(|w| w.contains("openrouter.api_key")),
+            "should not warn when API key is set, got: {warnings:?}"
+        );
+    }
+
+    #[test]
+    fn test_update_config_model_rejects_empty_name() {
+        let result = update_config_model("chat", "ollama", "");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("empty"));
+    }
+
+    #[test]
+    fn test_update_config_model_rejects_invalid_provider() {
+        let result = update_config_model("chat", "invalid", "some-model");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Invalid provider"));
+    }
+
+    #[test]
+    fn test_validate_infinity_min_score() {
+        assert_clamps(
+            "vector_search.min_score",
+            |c| c.vector_search.min_score = f32::INFINITY,
+            |c| c.vector_search.min_score,
+            1.0,
+        );
+        assert_clamps(
+            "vector_search.min_score",
+            |c| c.vector_search.min_score = f32::NEG_INFINITY,
+            |c| c.vector_search.min_score,
+            0.0,
+        );
+    }
+
+    #[test]
+    fn test_validate_ollama_url_format() {
+        let mut cfg = AppConfig::default();
+        cfg.ollama.url = "not-a-url".into();
+        let warnings = cfg.validate();
+        assert!(
+            warnings.iter().any(|w| w.contains("ollama.url")),
+            "should warn about URL without http(s):// scheme, got: {warnings:?}"
+        );
+        // URL is warned about but not reset (it might still work as a custom scheme)
+        assert_eq!(cfg.ollama.url, "not-a-url");
+    }
+
+    #[test]
+    fn test_validate_ollama_url_http_is_ok() {
+        assert_valid("ollama.url", |c| {
+            c.ollama.url = "http://192.168.1.100:11434".into()
+        });
+        assert_valid("ollama.url", |c| {
+            c.ollama.url = "https://ollama.example.com".into()
+        });
+    }
+
+    #[test]
+    fn test_update_config_model_trims_whitespace() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let custom_dir = tmp.path().join("burrow");
+        std::env::set_var("BURROW_CONFIG_DIR", &custom_dir);
+
+        update_config_model("chat", "ollama", "  llama3:8b  ").unwrap();
+
+        let content = std::fs::read_to_string(custom_dir.join("config.toml")).unwrap();
+        assert!(
+            content.contains("llama3:8b"),
+            "model name should be trimmed in config file"
+        );
+        assert!(
+            !content.contains("  llama3:8b  "),
+            "untrimmed model name should not appear"
+        );
+
         std::env::remove_var("BURROW_CONFIG_DIR");
     }
 }
