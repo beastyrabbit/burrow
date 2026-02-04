@@ -64,6 +64,15 @@ function App() {
   const listRef = useRef<HTMLUListElement>(null);
   const queryRef = useRef(query);
 
+  // Mouse hover state machine to prevent accidental selection when window appears under cursor.
+  // Phases: initial (waiting) -> tracking (measuring movement) -> enabled (hover active).
+  // Resets to "initial" when window is hidden.
+  type MouseHoverState =
+    | { phase: "initial" }
+    | { phase: "tracking"; start: { x: number; y: number } }
+    | { phase: "enabled" };
+  const mouseStateRef = useRef<MouseHoverState>({ phase: "initial" });
+
   const doSearch = useCallback(async (q: string) => {
     try {
       const res = await invoke<SearchResult[]>("search", { query: q });
@@ -134,10 +143,32 @@ function App() {
         setSelectedIndex(0);
         setChatAnswer("");
         setChatLoading(false);
+        mouseStateRef.current = { phase: "initial" };
       }
     };
     document.addEventListener("visibilitychange", onVisibilityChange);
     return () => document.removeEventListener("visibilitychange", onVisibilityChange);
+  }, []);
+
+  // Enable mouse hover selection only after intentional movement (>10px)
+  // Prevents accidental selection from jitter when window appears under cursor
+  useEffect(() => {
+    const THRESHOLD = 10;
+    const onMouseMove = (e: MouseEvent) => {
+      const state = mouseStateRef.current;
+      if (state.phase === "enabled") return;
+      if (state.phase === "initial") {
+        mouseStateRef.current = { phase: "tracking", start: { x: e.clientX, y: e.clientY } };
+        return;
+      }
+      const dx = e.clientX - state.start.x;
+      const dy = e.clientY - state.start.y;
+      if (dx * dx + dy * dy > THRESHOLD * THRESHOLD) {
+        mouseStateRef.current = { phase: "enabled" };
+      }
+    };
+    window.addEventListener("mousemove", onMouseMove);
+    return () => window.removeEventListener("mousemove", onMouseMove);
   }, []);
 
   // Hide window when it loses focus (standard launcher behavior).
@@ -309,7 +340,7 @@ function App() {
           <li
             key={item.id}
             className={`result-item ${i === selectedIndex ? "selected" : ""}`}
-            onMouseEnter={() => setSelectedIndex(i)}
+            onMouseEnter={() => { if (mouseStateRef.current.phase === "enabled") setSelectedIndex(i); }}
             onClick={() => executeAction(null, item)}
           >
             <ResultIcon icon={item.icon} category={item.category} />

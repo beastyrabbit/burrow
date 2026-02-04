@@ -19,7 +19,7 @@ export default defineConfig({
     port: 1420,
     reuseExistingServer: true,
     timeout: 60000,
-    env: { ...process.env, BURROW_DRY_RUN: "1", BURROW_DATA_DIR: e2eDataDir },
+    env: { ...process.env, BURROW_DRY_RUN: "1", BURROW_HEADLESS: "1", BURROW_DATA_DIR: e2eDataDir },
   },
   projects: [
     {
