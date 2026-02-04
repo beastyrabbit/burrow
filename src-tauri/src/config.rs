@@ -221,12 +221,15 @@ impl AppConfig {
             ),
         ];
         for (prefix, spec, default_spec) in model_specs {
-            if spec.name.trim().is_empty() {
+            let trimmed_name = spec.name.trim().to_string();
+            if trimmed_name.is_empty() {
                 w.push(format!(
-                    "config: {prefix}.name is invalid — expected non-empty string, got \"\", reset to default \"{}\"",
-                    default_spec.name
+                    "config: {prefix}.name is invalid — expected non-empty string, got \"{}\", reset to default \"{}\"",
+                    spec.name, default_spec.name
                 ));
                 spec.name = default_spec.name.clone();
+            } else {
+                spec.name = trimmed_name;
             }
             // Trim whitespace permanently (intentional mutation — " ollama " becomes "ollama")
             spec.provider = spec.provider.trim().to_string();
@@ -247,7 +250,8 @@ impl AppConfig {
         ]
         .iter()
         .any(|m| m.provider == "openrouter");
-        if uses_openrouter && self.openrouter.api_key.trim().is_empty() {
+        self.openrouter.api_key = self.openrouter.api_key.trim().to_string();
+        if uses_openrouter && self.openrouter.api_key.is_empty() {
             w.push(
                 "config: openrouter.api_key is empty but one or more models use \"openrouter\" provider — set BURROW_OPENROUTER_API_KEY or add api_key under [openrouter]".into()
             );
