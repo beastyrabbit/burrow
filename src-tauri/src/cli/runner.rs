@@ -2,7 +2,7 @@ use super::output::{
     print_error, print_heading, print_info, print_kv, print_status, print_success, print_warning,
 };
 use super::progress::IndexProgress;
-use super::{Commands, DaemonAction, ModelsAction};
+use super::{Commands, DaemonAction, HistoryAction, ModelsAction};
 use crate::chat::{self, ContextSnippet};
 use crate::commands::{health, history, vectors};
 use crate::config;
@@ -31,6 +31,7 @@ pub fn run_command(cmd: Commands) -> i32 {
         Commands::ChatDocs { query, small } => cmd_chat_docs(&query, small),
         Commands::Chat { query, small } => cmd_chat(&query, small),
         Commands::Models { action } => cmd_models(action),
+        Commands::History { action } => cmd_history(action),
     }
 }
 
@@ -1215,6 +1216,115 @@ fn fetch_openrouter_models() -> Result<Vec<String>, String> {
         .collect();
 
     Ok(models)
+}
+
+// ============================================================================
+// History commands
+// ============================================================================
+
+fn cmd_history(action: Option<HistoryAction>) -> i32 {
+    match action {
+        None | Some(HistoryAction::List) => cmd_history_list(),
+        Some(HistoryAction::Clear) => cmd_history_clear(),
+        Some(HistoryAction::Remove { id }) => cmd_history_remove(&id),
+    }
+}
+
+fn cmd_history_list() -> i32 {
+    let conn = match history::open_history_db() {
+        Ok(c) => c,
+        Err(e) => {
+            print_error(&format!("Failed to open history DB: {e}"));
+            return 1;
+        }
+    };
+
+    let entries = match history::query_frecent(&conn) {
+        Ok(e) => e,
+        Err(e) => {
+            print_error(&format!("Failed to query history: {e}"));
+            return 1;
+        }
+    };
+
+    let total_count = match history::get_launch_count(&conn) {
+        Ok(c) => c,
+        Err(e) => {
+            print_error(&format!("Failed to count history entries: {e}"));
+            return 1;
+        }
+    };
+
+    if entries.is_empty() {
+        print_info("No history entries");
+        return 0;
+    }
+
+    print_heading(&format!("Recent History ({total_count} entries)"));
+    println!();
+
+    for entry in &entries {
+        print_kv(&entry.id, &entry.name);
+    }
+
+    println!();
+    print_info("Use 'burrow history remove <id>' to remove an entry");
+    print_info("Use 'burrow history clear' to clear all history");
+
+    0
+}
+
+fn cmd_history_clear() -> i32 {
+    let conn = match history::open_history_db() {
+        Ok(c) => c,
+        Err(e) => {
+            print_error(&format!("Failed to open history DB: {e}"));
+            return 1;
+        }
+    };
+
+    let count = match history::clear_all_history(&conn) {
+        Ok(c) => c,
+        Err(e) => {
+            print_error(&format!("Failed to clear history: {e}"));
+            return 1;
+        }
+    };
+
+    print_success(&format!("Cleared {count} history entries"));
+    0
+}
+
+fn cmd_history_remove(id: &str) -> i32 {
+    let id = id.trim();
+    if id.is_empty() {
+        print_error("ID cannot be empty. Use 'burrow history list' to see available IDs.");
+        return 1;
+    }
+
+    let conn = match history::open_history_db() {
+        Ok(c) => c,
+        Err(e) => {
+            print_error(&format!("Failed to open history DB: {e}"));
+            return 1;
+        }
+    };
+
+    let removed = match history::remove_from_history(&conn, id) {
+        Ok(r) => r,
+        Err(e) => {
+            print_error(&format!("Failed to remove from history: {e}"));
+            return 1;
+        }
+    };
+
+    if removed {
+        print_success(&format!("Removed '{id}' from history"));
+        0
+    } else {
+        print_error(&format!("No history entry found with id '{id}'"));
+        1
+    }
 }
 
 #[cfg(test)]
