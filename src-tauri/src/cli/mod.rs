@@ -91,6 +91,11 @@ pub enum Commands {
         #[command(subcommand)]
         action: Option<ModelsAction>,
     },
+    /// Manage launch history
+    History {
+        #[command(subcommand)]
+        action: Option<HistoryAction>,
+    },
 }
 
 #[derive(Subcommand, Clone)]
@@ -116,6 +121,19 @@ pub enum ModelsAction {
         /// Model type to configure: embedding, chat, chat_large
         #[arg(value_name = "MODEL_TYPE")]
         model_type: Option<String>,
+    },
+}
+
+#[derive(Subcommand, Clone)]
+pub enum HistoryAction {
+    /// List recent history entries (default)
+    List,
+    /// Clear all launch history
+    Clear,
+    /// Remove a specific item from history
+    Remove {
+        /// The app ID to remove (shown in 'burrow history list' output)
+        id: String,
     },
 }
 
@@ -376,6 +394,50 @@ mod tests {
             assert_eq!(model_type, Some("chat_large".into()));
         } else {
             panic!("Expected Models Set command with model type");
+        }
+    }
+
+    #[test]
+    fn cli_parses_history_no_action() {
+        let cli = Cli::parse_from(["burrow", "history"]);
+        assert!(matches!(
+            cli.command,
+            Some(Commands::History { action: None })
+        ));
+    }
+
+    #[test]
+    fn cli_parses_history_list() {
+        let cli = Cli::parse_from(["burrow", "history", "list"]);
+        assert!(matches!(
+            cli.command,
+            Some(Commands::History {
+                action: Some(HistoryAction::List)
+            })
+        ));
+    }
+
+    #[test]
+    fn cli_parses_history_clear() {
+        let cli = Cli::parse_from(["burrow", "history", "clear"]);
+        assert!(matches!(
+            cli.command,
+            Some(Commands::History {
+                action: Some(HistoryAction::Clear)
+            })
+        ));
+    }
+
+    #[test]
+    fn cli_parses_history_remove() {
+        let cli = Cli::parse_from(["burrow", "history", "remove", "firefox"]);
+        if let Some(Commands::History {
+            action: Some(HistoryAction::Remove { id }),
+        }) = cli.command
+        {
+            assert_eq!(id, "firefox");
+        } else {
+            panic!("Expected History Remove command with id");
         }
     }
 }

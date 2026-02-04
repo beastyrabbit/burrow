@@ -59,7 +59,11 @@ pub fn init_db(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-fn query_frecent(conn: &Connection) -> Result<Vec<SearchResult>, rusqlite::Error> {
+/// Query the most frequent/recent (frecent) entries from the database.
+///
+/// Returns up to 6 entries, ordered by frecency score (count weighted by recency).
+/// Public for CLI use.
+pub fn query_frecent(conn: &Connection) -> Result<Vec<SearchResult>, rusqlite::Error> {
     let mut stmt = conn.prepare(
         "SELECT id, name, exec, icon, description FROM launches
          ORDER BY count * (1.0 / (1.0 + (julianday('now') - last_used))) DESC
@@ -158,6 +162,24 @@ pub fn record_launch(
     let state = app.state::<DbState>();
     let conn = state.lock()?;
     insert_launch(&conn, &id, &name, &exec, &icon, &description).map_err(|e| e.to_string())
+}
+
+/// Clear all entries from the history database.
+/// Returns the number of entries deleted.
+pub fn clear_all_history(conn: &Connection) -> Result<usize, rusqlite::Error> {
+    conn.execute("DELETE FROM launches", [])
+}
+
+/// Remove a specific entry from history by its ID.
+/// Returns true if an entry was removed, false if not found.
+pub fn remove_from_history(conn: &Connection, id: &str) -> Result<bool, rusqlite::Error> {
+    let rows_affected = conn.execute("DELETE FROM launches WHERE id = ?1", [id])?;
+    Ok(rows_affected > 0)
+}
+
+/// Get the total count of entries in the history database.
+pub fn get_launch_count(conn: &Connection) -> Result<i64, rusqlite::Error> {
+    conn.query_row("SELECT COUNT(*) FROM launches", [], |row| row.get(0))
 }
 
 #[cfg(test)]
@@ -310,5 +332,55 @@ mod tests {
         assert_eq!(results[0].exec, "exec1");
         assert_eq!(results[0].icon, "icon1");
         assert_eq!(results[0].description, "desc1");
+    }
+
+    #[test]
+    fn clear_all_history_removes_all_entries() {
+        let conn = test_db();
+        insert_launch(&conn, "a", "A", "a", "", "").unwrap();
+        insert_launch(&conn, "b", "B", "b", "", "").unwrap();
+        let count = clear_all_history(&conn).unwrap();
+        assert_eq!(count, 2);
+        assert!(query_frecent(&conn).unwrap().is_empty());
+    }
+
+    #[test]
+    fn clear_all_history_empty_db() {
+        let conn = test_db();
+        let count = clear_all_history(&conn).unwrap();
+        assert_eq!(count, 0);
+    }
+
+    #[test]
+    fn remove_from_history_removes_single_entry() {
+        let conn = test_db();
+        insert_launch(&conn, "keep", "Keep", "k", "", "").unwrap();
+        insert_launch(&conn, "remove", "Remove", "r", "", "").unwrap();
+        let removed = remove_from_history(&conn, "remove").unwrap();
+        assert!(removed);
+        let results = query_frecent(&conn).unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].id, "keep");
+    }
+
+    #[test]
+    fn remove_from_history_returns_false_for_missing() {
+        let conn = test_db();
+        let removed = remove_from_history(&conn, "nonexistent").unwrap();
+        assert!(!removed);
+    }
+
+    #[test]
+    fn get_launch_count_returns_total() {
+        let conn = test_db();
+        insert_launch(&conn, "a", "A", "a", "", "").unwrap();
+        insert_launch(&conn, "b", "B", "b", "", "").unwrap();
+        assert_eq!(get_launch_count(&conn).unwrap(), 2);
+    }
+
+    #[test]
+    fn get_launch_count_empty_db() {
+        let conn = test_db();
+        assert_eq!(get_launch_count(&conn).unwrap(), 0);
     }
 }
