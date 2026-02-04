@@ -123,6 +123,9 @@
 | `burrow chat-docs "query"` | Chat with AI using document context (RAG) |
 | `burrow models list` | Show current model configuration |
 | `burrow models set` | Interactive model configuration |
+| `burrow history` | List recent launch history |
+| `burrow history clear` | Clear all launch history |
+| `burrow history remove <id>` | Remove specific item from history |
 
 ### Chat Commands
 

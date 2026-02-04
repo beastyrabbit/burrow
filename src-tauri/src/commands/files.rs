@@ -25,6 +25,7 @@ fn match_files_in_dirs(dirs: &[PathBuf], query: &str, limit: usize) -> Vec<Searc
                         // Security: exec intentionally empty. handle_file uses result.id
                         // with xdg_open via Command::arg() to prevent shell injection
                         exec: String::new(),
+                        input_spec: None,
                     });
                 }
                 if results.len() >= limit {

@@ -56,6 +56,7 @@ pub fn search_settings(query: &str) -> Result<Vec<SearchResult>, String> {
             icon: "".into(),
             category: Category::Action,
             exec: "".into(),
+            input_spec: None,
         })
         .collect();
     Ok(results)
