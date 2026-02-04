@@ -186,6 +186,16 @@ pub fn run() {
             indexer::start_background_indexer(app.handle().clone());
             #[cfg(debug_assertions)]
             dev_server::start(app.handle().clone());
+
+            // Show window unless in headless mode (for testing)
+            if std::env::var("BURROW_HEADLESS").is_err() {
+                if let Some(win) = app.get_webview_window("main") {
+                    let _ = win.show();
+                    let _ = win.set_focus();
+                }
+            } else {
+                tracing::info!("headless mode: window stays hidden");
+            }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
