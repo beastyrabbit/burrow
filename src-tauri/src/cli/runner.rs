@@ -181,12 +181,67 @@ fn cmd_config(path_only: bool) -> i32 {
 }
 
 fn cmd_progress() -> i32 {
-    // In CLI mode, we can't read the Tauri state, so we just report
-    // that CLI doesn't have access to the GUI's indexer state.
-    // Returns 0 because this is not an error condition - the command succeeds
-    // at reporting that progress information is unavailable in CLI mode.
-    print_info("Indexer status is only available in GUI mode");
-    print_info("Use 'burrow stats' to see indexed file count");
+    let cfg = config::get_config();
+
+    if !cfg.vector_search.enabled {
+        print_error("Vector search is disabled in config");
+        return 1;
+    }
+
+    // Count files that would be indexed
+    let indexable_paths = indexer::collect_indexable_paths(cfg);
+    let total_files = indexable_paths.len();
+
+    // Count files already indexed
+    let conn = match vectors::open_vector_db() {
+        Ok(c) => c,
+        Err(e) => {
+            print_error(&format!("Failed to open vector DB: {e}"));
+            return 1;
+        }
+    };
+
+    let indexed_count: i64 = match conn.query_row("SELECT COUNT(*) FROM vectors", [], |r| r.get(0))
+    {
+        Ok(count) => count,
+        Err(e) => {
+            print_error(&format!("Failed to query indexed count: {e}"));
+            return 1;
+        }
+    };
+
+    let last_indexed: Option<f64> = conn
+        .query_row("SELECT MAX(indexed_at) FROM vectors", [], |r| r.get(0))
+        .ok();
+
+    print_heading("Index Status");
+    print_kv("Indexed", &format!("{indexed_count} files"));
+    print_kv(
+        "Indexable",
+        &format!("{total_files} files in configured dirs"),
+    );
+
+    let coverage = if total_files > 0 {
+        (indexed_count as f64 / total_files as f64 * 100.0).round() as u32
+    } else {
+        0
+    };
+    print_kv("Coverage", &format!("{coverage}%"));
+
+    if last_indexed.is_some() {
+        print_kv("Last indexed", "available");
+    } else {
+        print_kv("Last indexed", "never");
+    }
+
+    if indexed_count == 0 {
+        println!();
+        print_info("Run 'burrow reindex' to index all files");
+    } else if (indexed_count as usize) < total_files {
+        println!();
+        print_info("Run 'burrow update' to index new/modified files");
+    }
+
     0
 }
 
