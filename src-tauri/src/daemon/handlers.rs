@@ -357,7 +357,7 @@ async fn index_single_file_standalone(
         &path_str,
         &preview,
         &embedding,
-        &cfg.ollama.embedding_model,
+        &cfg.models.embedding.name,
         mtime,
     )
     .map_err(|e| e.to_string())

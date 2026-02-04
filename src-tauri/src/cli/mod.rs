@@ -23,6 +23,8 @@ pub struct Cli {
 
 #[derive(Subcommand)]
 pub enum Commands {
+    /// Toggle window visibility (show if hidden, hide if visible)
+    Toggle,
     /// Full reindex of all configured directories
     Reindex {
         /// Suppress progress output
@@ -68,6 +70,27 @@ pub enum Commands {
         #[command(subcommand)]
         action: Option<DaemonAction>,
     },
+    /// Chat with AI using document context (RAG)
+    ChatDocs {
+        /// The question or query to ask
+        query: String,
+        /// Use small/fast chat model instead of large model
+        #[arg(long)]
+        small: bool,
+    },
+    /// Chat with AI directly (no document context)
+    Chat {
+        /// The question or query to ask
+        query: String,
+        /// Use small/fast chat model instead of large model
+        #[arg(long)]
+        small: bool,
+    },
+    /// Manage AI model configuration
+    Models {
+        #[command(subcommand)]
+        action: Option<ModelsAction>,
+    },
 }
 
 #[derive(Subcommand, Clone)]
@@ -84,6 +107,18 @@ pub enum DaemonAction {
     Status,
 }
 
+#[derive(Subcommand, Clone)]
+pub enum ModelsAction {
+    /// List current model configuration
+    List,
+    /// Set a model interactively
+    Set {
+        /// Model type to configure: embedding, chat, chat_large
+        #[arg(value_name = "MODEL_TYPE")]
+        model_type: Option<String>,
+    },
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -92,6 +127,12 @@ mod tests {
     fn cli_parses_no_args() {
         let cli = Cli::parse_from::<[_; 1], &str>(["burrow"]);
         assert!(cli.command.is_none());
+    }
+
+    #[test]
+    fn cli_parses_toggle() {
+        let cli = Cli::parse_from(["burrow", "toggle"]);
+        assert!(matches!(cli.command, Some(Commands::Toggle)));
     }
 
     #[test]
@@ -246,5 +287,95 @@ mod tests {
                 action: Some(DaemonAction::Status)
             })
         ));
+    }
+
+    #[test]
+    fn cli_parses_chat_docs() {
+        let cli = Cli::parse_from(["burrow", "chat-docs", "What is Rust?"]);
+        if let Some(Commands::ChatDocs { query, small }) = cli.command {
+            assert_eq!(query, "What is Rust?");
+            assert!(!small);
+        } else {
+            panic!("Expected ChatDocs command");
+        }
+    }
+
+    #[test]
+    fn cli_parses_chat_docs_small() {
+        let cli = Cli::parse_from(["burrow", "chat-docs", "--small", "Hello"]);
+        if let Some(Commands::ChatDocs { query, small }) = cli.command {
+            assert_eq!(query, "Hello");
+            assert!(small);
+        } else {
+            panic!("Expected ChatDocs command");
+        }
+    }
+
+    #[test]
+    fn cli_parses_chat() {
+        let cli = Cli::parse_from(["burrow", "chat", "Hello world"]);
+        if let Some(Commands::Chat { query, small }) = cli.command {
+            assert_eq!(query, "Hello world");
+            assert!(!small);
+        } else {
+            panic!("Expected Chat command");
+        }
+    }
+
+    #[test]
+    fn cli_parses_chat_small() {
+        let cli = Cli::parse_from(["burrow", "chat", "--small", "Hi"]);
+        if let Some(Commands::Chat { query, small }) = cli.command {
+            assert_eq!(query, "Hi");
+            assert!(small);
+        } else {
+            panic!("Expected Chat command");
+        }
+    }
+
+    #[test]
+    fn cli_parses_models_no_action() {
+        let cli = Cli::parse_from(["burrow", "models"]);
+        assert!(matches!(
+            cli.command,
+            Some(Commands::Models { action: None })
+        ));
+    }
+
+    #[test]
+    fn cli_parses_models_list() {
+        let cli = Cli::parse_from(["burrow", "models", "list"]);
+        assert!(matches!(
+            cli.command,
+            Some(Commands::Models {
+                action: Some(ModelsAction::List)
+            })
+        ));
+    }
+
+    #[test]
+    fn cli_parses_models_set() {
+        let cli = Cli::parse_from(["burrow", "models", "set"]);
+        if let Some(Commands::Models {
+            action: Some(ModelsAction::Set { model_type }),
+        }) = cli.command
+        {
+            assert!(model_type.is_none());
+        } else {
+            panic!("Expected Models Set command");
+        }
+    }
+
+    #[test]
+    fn cli_parses_models_set_type() {
+        let cli = Cli::parse_from(["burrow", "models", "set", "chat_large"]);
+        if let Some(Commands::Models {
+            action: Some(ModelsAction::Set { model_type }),
+        }) = cli.command
+        {
+            assert_eq!(model_type, Some("chat_large".into()));
+        } else {
+            panic!("Expected Models Set command with model type");
+        }
     }
 }

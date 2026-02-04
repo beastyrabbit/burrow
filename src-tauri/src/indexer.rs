@@ -1,6 +1,7 @@
 use crate::commands::vectors::{self, VectorDbState};
-use crate::config;
+use crate::config::{self, AppConfig};
 use crate::ollama;
+use glob::Pattern;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -201,18 +202,68 @@ pub fn expand_tilde(path: &str) -> PathBuf {
     PathBuf::from(path)
 }
 
+/// Get the directories to search/index based on config.
+/// If index_mode is "all", returns home directory.
+/// If index_mode is "custom", returns configured index_dirs.
+pub fn get_search_directories(cfg: &AppConfig) -> Vec<PathBuf> {
+    if cfg.vector_search.index_mode == "all" {
+        vec![dirs::home_dir().unwrap_or_else(|| PathBuf::from("/"))]
+    } else {
+        cfg.vector_search
+            .index_dirs
+            .iter()
+            .map(|d| expand_tilde(d))
+            .collect()
+    }
+}
+
+/// Check if a path should be excluded based on configured patterns.
+/// Returns true if the path matches any exclusion pattern.
+pub fn is_excluded_path(path: &Path, cfg: &AppConfig) -> bool {
+    let path_str = path.to_string_lossy();
+
+    for pattern in &cfg.vector_search.exclude_patterns {
+        // Handle absolute path patterns (start with /)
+        if pattern.starts_with('/') {
+            if path_str.starts_with(pattern) {
+                return true;
+            }
+        } else {
+            // Handle glob patterns and relative path components
+            // Check if any component of the path matches
+            for component in path.components() {
+                let component_str = component.as_os_str().to_string_lossy();
+                if let Ok(glob) = Pattern::new(pattern) {
+                    if glob.matches(&component_str) {
+                        return true;
+                    }
+                }
+                // Also check exact match for non-glob patterns
+                if pattern == &*component_str {
+                    return true;
+                }
+            }
+        }
+    }
+    false
+}
+
+/// Check if a directory entry should be excluded (for walkdir filter_entry).
+fn is_excluded_entry(entry: &walkdir::DirEntry, cfg: &AppConfig) -> bool {
+    is_excluded_path(entry.path(), cfg)
+}
+
 /// Collect all indexable file paths from configured directories.
 pub fn collect_indexable_paths(cfg: &config::AppConfig) -> Vec<PathBuf> {
     let mut paths = Vec::new();
-    for dir in &cfg.vector_search.index_dirs {
-        let dir_path = expand_tilde(dir);
+    for dir_path in get_search_directories(cfg) {
         if !dir_path.exists() {
             continue;
         }
         for entry in WalkDir::new(&dir_path)
             .follow_links(true)
             .into_iter()
-            .filter_entry(|e| !is_hidden_entry(e))
+            .filter_entry(|e| !is_hidden_entry(e) && !is_excluded_entry(e, cfg))
             .filter_map(|e| e.ok())
         {
             if is_indexable_file(
@@ -267,7 +318,7 @@ pub async fn index_all(app: &tauri::AppHandle) -> IndexStats {
         match index_single_file(
             path,
             &db,
-            &cfg.ollama.embedding_model,
+            &cfg.models.embedding.name,
             cfg.indexer.max_content_chars,
         )
         .await
@@ -364,7 +415,7 @@ pub async fn index_incremental(app: &tauri::AppHandle) -> IndexStats {
         match index_single_file(
             path,
             &db,
-            &cfg.ollama.embedding_model,
+            &cfg.models.embedding.name,
             cfg.indexer.max_content_chars,
         )
         .await
@@ -651,5 +702,78 @@ mod tests {
         let valid: std::collections::HashSet<String> = [path_str].into_iter().collect();
         let removed = cleanup_stale(&state, &valid);
         assert_eq!(removed, 0);
+    }
+
+    #[test]
+    fn get_search_directories_all_mode() {
+        let mut cfg = config::AppConfig::default();
+        cfg.vector_search.index_mode = "all".into();
+        let dirs = get_search_directories(&cfg);
+        assert_eq!(dirs.len(), 1);
+        // Should be home directory
+        assert!(dirs[0].is_absolute());
+    }
+
+    #[test]
+    fn get_search_directories_custom_mode() {
+        let mut cfg = config::AppConfig::default();
+        cfg.vector_search.index_mode = "custom".into();
+        cfg.vector_search.index_dirs = vec!["~/Documents".into(), "/tmp".into()];
+        let dirs = get_search_directories(&cfg);
+        assert_eq!(dirs.len(), 2);
+        assert!(!dirs[0].to_string_lossy().contains('~'));
+        assert_eq!(dirs[1], PathBuf::from("/tmp"));
+    }
+
+    #[test]
+    fn is_excluded_absolute_path() {
+        let mut cfg = config::AppConfig::default();
+        cfg.vector_search.exclude_patterns = vec!["/proc".into(), "/sys".into()];
+
+        assert!(is_excluded_path(Path::new("/proc/cpuinfo"), &cfg));
+        assert!(is_excluded_path(Path::new("/sys/devices"), &cfg));
+        assert!(!is_excluded_path(Path::new("/home/user/file.txt"), &cfg));
+    }
+
+    #[test]
+    fn is_excluded_glob_pattern() {
+        let mut cfg = config::AppConfig::default();
+        cfg.vector_search.exclude_patterns = vec!["*.pyc".into(), "node_modules".into()];
+
+        assert!(is_excluded_path(
+            Path::new("/home/user/node_modules/pkg"),
+            &cfg
+        ));
+        assert!(is_excluded_path(Path::new("/project/node_modules"), &cfg));
+        assert!(!is_excluded_path(Path::new("/home/user/file.py"), &cfg));
+    }
+
+    #[test]
+    fn is_excluded_cache_patterns() {
+        let mut cfg = config::AppConfig::default();
+        cfg.vector_search.exclude_patterns = vec![".cache".into(), ".git".into()];
+
+        assert!(is_excluded_path(
+            Path::new("/home/user/.cache/something"),
+            &cfg
+        ));
+        assert!(is_excluded_path(
+            Path::new("/home/user/project/.git/config"),
+            &cfg
+        ));
+        assert!(!is_excluded_path(
+            Path::new("/home/user/documents/file.txt"),
+            &cfg
+        ));
+    }
+
+    #[test]
+    fn is_excluded_empty_patterns() {
+        let mut cfg = config::AppConfig::default();
+        cfg.vector_search.exclude_patterns = vec![];
+
+        // Nothing should be excluded with empty patterns
+        assert!(!is_excluded_path(Path::new("/home/user/.cache"), &cfg));
+        assert!(!is_excluded_path(Path::new("/proc/cpuinfo"), &cfg));
     }
 }

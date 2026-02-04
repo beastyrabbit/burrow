@@ -1,3 +1,5 @@
+use crate::config;
+use crate::indexer;
 use crate::router::{Category, SearchResult};
 use std::path::PathBuf;
 
@@ -40,16 +42,14 @@ pub fn search_files(query: &str) -> Result<Vec<SearchResult>, String> {
         return Ok(vec![]);
     }
 
-    let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("/"));
-    let search_dirs = vec![
-        home.join("Documents"),
-        home.join("Downloads"),
-        home.join("Desktop"),
-        home.join("Projects"),
-        home.clone(),
-    ];
+    let cfg = config::get_config();
+    let search_dirs = indexer::get_search_directories(cfg);
 
-    Ok(match_files_in_dirs(&search_dirs, query, 10))
+    Ok(match_files_in_dirs(
+        &search_dirs,
+        query,
+        cfg.search.max_results,
+    ))
 }
 
 #[cfg(test)]

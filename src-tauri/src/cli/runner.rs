@@ -2,12 +2,14 @@ use super::output::{
     print_error, print_heading, print_info, print_kv, print_status, print_success, print_warning,
 };
 use super::progress::IndexProgress;
-use super::{Commands, DaemonAction};
+use super::{Commands, DaemonAction, ModelsAction};
+use crate::chat::{self, ContextSnippet};
 use crate::commands::{health, history, vectors};
 use crate::config;
 use crate::daemon;
 use crate::indexer;
 use crate::ollama;
+use dialoguer::{FuzzySelect, Select};
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
@@ -19,6 +21,8 @@ const MTIME_EPSILON: f64 = 1.0;
 /// Run a CLI command and return the exit code
 pub fn run_command(cmd: Commands) -> i32 {
     match cmd {
+        // Toggle is handled in main.rs before this is called
+        Commands::Toggle => unreachable!("Toggle should be handled in main.rs"),
         Commands::Health { json } => cmd_health(json),
         Commands::Stats { json } => cmd_stats(json),
         Commands::Config { path } => cmd_config(path),
@@ -27,6 +31,9 @@ pub fn run_command(cmd: Commands) -> i32 {
         Commands::Reindex { quiet } => cmd_reindex(quiet),
         Commands::Update { quiet } => cmd_update(quiet),
         Commands::Daemon { action } => cmd_daemon(action),
+        Commands::ChatDocs { query, small } => cmd_chat_docs(&query, small),
+        Commands::Chat { query, small } => cmd_chat(&query, small),
+        Commands::Models { action } => cmd_models(action),
     }
 }
 
@@ -685,7 +692,7 @@ async fn index_single_file_standalone(
         &path_str,
         &preview,
         &embedding,
-        &cfg.ollama.embedding_model,
+        &cfg.models.embedding.name,
         mtime,
     )
     .map_err(|e| e.to_string())
@@ -938,6 +945,302 @@ fn format_uptime(secs: u64) -> String {
     } else {
         format!("{}s", seconds)
     }
+}
+
+// ============================================================================
+// Chat commands
+// ============================================================================
+
+fn cmd_chat_docs(query: &str, small: bool) -> i32 {
+    let rt = match create_runtime() {
+        Ok(rt) => rt,
+        Err(code) => return code,
+    };
+
+    let cfg = config::get_config();
+
+    // Fetch vector context from DB
+    let context = match fetch_context_for_query(query, cfg) {
+        Ok(ctx) => ctx,
+        Err(e) => {
+            print_error(&format!("Failed to fetch context: {e}"));
+            return 1;
+        }
+    };
+
+    if context.is_empty() {
+        print_warning("No relevant documents found for context");
+    }
+
+    let model = if small {
+        &cfg.models.chat
+    } else {
+        &cfg.models.chat_large
+    };
+
+    print_info(&format!("Using {} via {}", model.name, model.provider));
+
+    let result = rt.block_on(chat::generate_chat(query, &context, model));
+
+    match result {
+        Ok(response) => {
+            println!("\n{response}");
+            0
+        }
+        Err(e) => {
+            print_error(&format!("Chat failed: {e}"));
+            1
+        }
+    }
+}
+
+fn cmd_chat(query: &str, small: bool) -> i32 {
+    let rt = match create_runtime() {
+        Ok(rt) => rt,
+        Err(code) => return code,
+    };
+
+    let cfg = config::get_config();
+    let model = if small {
+        &cfg.models.chat
+    } else {
+        &cfg.models.chat_large
+    };
+
+    print_info(&format!("Using {} via {}", model.name, model.provider));
+
+    let result = rt.block_on(chat::generate_chat(query, &[], model));
+
+    match result {
+        Ok(response) => {
+            println!("\n{response}");
+            0
+        }
+        Err(e) => {
+            print_error(&format!("Chat failed: {e}"));
+            1
+        }
+    }
+}
+
+/// Fetch context snippets from vector DB for RAG
+fn fetch_context_for_query(
+    query: &str,
+    cfg: &config::AppConfig,
+) -> Result<Vec<ContextSnippet>, String> {
+    if !cfg.chat.rag_enabled {
+        return Ok(vec![]);
+    }
+
+    let rt = tokio::runtime::Handle::current();
+    let query_embedding = rt.block_on(ollama::generate_embedding(query))?;
+
+    let conn = vectors::open_vector_db().map_err(|e| e.to_string())?;
+
+    let mut stmt = conn
+        .prepare("SELECT file_path, content_preview, embedding FROM vectors")
+        .map_err(|e| format!("DB query failed: {e}"))?;
+
+    let rows = stmt
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, Vec<u8>>(2)?,
+            ))
+        })
+        .map_err(|e| format!("Failed to query vectors: {e}"))?;
+
+    let mut scored: Vec<(f32, String, String)> = vec![];
+
+    for row in rows.flatten() {
+        let (path, preview, embedding_bytes) = row;
+        let embedding = ollama::deserialize_embedding(&embedding_bytes);
+        let score = ollama::cosine_similarity(&query_embedding, &embedding);
+
+        if score >= cfg.vector_search.min_score {
+            scored.push((score, path, preview));
+        }
+    }
+
+    // Sort by score descending
+    scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
+
+    // Take top_k results
+    let context: Vec<ContextSnippet> = scored
+        .into_iter()
+        .take(cfg.chat.max_context_snippets)
+        .map(|(_, path, preview)| ContextSnippet { path, preview })
+        .collect();
+
+    Ok(context)
+}
+
+// ============================================================================
+// Models commands
+// ============================================================================
+
+fn cmd_models(action: Option<ModelsAction>) -> i32 {
+    match action {
+        None | Some(ModelsAction::List) => cmd_models_list(),
+        Some(ModelsAction::Set { model_type }) => cmd_models_set(model_type),
+    }
+}
+
+fn cmd_models_list() -> i32 {
+    let cfg = config::get_config();
+
+    print_heading("Model Configuration");
+
+    println!();
+    print_kv(
+        "Embedding",
+        &format!(
+            "{} ({})",
+            cfg.models.embedding.name, cfg.models.embedding.provider
+        ),
+    );
+
+    print_kv(
+        "Chat",
+        &format!("{} ({})", cfg.models.chat.name, cfg.models.chat.provider),
+    );
+
+    print_kv(
+        "Chat Large",
+        &format!(
+            "{} ({})",
+            cfg.models.chat_large.name, cfg.models.chat_large.provider
+        ),
+    );
+
+    println!();
+    print_info("Use 'burrow models set' to configure models interactively");
+
+    0
+}
+
+fn cmd_models_set(model_type: Option<String>) -> i32 {
+    // 1. Select provider
+    let providers = &["ollama", "openrouter"];
+    let provider_idx = match Select::new()
+        .with_prompt("Select provider")
+        .items(providers)
+        .default(0)
+        .interact()
+    {
+        Ok(idx) => idx,
+        Err(e) => {
+            print_error(&format!("Selection cancelled: {e}"));
+            return 1;
+        }
+    };
+    let provider = providers[provider_idx];
+
+    // 2. Select model type (if not specified)
+    let model_types = &["embedding", "chat", "chat_large"];
+    let model_type = match model_type {
+        Some(t) if model_types.contains(&t.as_str()) => t,
+        Some(t) => {
+            print_error(&format!(
+                "Invalid model type: {t}. Use: embedding, chat, chat_large"
+            ));
+            return 1;
+        }
+        None => {
+            let type_idx = match Select::new()
+                .with_prompt("Which model to configure?")
+                .items(model_types)
+                .default(2) // Default to chat_large
+                .interact()
+            {
+                Ok(idx) => idx,
+                Err(e) => {
+                    print_error(&format!("Selection cancelled: {e}"));
+                    return 1;
+                }
+            };
+            model_types[type_idx].to_string()
+        }
+    };
+
+    // 3. Fetch available models from provider
+    let models = match fetch_provider_models(provider) {
+        Ok(m) if m.is_empty() => {
+            print_error(&format!("No models available from {provider}"));
+            return 1;
+        }
+        Ok(m) => m,
+        Err(e) => {
+            print_error(&format!("Failed to fetch models from {provider}: {e}"));
+            return 1;
+        }
+    };
+
+    // 4. Fuzzy search selection
+    let selected_idx = match FuzzySelect::new()
+        .with_prompt("Select model (type to search)")
+        .items(&models)
+        .default(0)
+        .interact()
+    {
+        Ok(idx) => idx,
+        Err(e) => {
+            print_error(&format!("Selection cancelled: {e}"));
+            return 1;
+        }
+    };
+    let selected_model = &models[selected_idx];
+
+    // 5. Update config file
+    if let Err(e) = config::update_config_model(&model_type, provider, selected_model) {
+        print_error(&format!("Failed to update config: {e}"));
+        return 1;
+    }
+
+    print_success(&format!(
+        "Set {model_type} to {selected_model} via {provider}"
+    ));
+
+    0
+}
+
+fn fetch_provider_models(provider: &str) -> Result<Vec<String>, String> {
+    match provider {
+        "ollama" => ollama::fetch_ollama_models_blocking(),
+        "openrouter" => fetch_openrouter_models(),
+        other => Err(format!("Unknown provider: {other}")),
+    }
+}
+
+fn fetch_openrouter_models() -> Result<Vec<String>, String> {
+    let client = reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .map_err(|e| format!("Failed to create HTTP client: {e}"))?;
+
+    let resp = client
+        .get("https://openrouter.ai/api/v1/models")
+        .send()
+        .map_err(|e| format!("OpenRouter request failed: {e}"))?;
+
+    if !resp.status().is_success() {
+        let status = resp.status();
+        return Err(format!("OpenRouter returned {status}"));
+    }
+
+    let json: serde_json::Value = resp
+        .json()
+        .map_err(|e| format!("Failed to parse OpenRouter response: {e}"))?;
+
+    let models = json["data"]
+        .as_array()
+        .ok_or("No data array in response")?
+        .iter()
+        .filter_map(|m| m["id"].as_str().map(|s| s.to_string()))
+        .collect();
+
+    Ok(models)
 }
 
 #[cfg(test)]

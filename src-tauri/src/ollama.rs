@@ -30,7 +30,7 @@ pub async fn generate_embedding(text: &str) -> Result<Vec<f32>, String> {
         .map_err(|e| format!("Failed to create HTTP client: {e}"))?;
 
     let req = EmbeddingRequest {
-        model: cfg.ollama.embedding_model.clone(),
+        model: cfg.models.embedding.name.clone(),
         input: text.to_string(),
     };
 
@@ -87,6 +87,78 @@ pub fn deserialize_embedding(bytes: &[u8]) -> Vec<f32> {
         .chunks_exact(4)
         .map(|chunk| f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]))
         .collect()
+}
+
+/// Fetch available models from Ollama API
+pub async fn fetch_ollama_models() -> Result<Vec<String>, String> {
+    let cfg = config::get_config();
+    let url = format!("{}/api/tags", cfg.ollama.url);
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .map_err(|e| format!("Failed to create HTTP client: {e}"))?;
+
+    let resp = client
+        .get(&url)
+        .send()
+        .await
+        .map_err(|e| format!("Ollama request failed: {e}"))?;
+
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let body = resp.text().await.unwrap_or_default();
+        return Err(format!("Ollama returned {status}: {body}"));
+    }
+
+    let json: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse Ollama response: {e}"))?;
+
+    let models = json["models"]
+        .as_array()
+        .ok_or("No models array in response")?
+        .iter()
+        .filter_map(|m| m["name"].as_str().map(|s| s.to_string()))
+        .collect();
+
+    Ok(models)
+}
+
+/// Fetch available models from Ollama API (blocking version for CLI)
+pub fn fetch_ollama_models_blocking() -> Result<Vec<String>, String> {
+    let cfg = config::get_config();
+    let url = format!("{}/api/tags", cfg.ollama.url);
+
+    let client = reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .map_err(|e| format!("Failed to create HTTP client: {e}"))?;
+
+    let resp = client
+        .get(&url)
+        .send()
+        .map_err(|e| format!("Ollama request failed: {e}"))?;
+
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let body = resp.text().unwrap_or_default();
+        return Err(format!("Ollama returned {status}: {body}"));
+    }
+
+    let json: serde_json::Value = resp
+        .json()
+        .map_err(|e| format!("Failed to parse Ollama response: {e}"))?;
+
+    let models = json["models"]
+        .as_array()
+        .ok_or("No models array in response")?
+        .iter()
+        .filter_map(|m| m["name"].as_str().map(|s| s.to_string()))
+        .collect();
+
+    Ok(models)
 }
 
 #[cfg(test)]

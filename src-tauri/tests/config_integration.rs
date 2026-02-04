@@ -17,7 +17,9 @@ fn config_path_is_inside_config_dir() {
 fn load_config_returns_valid_defaults() {
     let cfg = config::load_config();
     assert!(!cfg.ollama.url.is_empty());
-    assert!(!cfg.ollama.embedding_model.is_empty());
+    assert!(!cfg.models.embedding.name.is_empty());
+    assert!(!cfg.models.chat.name.is_empty());
+    assert!(!cfg.models.chat_large.name.is_empty());
     assert!(cfg.ollama.timeout_secs > 0);
     assert!(cfg.vector_search.top_k > 0);
     assert!(cfg.vector_search.min_score > 0.0);
