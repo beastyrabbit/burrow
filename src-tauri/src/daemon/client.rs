@@ -24,6 +24,9 @@ impl Default for DaemonClient {
 /// Default timeout for most requests (5 seconds).
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(5);
 
+/// Default chat timeout in seconds (matches config default).
+const DEFAULT_CHAT_TIMEOUT_SECS: u64 = 120;
+
 /// Extra buffer time for client-side timeout beyond server-side chat timeout.
 const CHAT_TIMEOUT_BUFFER_SECS: u64 = 10;
 
@@ -41,10 +44,13 @@ impl DaemonClient {
 
     /// Create a client with longer timeout for chat operations.
     /// Reads from config with a buffer to ensure client doesn't timeout before server.
+    /// Falls back to default timeout if config not initialized.
     pub fn with_chat_timeout() -> Self {
-        let cfg = config::get_config();
+        let timeout_secs = config::try_get_config()
+            .map(|cfg| cfg.ollama.chat_timeout_secs)
+            .unwrap_or(DEFAULT_CHAT_TIMEOUT_SECS);
         Self {
-            timeout: Duration::from_secs(cfg.ollama.chat_timeout_secs + CHAT_TIMEOUT_BUFFER_SECS),
+            timeout: Duration::from_secs(timeout_secs + CHAT_TIMEOUT_BUFFER_SECS),
         }
     }
 
@@ -236,6 +242,15 @@ mod tests {
         let cfg = config::get_config();
         let expected = Duration::from_secs(cfg.ollama.chat_timeout_secs + CHAT_TIMEOUT_BUFFER_SECS);
         assert_eq!(client.timeout, expected);
+    }
+
+    #[test]
+    fn client_chat_timeout_fallback_without_config() {
+        // with_chat_timeout should not panic even if config is not initialized
+        // It falls back to DEFAULT_CHAT_TIMEOUT_SECS
+        let client = DaemonClient::with_chat_timeout();
+        // Should have some reasonable timeout (either from config or default)
+        assert!(client.timeout.as_secs() >= DEFAULT_CHAT_TIMEOUT_SECS);
     }
 
     #[test]
