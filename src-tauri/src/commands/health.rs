@@ -61,6 +61,11 @@ pub async fn health_check_standalone() -> Result<HealthStatus, String> {
 
 fn check_vector_db_standalone() -> Result<(), String> {
     let conn = super::vectors::open_vector_db().map_err(|e| format!("open failed ({e})"))?;
+    check_vector_db_conn(&conn)
+}
+
+/// Pure helper to check DB connectivity - testable with in-memory connections.
+fn check_vector_db_conn(conn: &rusqlite::Connection) -> Result<(), String> {
     conn.execute_batch("SELECT 1")
         .map_err(|e| format!("query failed ({e})"))?;
     Ok(())
@@ -92,9 +97,7 @@ async fn check_ollama(url: &str) -> Result<(), String> {
 fn check_vector_db(app: &tauri::AppHandle) -> Result<(), String> {
     let state = app.state::<VectorDbState>();
     let conn = state.lock()?;
-    conn.execute_batch("SELECT 1")
-        .map_err(|e| format!("query failed ({e})"))?;
-    Ok(())
+    check_vector_db_conn(&conn)
 }
 
 fn check_api_key(key: &str) -> bool {
@@ -117,6 +120,13 @@ pub fn format_health(status: &HealthStatus) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rusqlite::Connection;
+
+    #[test]
+    fn check_vector_db_conn_ok() {
+        let conn = Connection::open_in_memory().unwrap();
+        check_vector_db_conn(&conn).unwrap();
+    }
 
     #[test]
     fn api_key_empty_is_unhealthy() {
