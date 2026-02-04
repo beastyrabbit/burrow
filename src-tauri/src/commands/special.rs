@@ -18,7 +18,7 @@ const COMMANDS: &[SpecialCommand] = &[SpecialCommand {
         "Enter topic or press Enter to skip",
         // {} is replaced with single-quoted escaped input by resolve_exec()
         // Use double quotes for sh -c arg so single-quoted substitution works
-        "kitty sh -c \"cd ~/cowork && claude /init-work {}\"",
+        "kitty sh -c \"cd ~/cowork && claude /init-cowork {}\"",
     )),
 }];
 
@@ -140,12 +140,12 @@ mod tests {
     }
 
     #[test]
-    fn input_spec_template_uses_init_work() {
+    fn input_spec_template_uses_init_cowork() {
         let results = search_special("cowork").unwrap();
         let spec = results[0].input_spec.as_ref().unwrap();
         assert!(
-            spec.template.contains("/init-work"),
-            "template should use /init-work command, got: {}",
+            spec.template.contains("/init-cowork"),
+            "template should use /init-cowork command, got: {}",
             spec.template
         );
     }
