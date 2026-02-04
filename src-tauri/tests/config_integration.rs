@@ -30,16 +30,24 @@ fn load_config_returns_valid_defaults() {
 #[test]
 fn load_config_from_nonexistent_creates_file() {
     let tmp = tempfile::TempDir::new().unwrap();
-    let config_file = tmp.path().join("burrow").join("config.toml");
+    let config_dir = tmp.path().join("burrow");
+    let config_file = config_dir.join("config.toml");
 
     // File shouldn't exist yet
     assert!(!config_file.exists());
 
-    // Load will create default when file doesn't exist
-    // We can't call load_config_from_path directly (private), but load_config
-    // works from the real path. Just verify defaults are sane.
+    // Override config dir to use temp directory
+    std::env::set_var("BURROW_CONFIG_DIR", &config_dir);
+
+    // Load will create default config file when it doesn't exist
     let cfg = config::load_config();
     assert_eq!(cfg.ollama.url, "http://localhost:11434");
+
+    // Verify the file was created
+    assert!(config_file.exists());
+
+    // Cleanup
+    std::env::remove_var("BURROW_CONFIG_DIR");
 }
 
 #[test]

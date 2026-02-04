@@ -166,6 +166,10 @@ impl Default for OpenRouterConfig {
 }
 
 pub fn config_dir() -> PathBuf {
+    // Allow override via env var for testing
+    if let Ok(dir) = std::env::var("BURROW_CONFIG_DIR") {
+        return PathBuf::from(dir);
+    }
     dirs::config_dir()
         .or_else(|| dirs::home_dir().map(|h| h.join(".config")))
         .unwrap_or_else(|| PathBuf::from("/tmp"))
@@ -500,5 +504,16 @@ startup_timeout_secs = 10
         );
         assert!(!cfg.daemon.auto_start);
         assert_eq!(cfg.daemon.startup_timeout_secs, 10);
+    }
+
+    #[test]
+    fn env_override_config_dir() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let custom_dir = tmp.path().join("custom-burrow");
+
+        std::env::set_var("BURROW_CONFIG_DIR", &custom_dir);
+        let dir = config_dir();
+        assert_eq!(dir, custom_dir);
+        std::env::remove_var("BURROW_CONFIG_DIR");
     }
 }
