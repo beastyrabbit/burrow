@@ -64,6 +64,7 @@ function App() {
   const listRef = useRef<HTMLUListElement>(null);
   const queryRef = useRef(query);
   const mouseEnabledRef = useRef(false);
+  const mouseStartRef = useRef<{ x: number; y: number } | null>(null);
 
   const doSearch = useCallback(async (q: string) => {
     try {
@@ -136,17 +137,28 @@ function App() {
         setChatAnswer("");
         setChatLoading(false);
         mouseEnabledRef.current = false;
+        mouseStartRef.current = null;
       }
     };
     document.addEventListener("visibilitychange", onVisibilityChange);
     return () => document.removeEventListener("visibilitychange", onVisibilityChange);
   }, []);
 
-  // Enable mouse hover selection only after user moves mouse
-  // Prevents accidental selection when window appears under cursor
+  // Enable mouse hover selection only after intentional movement (>10px)
+  // Prevents accidental selection from jitter when window appears under cursor
   useEffect(() => {
-    const onMouseMove = () => {
-      mouseEnabledRef.current = true;
+    const THRESHOLD = 10;
+    const onMouseMove = (e: MouseEvent) => {
+      if (mouseEnabledRef.current) return;
+      if (!mouseStartRef.current) {
+        mouseStartRef.current = { x: e.clientX, y: e.clientY };
+        return;
+      }
+      const dx = e.clientX - mouseStartRef.current.x;
+      const dy = e.clientY - mouseStartRef.current.y;
+      if (dx * dx + dy * dy > THRESHOLD * THRESHOLD) {
+        mouseEnabledRef.current = true;
+      }
     };
     window.addEventListener("mousemove", onMouseMove);
     return () => window.removeEventListener("mousemove", onMouseMove);
