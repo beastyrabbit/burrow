@@ -72,11 +72,11 @@
 | `indexer.interval_hours` | Re-index interval | `24` |
 | `indexer.file_extensions` | Indexed file types | `txt, md, rs, ts, tsx, js, py, toml, yaml, yml, json, sh, css, html, pdf, doc, docx, xlsx, xls, pptx, odt, ods, odp, csv, rtf` |
 | `indexer.max_content_chars` | Max chars per file | `4096` |
-| `history.max_results` | Frecent results shown | `10` |
+| `history.max_results` | Frecent results shown | `6` |
 | `search.max_results` | Max search results | `10` |
 | `search.debounce_ms` | Input debounce | `80` |
 | `openrouter.api_key` | OpenRouter API key | `""` (empty) |
-| `openrouter.model` | Chat model | `google/gemini-2.5-flash-preview` |
+| `openrouter.model` | Chat model | `anthropic/claude-sonnet-4` |
 
 ## Architecture
 
