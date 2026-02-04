@@ -953,7 +953,7 @@ fn execute_chat(query: &str, small: bool, use_rag: bool) -> i32 {
     let cfg = config::get_config();
 
     let context = if use_rag {
-        match fetch_context_for_query(query, cfg) {
+        match fetch_context_for_query(&rt, query, cfg) {
             Ok(ctx) => {
                 if ctx.is_empty() {
                     print_warning("No relevant documents found for context");
@@ -999,6 +999,7 @@ fn cmd_chat(query: &str, small: bool) -> i32 {
 
 /// Fetch context snippets from vector DB for RAG
 fn fetch_context_for_query(
+    rt: &tokio::runtime::Runtime,
     query: &str,
     cfg: &config::AppConfig,
 ) -> Result<Vec<ContextSnippet>, String> {
@@ -1006,7 +1007,6 @@ fn fetch_context_for_query(
         return Ok(vec![]);
     }
 
-    let rt = tokio::runtime::Handle::current();
     let query_embedding = rt.block_on(ollama::generate_embedding(query))?;
 
     let conn = vectors::open_vector_db().map_err(|e| e.to_string())?;
