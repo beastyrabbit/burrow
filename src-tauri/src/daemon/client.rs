@@ -1,4 +1,7 @@
-use super::handlers::{DaemonStatus, IndexerStartRequest, IndexerStartResponse, StatsResponse};
+use super::handlers::{
+    ChatRequest, ChatResponse, DaemonStatus, IndexerStartRequest, IndexerStartResponse,
+    ModelsListResponse, StatsResponse,
+};
 use super::socket::socket_path;
 use crate::commands::health::HealthStatus;
 use crate::indexer::IndexerProgress;
@@ -17,16 +20,29 @@ impl Default for DaemonClient {
     }
 }
 
+/// Default timeout for most requests (5 seconds).
+const DEFAULT_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// Timeout for chat requests which can take 60+ seconds.
+const CHAT_TIMEOUT: Duration = Duration::from_secs(120);
+
 impl DaemonClient {
     pub fn new() -> Self {
         Self {
-            timeout: Duration::from_secs(5),
+            timeout: DEFAULT_TIMEOUT,
         }
     }
 
     pub fn with_timeout(mut self, timeout: Duration) -> Self {
         self.timeout = timeout;
         self
+    }
+
+    /// Create a client with longer timeout for chat operations.
+    pub fn with_chat_timeout() -> Self {
+        Self {
+            timeout: CHAT_TIMEOUT,
+        }
     }
 
     /// Check if the daemon socket exists.
@@ -162,6 +178,35 @@ impl DaemonClient {
     pub async fn stats(&self) -> Result<StatsResponse, String> {
         self.get("/stats").await
     }
+
+    /// Chat without document context.
+    pub async fn chat(&self, query: &str, small: bool) -> Result<ChatResponse, String> {
+        self.post(
+            "/chat",
+            &ChatRequest {
+                query: query.to_string(),
+                small,
+            },
+        )
+        .await
+    }
+
+    /// Chat with document context (RAG).
+    pub async fn chat_docs(&self, query: &str, small: bool) -> Result<ChatResponse, String> {
+        self.post(
+            "/chat/docs",
+            &ChatRequest {
+                query: query.to_string(),
+                small,
+            },
+        )
+        .await
+    }
+
+    /// Get model configuration.
+    pub async fn models(&self) -> Result<ModelsListResponse, String> {
+        self.get("/models").await
+    }
 }
 
 #[cfg(test)]
@@ -171,13 +216,19 @@ mod tests {
     #[test]
     fn client_default_timeout() {
         let client = DaemonClient::new();
-        assert_eq!(client.timeout, Duration::from_secs(5));
+        assert_eq!(client.timeout, DEFAULT_TIMEOUT);
     }
 
     #[test]
     fn client_custom_timeout() {
         let client = DaemonClient::new().with_timeout(Duration::from_secs(10));
         assert_eq!(client.timeout, Duration::from_secs(10));
+    }
+
+    #[test]
+    fn client_chat_timeout() {
+        let client = DaemonClient::with_chat_timeout();
+        assert_eq!(client.timeout, CHAT_TIMEOUT);
     }
 
     #[test]

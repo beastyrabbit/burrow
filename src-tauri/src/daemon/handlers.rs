@@ -3,9 +3,11 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use std::time::Instant;
 
+use crate::chat::{self, ContextSnippet};
 use crate::commands::{health, vectors};
 use crate::config;
 use crate::indexer::{self, IndexStats, IndexerProgress, IndexerState};
+use crate::ollama;
 
 /// Shared daemon state for request handlers.
 pub struct DaemonState {
@@ -59,6 +61,38 @@ pub struct IndexerStartRequest {
 pub struct IndexerStartResponse {
     pub started: bool,
     pub message: String,
+}
+
+/// Request body for chat endpoint.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChatRequest {
+    pub query: String,
+    /// Use small model instead of large
+    #[serde(default)]
+    pub small: bool,
+}
+
+/// Response for chat endpoints.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChatResponse {
+    pub answer: String,
+    pub model: String,
+    pub provider: String,
+}
+
+/// Information about a single model.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ModelInfo {
+    pub name: String,
+    pub provider: String,
+}
+
+/// Response for models list endpoint.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ModelsListResponse {
+    pub embedding: ModelInfo,
+    pub chat: ModelInfo,
+    pub chat_large: ModelInfo,
 }
 
 // === Handlers ===
@@ -411,6 +445,132 @@ fn cleanup_stale_standalone(valid_paths: &std::collections::HashSet<String>) -> 
     removed
 }
 
+// === Chat handlers ===
+
+async fn chat_handler(
+    Json(body): Json<ChatRequest>,
+) -> Result<Json<ChatResponse>, (StatusCode, String)> {
+    tracing::info!(query = %body.query.chars().take(50).collect::<String>(), small = body.small, "chat request");
+
+    let cfg = config::get_config();
+    let model = if body.small {
+        &cfg.models.chat
+    } else {
+        &cfg.models.chat_large
+    };
+
+    let answer = chat::generate_chat(&body.query, &[], model)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+
+    Ok(Json(ChatResponse {
+        answer,
+        model: model.name.clone(),
+        provider: model.provider.clone(),
+    }))
+}
+
+async fn chat_docs_handler(
+    Json(body): Json<ChatRequest>,
+) -> Result<Json<ChatResponse>, (StatusCode, String)> {
+    tracing::info!(query = %body.query.chars().take(50).collect::<String>(), small = body.small, "chat-docs request");
+
+    let cfg = config::get_config();
+    let model = if body.small {
+        &cfg.models.chat
+    } else {
+        &cfg.models.chat_large
+    };
+
+    // Fetch context from vector DB
+    let context = fetch_context_for_query(&body.query, cfg)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+
+    let answer = chat::generate_chat(&body.query, &context, model)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+
+    Ok(Json(ChatResponse {
+        answer,
+        model: model.name.clone(),
+        provider: model.provider.clone(),
+    }))
+}
+
+/// Fetch context snippets from vector DB for RAG
+async fn fetch_context_for_query(
+    query: &str,
+    cfg: &config::AppConfig,
+) -> Result<Vec<ContextSnippet>, String> {
+    if !cfg.chat.rag_enabled {
+        return Ok(vec![]);
+    }
+
+    let query_embedding = ollama::generate_embedding(query).await?;
+
+    let conn = vectors::open_vector_db().map_err(|e| e.to_string())?;
+
+    let mut stmt = conn
+        .prepare("SELECT file_path, content_preview, embedding FROM vectors")
+        .map_err(|e| format!("DB query failed: {e}"))?;
+
+    let rows = stmt
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, Vec<u8>>(2)?,
+            ))
+        })
+        .map_err(|e| format!("Failed to query vectors: {e}"))?;
+
+    let mut scored: Vec<(f32, String, String)> = vec![];
+
+    for row in rows.flatten() {
+        let (path, preview, embedding_bytes) = row;
+        let embedding = ollama::deserialize_embedding(&embedding_bytes);
+        let score = ollama::cosine_similarity(&query_embedding, &embedding);
+
+        if score >= cfg.vector_search.min_score {
+            scored.push((score, path, preview));
+        }
+    }
+
+    // Sort by score descending
+    scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
+
+    // Take top_k results
+    let context: Vec<ContextSnippet> = scored
+        .into_iter()
+        .take(cfg.chat.max_context_snippets)
+        .map(|(_, path, preview)| ContextSnippet { path, preview })
+        .collect();
+
+    Ok(context)
+}
+
+// === Models handler ===
+
+async fn models_list_handler() -> Result<Json<ModelsListResponse>, (StatusCode, String)> {
+    let cfg = config::get_config();
+
+    Ok(Json(ModelsListResponse {
+        embedding: ModelInfo {
+            name: cfg.models.embedding.name.clone(),
+            provider: cfg.models.embedding.provider.clone(),
+        },
+        chat: ModelInfo {
+            name: cfg.models.chat.name.clone(),
+            provider: cfg.models.chat.provider.clone(),
+        },
+        chat_large: ModelInfo {
+            name: cfg.models.chat_large.name.clone(),
+            provider: cfg.models.chat_large.provider.clone(),
+        },
+    }))
+}
+
 /// Create the daemon router with all endpoints.
 pub fn create_router(state: Arc<DaemonState>) -> Router {
     Router::new()
@@ -420,6 +580,11 @@ pub fn create_router(state: Arc<DaemonState>) -> Router {
         // Indexer operations
         .route("/indexer/progress", get(indexer_progress))
         .route("/indexer/start", post(indexer_start))
+        // Chat operations
+        .route("/chat", post(chat_handler))
+        .route("/chat/docs", post(chat_docs_handler))
+        // Models
+        .route("/models", get(models_list_handler))
         // Health and stats
         .route("/health", get(health_check_handler))
         .route("/stats", get(stats_handler))
@@ -465,5 +630,55 @@ mod tests {
         let json = serde_json::to_string(&resp).unwrap();
         assert!(json.contains("100"));
         assert!(json.contains("50"));
+    }
+
+    #[test]
+    fn chat_request_deserializes_minimal() {
+        let req: ChatRequest = serde_json::from_str(r#"{"query": "hello"}"#).unwrap();
+        assert_eq!(req.query, "hello");
+        assert!(!req.small);
+    }
+
+    #[test]
+    fn chat_request_deserializes_with_small() {
+        let req: ChatRequest = serde_json::from_str(r#"{"query": "hi", "small": true}"#).unwrap();
+        assert_eq!(req.query, "hi");
+        assert!(req.small);
+    }
+
+    #[test]
+    fn chat_response_serializes() {
+        let resp = ChatResponse {
+            answer: "Hello world".to_string(),
+            model: "llama3:8b".to_string(),
+            provider: "ollama".to_string(),
+        };
+        let json = serde_json::to_string(&resp).unwrap();
+        assert!(json.contains("Hello world"));
+        assert!(json.contains("llama3:8b"));
+        assert!(json.contains("ollama"));
+    }
+
+    #[test]
+    fn models_list_response_serializes() {
+        let resp = ModelsListResponse {
+            embedding: ModelInfo {
+                name: "nomic-embed-text".to_string(),
+                provider: "ollama".to_string(),
+            },
+            chat: ModelInfo {
+                name: "llama3:8b".to_string(),
+                provider: "ollama".to_string(),
+            },
+            chat_large: ModelInfo {
+                name: "claude-sonnet-4-20250514".to_string(),
+                provider: "openrouter".to_string(),
+            },
+        };
+        let json = serde_json::to_string(&resp).unwrap();
+        assert!(json.contains("nomic-embed-text"));
+        assert!(json.contains("llama3:8b"));
+        assert!(json.contains("claude-sonnet-4-20250514"));
+        assert!(json.contains("openrouter"));
     }
 }
