@@ -2,26 +2,20 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import path from "path";
 
-// @ts-expect-error process is a nodejs global
+// @ts-expect-error process.env available in Vite config (Node.js) but not in DOM types
 const host = process.env.TAURI_DEV_HOST;
-// https://vite.dev/config/
-const isTauriBuild = !!process.env.TAURI_ENV_PLATFORM;
 
-export default defineConfig(async () => ({
+export default defineConfig({
   plugins: [react()],
   resolve: {
-    alias: isTauriBuild
-      ? {}
-      : {
-          "@tauri-apps/api/core": path.resolve(
-            __dirname,
-            "src/mock-tauri.ts"
-          ),
-          "@tauri-apps/api/event": path.resolve(
-            __dirname,
-            "src/mock-tauri.ts"
-          ),
-        },
+    // Always alias @tauri-apps/api to mock-tauri.ts
+    // mock-tauri.ts checks __TAURI_INTERNALS__ at runtime:
+    // - In Tauri webview: delegates to real Tauri API
+    // - In browser: uses HTTP bridge on port 3001
+    alias: {
+      "@tauri-apps/api/core": path.resolve(__dirname, "src/mock-tauri.ts"),
+      "@tauri-apps/api/event": path.resolve(__dirname, "src/mock-tauri.ts"),
+    },
   },
   clearScreen: false,
   server: {
@@ -39,4 +33,4 @@ export default defineConfig(async () => ({
       ignored: ["**/src-tauri/**"],
     },
   },
-}));
+});

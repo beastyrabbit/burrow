@@ -23,6 +23,8 @@ pub struct Cli {
 
 #[derive(Subcommand)]
 pub enum Commands {
+    /// Toggle window visibility (show if hidden, hide if visible)
+    Toggle,
     /// Full reindex of all configured directories
     Reindex {
         /// Suppress progress output
@@ -92,6 +94,12 @@ mod tests {
     fn cli_parses_no_args() {
         let cli = Cli::parse_from::<[_; 1], &str>(["burrow"]);
         assert!(cli.command.is_none());
+    }
+
+    #[test]
+    fn cli_parses_toggle() {
+        let cli = Cli::parse_from(["burrow", "toggle"]);
+        assert!(matches!(cli.command, Some(Commands::Toggle)));
     }
 
     #[test]

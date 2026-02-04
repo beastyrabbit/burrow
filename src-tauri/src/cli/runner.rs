@@ -19,6 +19,8 @@ const MTIME_EPSILON: f64 = 1.0;
 /// Run a CLI command and return the exit code
 pub fn run_command(cmd: Commands) -> i32 {
     match cmd {
+        // Toggle is handled in main.rs before this is called
+        Commands::Toggle => unreachable!("Toggle should be handled in main.rs"),
         Commands::Health { json } => cmd_health(json),
         Commands::Stats { json } => cmd_stats(json),
         Commands::Config { path } => cmd_config(path),
