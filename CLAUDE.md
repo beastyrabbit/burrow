@@ -55,20 +55,30 @@
 - **Config file:** `~/.config/burrow/config.toml` (TOML format, auto-created with defaults on first run)
 - **Override priority:** env vars (`BURROW_*`) > config.toml > defaults
 - **Config module:** `src-tauri/src/config.rs` — loaded once at startup via `OnceLock`
-- **Key env vars:** `BURROW_OLLAMA_URL`, `BURROW_OLLAMA_EMBEDDING_MODEL`, `BURROW_VECTOR_SEARCH_ENABLED`, `BURROW_OPENROUTER_API_KEY`, `OPENROUTER_API_KEY`
+- **Key env vars:** `BURROW_OLLAMA_URL`, `BURROW_MODEL_EMBEDDING`, `BURROW_MODEL_CHAT`, `BURROW_MODEL_CHAT_LARGE`, `BURROW_MODEL_CHAT_LARGE_PROVIDER`, `BURROW_INDEX_MODE`, `BURROW_VECTOR_SEARCH_ENABLED`, `BURROW_OPENROUTER_API_KEY`, `OPENROUTER_API_KEY`
 
 ### Default Config Values
 
 | Section | Key | Default |
 |---------|-----|---------|
+| `models.embedding.name` | Embedding model | `qwen3-embedding:8b` |
+| `models.embedding.provider` | Embedding provider | `ollama` |
+| `models.chat.name` | Small/fast chat model | `gpt-oss:20b` |
+| `models.chat.provider` | Chat provider | `ollama` |
+| `models.chat_large.name` | Large/powerful chat model | `gpt-oss:120b` |
+| `models.chat_large.provider` | Large model provider | `ollama` |
 | `ollama.url` | Ollama API URL | `http://localhost:11434` |
-| `ollama.embedding_model` | Embedding model | `qwen3-embedding:8b` |
-| `ollama.timeout_secs` | Request timeout | `30` |
+| `ollama.timeout_secs` | Embedding request timeout | `30` |
+| `ollama.chat_timeout_secs` | Chat request timeout | `120` |
+| `chat.rag_enabled` | Enable RAG for chat-docs | `true` |
+| `chat.max_context_snippets` | Max context for RAG | `5` |
 | `vector_search.enabled` | Enable content search | `true` |
 | `vector_search.top_k` | Max results | `10` |
 | `vector_search.min_score` | Min cosine similarity | `0.3` |
 | `vector_search.max_file_size_bytes` | Max file size to index | `1000000` |
-| `vector_search.index_dirs` | Directories to index | `~/Documents, ~/Projects, ~/Downloads` |
+| `vector_search.index_mode` | Index mode: "all" or "custom" | `all` |
+| `vector_search.index_dirs` | Dirs when index_mode="custom" | `~/Documents, ~/Projects, ~/Downloads` |
+| `vector_search.exclude_patterns` | Glob patterns to exclude | `.cache, .git, node_modules, target, etc.` |
 | `indexer.interval_hours` | Re-index interval | `24` |
 | `indexer.file_extensions` | Indexed file types | `txt, md, rs, ts, tsx, js, py, toml, yaml, yml, json, sh, css, html, pdf, doc, docx, xlsx, xls, pptx, odt, ods, odp, csv, rtf` |
 | `indexer.max_content_chars` | Max chars per file | `4096` |
@@ -76,7 +86,6 @@
 | `search.max_results` | Max search results | `10` |
 | `search.debounce_ms` | Input debounce | `80` |
 | `openrouter.api_key` | OpenRouter API key | `""` (empty) |
-| `openrouter.model` | Chat model | `anthropic/claude-sonnet-4` |
 
 ## Architecture
 
@@ -90,18 +99,65 @@
 
 | Command | Purpose |
 |---------|---------|
-| `cd src-tauri && cargo test` | Run all Rust unit tests (254+ tests) |
+| `cd src-tauri && cargo test` | Run all Rust unit tests (375+ tests) |
 | `npx playwright test` | Run all e2e tests (starts `pnpm tauri dev` if needed) |
 | `pnpm dev` | Start Vite dev server on :1420 (needs HTTP bridge on :3001) |
 | `pnpm tauri dev` | Start full Tauri app (real backend) |
 | `pnpm build` | Build frontend for production |
 
+## CLI Commands
+
+| Command | Purpose |
+|---------|---------|
+| `burrow` | Launch the GUI |
+| `burrow toggle` | Toggle window visibility |
+| `burrow reindex` | Full reindex of all configured directories |
+| `burrow update` | Incremental index update |
+| `burrow index <file>` | Index a single file |
+| `burrow health` | Check system health (Ollama, Vector DB) |
+| `burrow stats` | Show statistics (indexed files, launches) |
+| `burrow config` | Open config file in editor |
+| `burrow progress` | Show current indexer progress |
+| `burrow daemon` | Start/manage the background daemon |
+| `burrow chat "query"` | Chat with AI (no document context) |
+| `burrow chat-docs "query"` | Chat with AI using document context (RAG) |
+| `burrow models list` | Show current model configuration |
+| `burrow models set` | Interactive model configuration |
+
+### Chat Commands
+
+```bash
+# RAG chat with document context (uses large model by default)
+burrow chat-docs "What's in my project notes?"
+
+# Direct chat without context
+burrow chat "Explain Rust ownership"
+
+# Use small/fast model instead of large
+burrow chat --small "Hello"
+burrow chat-docs --small "Summarize"
+```
+
+### Model Configuration
+
+```bash
+# List current models
+burrow models list
+
+# Interactive model selector
+burrow models set           # Full interactive flow
+burrow models set chat_large  # Configure specific model type
+```
+
+Model types: `embedding`, `chat`, `chat_large`
+Providers: `ollama`, `openrouter`
+
 ## Project Structure
 
-- `src-tauri/src/config.rs` — TOML config loading, env overrides, defaults
-- `src-tauri/src/ollama.rs` — Ollama HTTP client, cosine similarity, embedding serialization
+- `src-tauri/src/config.rs` — TOML config loading, env overrides, defaults, ModelsConfig
+- `src-tauri/src/ollama.rs` — Ollama HTTP client, cosine similarity, embedding serialization, model fetching
 - `src-tauri/src/commands/` — Backend providers (apps, history, math, ssh, onepass, files, vectors, chat, health, settings)
-- `src-tauri/src/chat.rs` — OpenRouter AI chat client, RAG prompt building
+- `src-tauri/src/chat.rs` — Provider-agnostic AI chat (Ollama/OpenRouter), RAG prompt building
 - `src-tauri/src/text_extract.rs` — Document text extraction (PDF, DOC via external LibreOffice, DOCX, XLSX, ODS, etc.)
 - `src-tauri/src/router.rs` — Input classification and dispatch
 - `src-tauri/src/dev_server.rs` — Axum HTTP bridge for browser/Playwright testing (debug builds only, `#[cfg(debug_assertions)]`)
@@ -152,6 +208,12 @@
 - `Zeroizing<String>` doesn't implement `PartialEq<&str>` — use `&*val` in test assertions: `assert_eq!(&*get_password("id").unwrap(), "expected")`
 - All `op` CLI calls must use `spawn` + `wait-timeout` (not blocking `Command::output()`) — signin gets 120s (user interaction), other calls get 30s
 - `env_override_openrouter_api_key` test is flaky when a real `OPENROUTER_API_KEY` env var is set in the shell — known issue, retry on failure
+- Model configuration now uses unified `[models.*]` sections instead of scattered `ollama.embedding_model` and `openrouter.model`
+- `index_mode = "all"` indexes home directory; `index_mode = "custom"` uses `index_dirs` list
+- `exclude_patterns` in config supports glob patterns (e.g., `*.pyc`, `node_modules`) and absolute paths (e.g., `/proc`)
+- File name search (`commands/files.rs`) now uses same directories as content indexer via `indexer::get_search_directories()`
+- CLI chat commands (`burrow chat`, `burrow chat-docs`) support `--small` flag to use smaller/faster model
+- `burrow models set` interactive selector fetches available models from Ollama (`/api/tags`) or OpenRouter (`/api/v1/models`)
 
 ## Reference Repos
 

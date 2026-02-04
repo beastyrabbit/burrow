@@ -3,7 +3,7 @@ use aisdk::{
     providers::OpenRouter,
 };
 
-use crate::config;
+use crate::config::{self, ModelSpec};
 
 #[derive(Debug, Clone)]
 pub struct ContextSnippet {
@@ -11,18 +11,110 @@ pub struct ContextSnippet {
     pub preview: String,
 }
 
-pub async fn generate_answer(
+/// Generate chat response using configured model and provider
+pub async fn generate_chat(
     query: &str,
     context_snippets: &[ContextSnippet],
+    model_spec: &ModelSpec,
 ) -> Result<String, String> {
     if crate::actions::dry_run::is_enabled() {
         tracing::debug!(
             query = %crate::actions::dry_run::truncate(query, 80),
-            "[dry-run] generate_answer"
+            model = %model_spec.name,
+            provider = %model_spec.provider,
+            "[dry-run] generate_chat"
         );
         return Ok("[dry-run] Chat disabled during testing".into());
     }
 
+    match model_spec.provider.as_str() {
+        "ollama" => generate_answer_ollama(query, context_snippets, &model_spec.name).await,
+        "openrouter" => generate_answer_openrouter(query, context_snippets, &model_spec.name).await,
+        other => Err(format!("Unknown provider: {other}")),
+    }
+}
+
+/// Chat with large model (uses config routing)
+pub async fn chat_large(query: &str, context: &[ContextSnippet]) -> Result<String, String> {
+    let cfg = config::get_config();
+    generate_chat(query, context, &cfg.models.chat_large).await
+}
+
+/// Chat with small model (uses config routing)
+#[allow(dead_code)] // Reserved for future use
+pub async fn chat_small(query: &str, context: &[ContextSnippet]) -> Result<String, String> {
+    let cfg = config::get_config();
+    generate_chat(query, context, &cfg.models.chat).await
+}
+
+/// Legacy function for backwards compatibility - uses large model
+pub async fn generate_answer(
+    query: &str,
+    context_snippets: &[ContextSnippet],
+) -> Result<String, String> {
+    chat_large(query, context_snippets).await
+}
+
+/// Generate answer using Ollama API
+async fn generate_answer_ollama(
+    query: &str,
+    context_snippets: &[ContextSnippet],
+    model: &str,
+) -> Result<String, String> {
+    let cfg = config::get_config();
+    let system_prompt = build_system_prompt(context_snippets);
+
+    let client = reqwest::Client::new();
+    let url = format!("{}/api/chat", cfg.ollama.url);
+
+    let messages = vec![
+        serde_json::json!({
+            "role": "system",
+            "content": system_prompt
+        }),
+        serde_json::json!({
+            "role": "user",
+            "content": query
+        }),
+    ];
+
+    let body = serde_json::json!({
+        "model": model,
+        "messages": messages,
+        "stream": false
+    });
+
+    let response = client
+        .post(&url)
+        .timeout(std::time::Duration::from_secs(cfg.ollama.chat_timeout_secs))
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| format!("Ollama request failed: {e}"))?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+        return Err(format!("Ollama error ({status}): {body}"));
+    }
+
+    let json: serde_json::Value = response
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse Ollama response: {e}"))?;
+
+    json["message"]["content"]
+        .as_str()
+        .map(|s| s.to_string())
+        .ok_or_else(|| "No content in Ollama response".into())
+}
+
+/// Generate answer using OpenRouter API
+async fn generate_answer_openrouter(
+    query: &str,
+    context_snippets: &[ContextSnippet],
+    model: &str,
+) -> Result<String, String> {
     let cfg = config::get_config();
 
     if cfg.openrouter.api_key.is_empty() {
@@ -31,16 +123,16 @@ pub async fn generate_answer(
         );
     }
 
-    let model = OpenRouter::<DynamicModel>::builder()
+    let openrouter_model = OpenRouter::<DynamicModel>::builder()
         .api_key(&cfg.openrouter.api_key)
-        .model_name(&cfg.openrouter.model)
+        .model_name(model)
         .build()
         .map_err(|e| format!("Failed to create OpenRouter model: {e}"))?;
 
     let system_prompt = build_system_prompt(context_snippets);
 
     let mut request = LanguageModelRequest::builder()
-        .model(model)
+        .model(openrouter_model)
         .system(&system_prompt)
         .prompt(query)
         .build();
@@ -117,5 +209,16 @@ mod tests {
             assert!(prompt.contains(&format!("/path/{i}.txt")));
             assert!(prompt.contains(&format!("content {i}")));
         }
+    }
+
+    #[test]
+    fn model_spec_helpers() {
+        let ollama = ModelSpec::ollama("llama3:8b");
+        assert_eq!(ollama.name, "llama3:8b");
+        assert_eq!(ollama.provider, "ollama");
+
+        let openrouter = ModelSpec::openrouter("anthropic/claude-sonnet-4");
+        assert_eq!(openrouter.name, "anthropic/claude-sonnet-4");
+        assert_eq!(openrouter.provider, "openrouter");
     }
 }

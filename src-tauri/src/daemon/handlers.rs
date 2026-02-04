@@ -76,10 +76,10 @@ async fn daemon_status(
 
 async fn daemon_shutdown() -> Result<Json<()>, (StatusCode, String)> {
     tracing::info!("shutdown requested via API");
-    // Schedule shutdown after response is sent
+    // Schedule graceful shutdown after response is sent
     tokio::spawn(async {
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-        std::process::exit(0);
+        crate::daemon::socket::trigger_shutdown();
     });
     Ok(Json(()))
 }
@@ -295,7 +295,7 @@ async fn run_index_incremental(progress: &IndexerState) -> IndexStats {
             let path_str = path.to_string_lossy().to_string();
             let mtime = indexer::file_mtime(path);
             match existing.get(&path_str) {
-                Some(&db_mtime) => (mtime - db_mtime).abs() >= 1.0,
+                Some(&db_mtime) => indexer::is_file_modified(mtime, db_mtime),
                 None => true,
             }
         })
@@ -357,7 +357,7 @@ async fn index_single_file_standalone(
         &path_str,
         &preview,
         &embedding,
-        &cfg.ollama.embedding_model,
+        &cfg.models.embedding.name,
         mtime,
     )
     .map_err(|e| e.to_string())

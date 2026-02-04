@@ -1,6 +1,25 @@
 use axum::Router;
 use std::path::PathBuf;
+use std::sync::Arc;
 use tokio::net::UnixListener;
+use tokio::sync::Notify;
+
+/// Shutdown signal for graceful daemon termination.
+pub static SHUTDOWN_SIGNAL: std::sync::OnceLock<Arc<Notify>> = std::sync::OnceLock::new();
+
+/// Get or create the shutdown signal.
+pub fn shutdown_signal() -> Arc<Notify> {
+    SHUTDOWN_SIGNAL
+        .get_or_init(|| Arc::new(Notify::new()))
+        .clone()
+}
+
+/// Trigger a graceful shutdown of the daemon.
+pub fn trigger_shutdown() {
+    if let Some(signal) = SHUTDOWN_SIGNAL.get() {
+        signal.notify_one();
+    }
+}
 
 /// Get the XDG runtime directory for the daemon socket.
 /// Falls back to ~/.local/share/burrow if XDG_RUNTIME_DIR is not set.
@@ -49,7 +68,14 @@ pub async fn start_server(router: Router) -> Result<(), String> {
 
     tracing::info!(socket = %sock_path.display(), "daemon listening on Unix socket");
 
+    // Initialize shutdown signal before serving
+    let signal = shutdown_signal();
+
     axum::serve(listener, router)
+        .with_graceful_shutdown(async move {
+            signal.notified().await;
+            tracing::info!("shutdown signal received, stopping server");
+        })
         .await
         .map_err(|e| format!("daemon server error: {e}"))
 }
