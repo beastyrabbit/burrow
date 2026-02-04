@@ -11,8 +11,12 @@ pub struct HealthStatus {
     pub issues: Vec<String>,
 }
 
-#[tauri::command]
-pub async fn health_check(app: tauri::AppHandle) -> Result<HealthStatus, String> {
+/// Shared health check logic - checks Ollama and constructs status.
+/// `vector_db_check` is a closure that performs the DB check (different for Tauri vs CLI).
+async fn health_check_core<F>(vector_db_check: F) -> Result<HealthStatus, String>
+where
+    F: FnOnce() -> Result<(), String>,
+{
     let cfg = config::get_config();
     let mut issues = Vec::new();
 
@@ -26,7 +30,7 @@ pub async fn health_check(app: tauri::AppHandle) -> Result<HealthStatus, String>
     };
 
     // Check vector DB accessibility
-    let vector_db = match check_vector_db(&app) {
+    let vector_db = match vector_db_check() {
         Ok(()) => true,
         Err(e) => {
             issues.push(format!("Vector DB: {e}"));
@@ -34,11 +38,8 @@ pub async fn health_check(app: tauri::AppHandle) -> Result<HealthStatus, String>
         }
     };
 
-    // Check API key presence
+    // API key is optional - don't report as health issue per coding guidelines
     let api_key = check_api_key(&cfg.openrouter.api_key);
-    if !api_key {
-        issues.push("OpenRouter API key not configured".into());
-    }
 
     Ok(HealthStatus {
         ollama,
@@ -48,41 +49,14 @@ pub async fn health_check(app: tauri::AppHandle) -> Result<HealthStatus, String>
     })
 }
 
+#[tauri::command]
+pub async fn health_check(app: tauri::AppHandle) -> Result<HealthStatus, String> {
+    health_check_core(|| check_vector_db(&app)).await
+}
+
 /// Standalone health check for CLI (no Tauri state)
 pub async fn health_check_standalone() -> Result<HealthStatus, String> {
-    let cfg = config::get_config();
-    let mut issues = Vec::new();
-
-    // Check Ollama connectivity
-    let ollama = match check_ollama(&cfg.ollama.url).await {
-        Ok(()) => true,
-        Err(e) => {
-            issues.push(format!("Ollama: {e}"));
-            false
-        }
-    };
-
-    // Check vector DB accessibility
-    let vector_db = match check_vector_db_standalone() {
-        Ok(()) => true,
-        Err(e) => {
-            issues.push(format!("Vector DB: {e}"));
-            false
-        }
-    };
-
-    // Check API key presence
-    let api_key = check_api_key(&cfg.openrouter.api_key);
-    if !api_key {
-        issues.push("OpenRouter API key not configured".into());
-    }
-
-    Ok(HealthStatus {
-        ollama,
-        vector_db,
-        api_key,
-        issues,
-    })
+    health_check_core(check_vector_db_standalone).await
 }
 
 fn check_vector_db_standalone() -> Result<(), String> {
