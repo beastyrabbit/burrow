@@ -48,6 +48,50 @@ pub async fn health_check(app: tauri::AppHandle) -> Result<HealthStatus, String>
     })
 }
 
+/// Standalone health check for CLI (no Tauri state)
+pub async fn health_check_standalone() -> Result<HealthStatus, String> {
+    let cfg = config::get_config();
+    let mut issues = Vec::new();
+
+    // Check Ollama connectivity
+    let ollama = match check_ollama(&cfg.ollama.url).await {
+        Ok(()) => true,
+        Err(e) => {
+            issues.push(format!("Ollama: {e}"));
+            false
+        }
+    };
+
+    // Check vector DB accessibility
+    let vector_db = match check_vector_db_standalone() {
+        Ok(()) => true,
+        Err(e) => {
+            issues.push(format!("Vector DB: {e}"));
+            false
+        }
+    };
+
+    // Check API key presence
+    let api_key = check_api_key(&cfg.openrouter.api_key);
+    if !api_key {
+        issues.push("OpenRouter API key not configured".into());
+    }
+
+    Ok(HealthStatus {
+        ollama,
+        vector_db,
+        api_key,
+        issues,
+    })
+}
+
+fn check_vector_db_standalone() -> Result<(), String> {
+    let conn = super::vectors::open_vector_db().map_err(|e| format!("open failed ({e})"))?;
+    conn.execute_batch("SELECT 1")
+        .map_err(|e| format!("query failed ({e})"))?;
+    Ok(())
+}
+
 async fn check_ollama(url: &str) -> Result<(), String> {
     if crate::actions::dry_run::is_enabled() {
         tracing::debug!(url, "[dry-run] check_ollama");

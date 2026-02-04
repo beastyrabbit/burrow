@@ -1,5 +1,6 @@
 pub mod actions;
 pub(crate) mod chat;
+pub mod cli;
 pub mod commands;
 pub mod config;
 #[cfg(debug_assertions)]
@@ -9,7 +10,7 @@ pub mod indexer;
 pub mod logging;
 pub mod ollama;
 pub mod router;
-mod text_extract;
+pub(crate) mod text_extract;
 
 use commands::{apps, history, vectors};
 use tauri::Manager;

@@ -135,7 +135,9 @@ fn is_hidden_entry(entry: &walkdir::DirEntry) -> bool {
         .unwrap_or(false)
 }
 
-fn file_mtime(path: &Path) -> f64 {
+/// Get file modification time as seconds since Unix epoch.
+/// Returns 0.0 if the file doesn't exist or mtime cannot be read.
+pub fn file_mtime(path: &Path) -> f64 {
     path.metadata()
         .ok()
         .and_then(|m| m.modified().ok())
@@ -144,7 +146,8 @@ fn file_mtime(path: &Path) -> f64 {
         .unwrap_or(0.0)
 }
 
-fn expand_tilde(path: &str) -> PathBuf {
+/// Expand `~/` prefix to the user's home directory.
+pub fn expand_tilde(path: &str) -> PathBuf {
     if let Some(stripped) = path.strip_prefix("~/") {
         if let Some(home) = dirs::home_dir() {
             return home.join(stripped);
@@ -153,7 +156,8 @@ fn expand_tilde(path: &str) -> PathBuf {
     PathBuf::from(path)
 }
 
-fn collect_indexable_paths(cfg: &config::AppConfig) -> Vec<PathBuf> {
+/// Collect all indexable file paths from configured directories.
+pub fn collect_indexable_paths(cfg: &config::AppConfig) -> Vec<PathBuf> {
     let mut paths = Vec::new();
     for dir in &cfg.vector_search.index_dirs {
         let dir_path = expand_tilde(dir);

@@ -22,12 +22,20 @@ impl DbState {
     }
 }
 
-fn db_path() -> PathBuf {
+/// Get the history database path
+pub fn db_path() -> PathBuf {
     let dir = super::data_dir();
     if let Err(e) = std::fs::create_dir_all(&dir) {
         tracing::error!(path = %dir.display(), error = %e, "failed to create history data dir");
     }
     dir.join("history.db")
+}
+
+/// Open a standalone history database connection (for CLI use, no Tauri state)
+pub fn open_history_db() -> Result<Connection, rusqlite::Error> {
+    let conn = Connection::open(db_path())?;
+    create_table(&conn)?;
+    Ok(conn)
 }
 
 fn create_table(conn: &Connection) -> Result<(), rusqlite::Error> {

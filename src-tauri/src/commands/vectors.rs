@@ -23,12 +23,20 @@ impl VectorDbState {
     }
 }
 
-fn vector_db_path() -> PathBuf {
+/// Get the vector database path
+pub fn vector_db_path() -> PathBuf {
     let dir = super::data_dir();
     if let Err(e) = std::fs::create_dir_all(&dir) {
         tracing::error!(path = %dir.display(), error = %e, "failed to create vector data dir");
     }
     dir.join("vectors.db")
+}
+
+/// Open a standalone vector database connection (for CLI use, no Tauri state)
+pub fn open_vector_db() -> Result<Connection, rusqlite::Error> {
+    let conn = Connection::open(vector_db_path())?;
+    create_vector_table(&conn)?;
+    Ok(conn)
 }
 
 fn create_vector_table(conn: &Connection) -> Result<(), rusqlite::Error> {
