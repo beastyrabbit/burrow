@@ -1140,7 +1140,13 @@ fn fetch_context_for_query(
 
     let mut scored: Vec<(f32, String, String)> = vec![];
 
-    for row in rows.flatten() {
+    for row in rows.filter_map(|r| match r {
+        Ok(v) => Some(v),
+        Err(e) => {
+            tracing::warn!(error = %e, "skipping corrupted vector row in context query");
+            None
+        }
+    }) {
         let (path, preview, embedding_bytes) = row;
         let embedding = ollama::deserialize_embedding(&embedding_bytes);
         let score = ollama::cosine_similarity(&query_embedding, &embedding);
