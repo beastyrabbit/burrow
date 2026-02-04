@@ -1,10 +1,12 @@
-use crate::router::{Category, SearchResult};
+use crate::router::{Category, InputSpec, SearchResult};
 
 struct SpecialCommand {
     name: &'static str,
     description: &'static str,
     icon: &'static str,
     exec_command: &'static str,
+    /// Optional: (placeholder, template) for secondary input mode
+    input_spec: Option<(&'static str, &'static str)>,
 }
 
 const COMMANDS: &[SpecialCommand] = &[SpecialCommand {
@@ -12,6 +14,12 @@ const COMMANDS: &[SpecialCommand] = &[SpecialCommand {
     description: "Open kitty in ~/cowork and run Claude Code",
     icon: "",
     exec_command: "kitty sh -c 'cd ~/cowork && claude'",
+    input_spec: Some((
+        "Enter topic or press Enter to skip",
+        // {} is replaced with single-quoted escaped input by resolve_exec()
+        // Use double quotes for sh -c arg so single-quoted substitution works
+        "kitty sh -c \"cd ~/cowork && claude /init-work {}\"",
+    )),
 }];
 
 pub fn search_special(query: &str) -> Result<Vec<SearchResult>, String> {
@@ -26,6 +34,10 @@ pub fn search_special(query: &str) -> Result<Vec<SearchResult>, String> {
             icon: cmd.icon.to_string(),
             category: Category::Special,
             exec: cmd.exec_command.to_string(),
+            input_spec: cmd.input_spec.map(|(placeholder, template)| InputSpec {
+                placeholder: placeholder.to_string(),
+                template: template.to_string(),
+            }),
         })
         .collect())
 }
@@ -106,6 +118,35 @@ mod tests {
         assert!(
             results.is_empty(),
             "leading/trailing spaces should not match since router trims before calling"
+        );
+    }
+
+    #[test]
+    fn cowork_has_input_spec() {
+        let results = search_special("cowork").unwrap();
+        assert_eq!(results.len(), 1);
+        let spec = results[0]
+            .input_spec
+            .as_ref()
+            .expect("cowork should have input_spec");
+        assert!(
+            !spec.placeholder.is_empty(),
+            "placeholder should not be empty"
+        );
+        assert!(
+            spec.template.contains("{}"),
+            "template should contain {{}} placeholder"
+        );
+    }
+
+    #[test]
+    fn input_spec_template_uses_init_work() {
+        let results = search_special("cowork").unwrap();
+        let spec = results[0].input_spec.as_ref().unwrap();
+        assert!(
+            spec.template.contains("/init-work"),
+            "template should use /init-work command, got: {}",
+            spec.template
         );
     }
 }

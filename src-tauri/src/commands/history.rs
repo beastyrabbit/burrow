@@ -75,6 +75,7 @@ fn query_frecent(conn: &Connection) -> Result<Vec<SearchResult>, rusqlite::Error
                 icon: row.get(3)?,
                 description: row.get(4)?,
                 category: Category::History,
+                input_spec: None,
             })
         })?
         .filter_map(|r| match r {

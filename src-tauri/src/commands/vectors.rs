@@ -115,6 +115,7 @@ fn search_vectors(
                 // Security: exec intentionally empty. handle_file uses result.id
                 // with xdg_open via Command::arg() to prevent shell injection
                 exec: String::new(),
+                input_spec: None,
             }
         })
         .collect())
@@ -130,6 +131,7 @@ pub async fn search_by_content(query: &str, app: &AppHandle) -> Result<Vec<Searc
             icon: "".into(),
             category: Category::Info,
             exec: "".into(),
+            input_spec: None,
         }]);
     }
 

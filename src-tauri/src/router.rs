@@ -1,6 +1,18 @@
 use crate::commands::{apps, files, math, onepass, settings, special, ssh, vectors};
 use serde::{Deserialize, Serialize};
 
+/// Specification for optional secondary input on a result.
+/// When present, frontend enters two-stage input mode.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct InputSpec {
+    /// Placeholder text shown in input field
+    pub placeholder: String,
+    /// Template for command when input is provided. Use {} for input substitution.
+    /// Example: "kitty sh -c 'cd ~/cowork && claude init-work \"{}\"'"
+    /// If input is empty, the base exec is used instead.
+    pub template: String,
+}
+
 /// The category of a search result, determining how it's displayed and handled.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
@@ -26,6 +38,8 @@ pub struct SearchResult {
     pub icon: String,
     pub category: Category,
     pub exec: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub input_spec: Option<InputSpec>,
 }
 
 /// Determines which provider should handle a given query.
@@ -92,6 +106,7 @@ fn build_chat_results(q: &str) -> Vec<SearchResult> {
             icon: "".into(),
             category: Category::Info,
             exec: "".into(),
+            input_spec: None,
         }]
     } else {
         vec![SearchResult {
@@ -101,6 +116,7 @@ fn build_chat_results(q: &str) -> Vec<SearchResult> {
             icon: "".into(),
             category: Category::Chat,
             exec: "".into(),
+            input_spec: None,
         }]
     }
 }
@@ -367,6 +383,7 @@ mod tests {
             icon: "".into(),
             category: Category::Math,
             exec: "".into(),
+            input_spec: None,
         };
 
         let json = serde_json::to_string(&result).unwrap();
@@ -375,8 +392,50 @@ mod tests {
             "Expected category to serialize as \"math\", got: {}",
             json
         );
+        // input_spec should be omitted when None (skip_serializing_if)
+        assert!(
+            !json.contains("input_spec"),
+            "input_spec should be omitted when None, got: {}",
+            json
+        );
 
         let parsed: SearchResult = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed.category, Category::Math);
+    }
+
+    #[test]
+    fn search_result_with_input_spec_serializes() {
+        use serde_json;
+
+        let result = SearchResult {
+            id: "test".into(),
+            name: "Test".into(),
+            description: "".into(),
+            icon: "".into(),
+            category: Category::Special,
+            exec: "base-command".into(),
+            input_spec: Some(InputSpec {
+                placeholder: "Enter value".into(),
+                template: "command --arg \"{}\"".into(),
+            }),
+        };
+
+        let json = serde_json::to_string(&result).unwrap();
+        assert!(
+            json.contains("input_spec"),
+            "input_spec should be present when Some, got: {}",
+            json
+        );
+        assert!(
+            json.contains("Enter value"),
+            "placeholder should be in JSON, got: {}",
+            json
+        );
+
+        let parsed: SearchResult = serde_json::from_str(&json).unwrap();
+        assert!(parsed.input_spec.is_some());
+        let spec = parsed.input_spec.unwrap();
+        assert_eq!(spec.placeholder, "Enter value");
+        assert_eq!(spec.template, "command --arg \"{}\"");
     }
 }

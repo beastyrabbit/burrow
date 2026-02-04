@@ -10,9 +10,10 @@ use modifier::Modifier;
 pub async fn execute_action(
     result: SearchResult,
     modifier: Modifier,
+    secondary_input: Option<String>,
     app: tauri::AppHandle,
 ) -> Result<(), String> {
-    handlers::handle_action(&result, modifier, &app)
+    handlers::handle_action(&result, modifier, secondary_input.as_deref(), &app)
 }
 
 #[cfg(test)]
@@ -30,6 +31,7 @@ mod tests {
             icon: "".into(),
             category: Category::Info,
             exec: "".into(),
+            input_spec: None,
         };
         assert!(handlers::is_valid_category(result.category));
     }
@@ -43,6 +45,7 @@ mod tests {
             icon: "".into(),
             category: Category::Math,
             exec: "".into(),
+            input_spec: None,
         };
         assert!(handlers::is_valid_category(result.category));
     }

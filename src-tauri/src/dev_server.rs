@@ -103,7 +103,7 @@ async fn execute_action(
     State(app): State<AppState>,
     Json(body): Json<ExecuteActionBody>,
 ) -> Result<Json<()>, (StatusCode, String)> {
-    actions::execute_action(body.result, body.modifier, app)
+    actions::execute_action(body.result, body.modifier, body.secondary_input, app)
         .await
         .map(Json)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))
@@ -114,6 +114,8 @@ struct ExecuteActionBody {
     result: SearchResult,
     #[serde(default)]
     modifier: Modifier,
+    #[serde(default)]
+    secondary_input: Option<String>,
 }
 
 async fn load_vault() -> Result<Json<String>, (StatusCode, String)> {
