@@ -175,6 +175,7 @@ impl AppConfig {
             ));
         }
 
+        // Trim whitespace permanently (intentional mutation — " all " becomes "all")
         self.vector_search.index_mode = self.vector_search.index_mode.trim().to_string();
         if self.vector_search.index_mode != "all" && self.vector_search.index_mode != "custom" {
             w.push(format!(
@@ -227,6 +228,7 @@ impl AppConfig {
                 ));
                 spec.name = default_spec.name.clone();
             }
+            // Trim whitespace permanently (intentional mutation — " ollama " becomes "ollama")
             spec.provider = spec.provider.trim().to_string();
             if !is_valid_provider(&spec.provider) {
                 w.push(format!(
