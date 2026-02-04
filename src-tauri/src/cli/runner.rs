@@ -1006,6 +1006,11 @@ fn format_uptime(secs: u64) -> String {
 // ============================================================================
 
 fn cmd_chat(query: &str, small: bool) -> i32 {
+    if query.trim().is_empty() {
+        print_error("Query cannot be empty");
+        return 1;
+    }
+
     // Try daemon first
     if daemon::is_daemon_running().is_some() {
         return delegate_chat_to_daemon(query, small, false);
@@ -1016,6 +1021,11 @@ fn cmd_chat(query: &str, small: bool) -> i32 {
 }
 
 fn cmd_chat_docs(query: &str, small: bool) -> i32 {
+    if query.trim().is_empty() {
+        print_error("Query cannot be empty");
+        return 1;
+    }
+
     // Try daemon first
     if daemon::is_daemon_running().is_some() {
         return delegate_chat_to_daemon(query, small, true);
