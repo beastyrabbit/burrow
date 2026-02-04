@@ -17,7 +17,8 @@ const COMMANDS: &[SpecialCommand] = &[SpecialCommand {
     input_spec: Some((
         "Enter topic or press Enter to skip",
         // {} is replaced with single-quoted escaped input by resolve_exec()
-        "kitty sh -c 'cd ~/cowork && claude /init-work {}'",
+        // Use double quotes for sh -c arg so single-quoted substitution works
+        "kitty sh -c \"cd ~/cowork && claude /init-work {}\"",
     )),
 }];
 
