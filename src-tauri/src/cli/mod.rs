@@ -63,6 +63,25 @@ pub enum Commands {
     },
     /// Show current indexer progress
     Progress,
+    /// Manage the background daemon
+    Daemon {
+        #[command(subcommand)]
+        action: Option<DaemonAction>,
+    },
+}
+
+#[derive(Subcommand, Clone)]
+pub enum DaemonAction {
+    /// Start the daemon (default if no action specified)
+    Start {
+        /// Run in background (daemonize)
+        #[arg(short, long)]
+        background: bool,
+    },
+    /// Stop a running daemon
+    Stop,
+    /// Check daemon status
+    Status,
 }
 
 #[cfg(test)]
@@ -170,5 +189,62 @@ mod tests {
     fn cli_parses_progress() {
         let cli = Cli::parse_from(["burrow", "progress"]);
         assert!(matches!(cli.command, Some(Commands::Progress)));
+    }
+
+    #[test]
+    fn cli_parses_daemon_no_action() {
+        let cli = Cli::parse_from(["burrow", "daemon"]);
+        assert!(matches!(
+            cli.command,
+            Some(Commands::Daemon { action: None })
+        ));
+    }
+
+    #[test]
+    fn cli_parses_daemon_start() {
+        let cli = Cli::parse_from(["burrow", "daemon", "start"]);
+        if let Some(Commands::Daemon {
+            action: Some(DaemonAction::Start { background }),
+        }) = cli.command
+        {
+            assert!(!background);
+        } else {
+            panic!("Expected Daemon Start command");
+        }
+    }
+
+    #[test]
+    fn cli_parses_daemon_start_background() {
+        let cli = Cli::parse_from(["burrow", "daemon", "start", "--background"]);
+        if let Some(Commands::Daemon {
+            action: Some(DaemonAction::Start { background }),
+        }) = cli.command
+        {
+            assert!(background);
+        } else {
+            panic!("Expected Daemon Start command with background");
+        }
+    }
+
+    #[test]
+    fn cli_parses_daemon_stop() {
+        let cli = Cli::parse_from(["burrow", "daemon", "stop"]);
+        assert!(matches!(
+            cli.command,
+            Some(Commands::Daemon {
+                action: Some(DaemonAction::Stop)
+            })
+        ));
+    }
+
+    #[test]
+    fn cli_parses_daemon_status() {
+        let cli = Cli::parse_from(["burrow", "daemon", "status"]);
+        assert!(matches!(
+            cli.command,
+            Some(Commands::Daemon {
+                action: Some(DaemonAction::Status)
+            })
+        ));
     }
 }

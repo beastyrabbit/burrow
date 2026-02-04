@@ -1,9 +1,9 @@
 use crate::commands::vectors::VectorDbState;
 use crate::config;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tauri::Manager;
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HealthStatus {
     pub ollama: bool,
     pub vector_db: bool,

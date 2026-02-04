@@ -3,6 +3,7 @@ pub(crate) mod chat;
 pub mod cli;
 pub mod commands;
 pub mod config;
+pub mod daemon;
 #[cfg(debug_assertions)]
 pub mod dev_server;
 pub mod icons;

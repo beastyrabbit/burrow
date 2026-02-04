@@ -1,7 +1,7 @@
 use crate::commands::vectors::{self, VectorDbState};
 use crate::config;
 use crate::ollama;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::SystemTime;
@@ -16,7 +16,7 @@ pub struct IndexStats {
     pub errors: u32,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IndexerProgress {
     pub running: bool,
     pub phase: String, // "idle", "scanning", "embedding", "cleanup", "done"
@@ -65,6 +65,51 @@ impl IndexerState {
 
     pub fn get(&self) -> IndexerProgress {
         self.0.lock().map(|p| p.clone()).unwrap_or_default()
+    }
+
+    /// Start indexing (standalone mode - no Tauri state).
+    pub fn start_standalone(&self) {
+        self.update(|p| {
+            p.running = true;
+            p.phase = "scanning".into();
+            p.processed = 0;
+            p.total = 0;
+            p.errors = 0;
+            p.current_file.clear();
+        });
+    }
+
+    /// Finish indexing (standalone mode - no Tauri state).
+    pub fn finish_standalone(&self, result: String) {
+        self.update(|p| {
+            p.running = false;
+            p.phase = "idle".into();
+            p.current_file.clear();
+            p.last_result = result;
+        });
+    }
+
+    /// Set total file count.
+    pub fn set_total(&self, total: u32) {
+        self.update(|p| p.total = total);
+    }
+
+    /// Set current phase.
+    pub fn set_phase(&self, phase: &str) {
+        self.update(|p| p.phase = phase.to_string());
+    }
+
+    /// Set current file being processed.
+    pub fn set_current_file(&self, name: &str) {
+        self.update(|p| p.current_file = name.to_string());
+    }
+
+    /// Increment processed count and update error count.
+    pub fn inc_processed(&self, errors: u32) {
+        self.update(|p| {
+            p.processed += 1;
+            p.errors = errors;
+        });
     }
 
     fn start(&self) {

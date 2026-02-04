@@ -2,14 +2,16 @@ use super::output::{
     print_error, print_heading, print_info, print_kv, print_status, print_success, print_warning,
 };
 use super::progress::IndexProgress;
-use super::Commands;
+use super::{Commands, DaemonAction};
 use crate::commands::{health, history, vectors};
 use crate::config;
+use crate::daemon;
 use crate::indexer;
 use crate::ollama;
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
+use std::sync::Arc;
 
 /// Threshold for mtime comparison (1 second) to account for filesystem precision.
 const MTIME_EPSILON: f64 = 1.0;
@@ -24,6 +26,7 @@ pub fn run_command(cmd: Commands) -> i32 {
         Commands::Index { file, force } => cmd_index(&file, force),
         Commands::Reindex { quiet } => cmd_reindex(quiet),
         Commands::Update { quiet } => cmd_update(quiet),
+        Commands::Daemon { action } => cmd_daemon(action),
     }
 }
 
@@ -188,11 +191,46 @@ fn cmd_progress() -> i32 {
         return 1;
     }
 
-    // Count files that would be indexed
+    // Try daemon first for real-time indexer progress
+    if daemon::is_daemon_running().is_some() {
+        let rt = match create_runtime() {
+            Ok(rt) => rt,
+            Err(code) => return code,
+        };
+
+        let result = rt.block_on(async {
+            let client = daemon::DaemonClient::new();
+            client.progress().await
+        });
+
+        if let Ok(progress) = result {
+            if progress.running {
+                print_heading("Indexer Progress (Live)");
+                print_kv("Phase", &progress.phase);
+                print_kv("Current file", &progress.current_file);
+                let pct = if progress.total > 0 {
+                    (progress.processed as f64 / progress.total as f64 * 100.0).round() as u32
+                } else {
+                    0
+                };
+                print_kv(
+                    "Progress",
+                    &format!("{}/{} ({}%)", progress.processed, progress.total, pct),
+                );
+                print_kv("Errors", &progress.errors.to_string());
+                return 0;
+            } else if !progress.last_result.is_empty() {
+                // Show last result but fall through to show static stats too
+                print_info(&format!("Last run: {}", progress.last_result));
+                println!();
+            }
+        }
+    }
+
+    // Fall back to static index stats
     let indexable_paths = indexer::collect_indexable_paths(cfg);
     let total_files = indexable_paths.len();
 
-    // Count files already indexed
     let conn = match vectors::open_vector_db() {
         Ok(c) => c,
         Err(e) => {
@@ -338,7 +376,12 @@ fn cmd_reindex(quiet: bool) -> i32 {
         return 1;
     }
 
-    // Open vector DB and clear it
+    // Try to delegate to daemon if running
+    if daemon::is_daemon_running().is_some() {
+        return delegate_to_daemon(true, quiet);
+    }
+
+    // Standalone mode - open vector DB and clear it
     let conn = match vectors::open_vector_db() {
         Ok(c) => c,
         Err(e) => {
@@ -363,6 +406,12 @@ fn cmd_update(quiet: bool) -> i32 {
         return 1;
     }
 
+    // Try to delegate to daemon if running
+    if daemon::is_daemon_running().is_some() {
+        return delegate_to_daemon(false, quiet);
+    }
+
+    // Standalone mode
     let conn = match vectors::open_vector_db() {
         Ok(c) => c,
         Err(e) => {
@@ -372,6 +421,92 @@ fn cmd_update(quiet: bool) -> i32 {
     };
 
     run_indexer(&conn, cfg, quiet, true)
+}
+
+/// Delegate indexing to the daemon and optionally show progress.
+fn delegate_to_daemon(full: bool, quiet: bool) -> i32 {
+    let rt = match create_runtime() {
+        Ok(rt) => rt,
+        Err(code) => return code,
+    };
+
+    // Start the indexer on the daemon
+    let result = rt.block_on(async {
+        let client = daemon::DaemonClient::new();
+        client.start_indexer(full).await
+    });
+
+    match result {
+        Ok(resp) => {
+            if !resp.started {
+                print_info(&resp.message);
+                return 0;
+            }
+
+            if !quiet {
+                print_success(&resp.message);
+                show_daemon_progress(&rt);
+            }
+
+            0
+        }
+        Err(e) => {
+            print_error(&format!("Failed to start indexer via daemon: {e}"));
+            1
+        }
+    }
+}
+
+/// Poll the daemon for indexer progress and display it.
+fn show_daemon_progress(rt: &tokio::runtime::Runtime) {
+    use std::io::Write;
+
+    let client = daemon::DaemonClient::new();
+    let mut last_processed = 0u32;
+
+    loop {
+        match rt.block_on(client.progress()) {
+            Ok(progress) => {
+                if !progress.running {
+                    if !progress.last_result.is_empty() {
+                        println!();
+                        print_success(&progress.last_result);
+                    }
+                    break;
+                }
+
+                // Only print on change to avoid spamming
+                if progress.processed != last_processed {
+                    let pct = if progress.total > 0 {
+                        (progress.processed as f64 / progress.total as f64 * 100.0).round() as u32
+                    } else {
+                        0
+                    };
+                    print!(
+                        "\r{}: {}/{} ({}%) {}",
+                        progress.phase,
+                        progress.processed,
+                        progress.total,
+                        pct,
+                        if progress.errors > 0 {
+                            format!("[{} errors]", progress.errors)
+                        } else {
+                            String::new()
+                        }
+                    );
+                    let _ = std::io::stdout().flush();
+                    last_processed = progress.processed;
+                }
+            }
+            Err(e) => {
+                println!();
+                print_warning(&format!("Lost connection to daemon: {e}"));
+                break;
+            }
+        }
+
+        std::thread::sleep(std::time::Duration::from_millis(200));
+    }
 }
 
 /// Check if a file has been modified based on mtime comparison.
@@ -593,6 +728,218 @@ fn cleanup_stale(conn: &rusqlite::Connection, valid_paths: &HashSet<String>) -> 
     removed
 }
 
+fn cmd_daemon(action: Option<DaemonAction>) -> i32 {
+    let action = action.unwrap_or(DaemonAction::Start { background: false });
+
+    match action {
+        DaemonAction::Start { background } => cmd_daemon_start(background),
+        DaemonAction::Stop => cmd_daemon_stop(),
+        DaemonAction::Status => cmd_daemon_status(),
+    }
+}
+
+fn cmd_daemon_start(background: bool) -> i32 {
+    // Check if already running
+    if let Some(pid) = daemon::is_daemon_running() {
+        print_error(&format!("Daemon already running (PID {pid})"));
+        return 1;
+    }
+
+    if background {
+        // Fork into background
+        return daemonize();
+    }
+
+    // Foreground mode - run the daemon directly
+    run_daemon_foreground()
+}
+
+fn daemonize() -> i32 {
+    use std::process::Command;
+
+    // Get the current executable path
+    let exe = match std::env::current_exe() {
+        Ok(p) => p,
+        Err(e) => {
+            print_error(&format!("Failed to get executable path: {e}"));
+            return 1;
+        }
+    };
+
+    // Spawn a child process with the daemon command (without --background)
+    // Using nohup-style approach: redirect stdin/stdout/stderr to /dev/null
+    let child = Command::new(&exe)
+        .args(["daemon", "start"])
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn();
+
+    match child {
+        Ok(_) => {
+            print_success("Daemon started in background");
+            // Give it a moment to start and write PID file
+            std::thread::sleep(std::time::Duration::from_millis(500));
+
+            // Verify it started
+            if let Some(pid) = daemon::is_daemon_running() {
+                print_kv("PID", &pid.to_string());
+                print_kv("Socket", &daemon::socket_path().display().to_string());
+                0
+            } else {
+                print_warning("Daemon may not have started successfully");
+                1
+            }
+        }
+        Err(e) => {
+            print_error(&format!("Failed to start daemon: {e}"));
+            1
+        }
+    }
+}
+
+fn run_daemon_foreground() -> i32 {
+    // Write PID file
+    if let Err(e) = daemon::write_pid_file() {
+        print_error(&format!("Failed to write PID file: {e}"));
+        return 1;
+    }
+
+    print_heading("Daemon Starting");
+    print_kv("PID", &std::process::id().to_string());
+    print_kv("Socket", &daemon::socket_path().display().to_string());
+
+    // Set up signal handlers for graceful shutdown
+    let running = Arc::new(std::sync::atomic::AtomicBool::new(true));
+    let running_clone = running.clone();
+
+    if let Err(e) = ctrlc::set_handler(move || {
+        tracing::info!("received shutdown signal");
+        running_clone.store(false, std::sync::atomic::Ordering::SeqCst);
+    }) {
+        tracing::warn!(error = %e, "failed to set signal handler, Ctrl+C may not work");
+    }
+
+    // Create runtime and run the daemon
+    let rt = match create_runtime() {
+        Ok(rt) => rt,
+        Err(code) => {
+            let _ = daemon::remove_pid_file();
+            return code;
+        }
+    };
+
+    let result = rt.block_on(async {
+        let state = Arc::new(daemon::handlers::DaemonState::new());
+        let router = daemon::handlers::create_router(state);
+
+        print_success("Daemon ready");
+
+        daemon::start_server(router).await
+    });
+
+    // Cleanup
+    let _ = daemon::remove_pid_file();
+    if let Err(e) = std::fs::remove_file(daemon::socket_path()) {
+        tracing::debug!(error = %e, "failed to remove socket file");
+    }
+
+    match result {
+        Ok(()) => {
+            print_info("Daemon stopped");
+            0
+        }
+        Err(e) => {
+            print_error(&format!("Daemon error: {e}"));
+            1
+        }
+    }
+}
+
+fn cmd_daemon_stop() -> i32 {
+    let rt = match create_runtime() {
+        Ok(rt) => rt,
+        Err(code) => return code,
+    };
+
+    // Try to connect to daemon and send shutdown
+    let result = rt.block_on(async {
+        let client = daemon::DaemonClient::new();
+        client.shutdown().await
+    });
+
+    match result {
+        Ok(()) => {
+            print_success("Shutdown signal sent");
+            // Wait a bit for the daemon to actually stop
+            std::thread::sleep(std::time::Duration::from_millis(500));
+            if daemon::is_daemon_running().is_none() {
+                print_info("Daemon stopped");
+            }
+            0
+        }
+        Err(e) => {
+            // Maybe daemon isn't running?
+            if daemon::is_daemon_running().is_none() {
+                print_info("Daemon is not running");
+                0
+            } else {
+                print_error(&format!("Failed to stop daemon: {e}"));
+                1
+            }
+        }
+    }
+}
+
+fn cmd_daemon_status() -> i32 {
+    match daemon::is_daemon_running() {
+        Some(pid) => {
+            let rt = match create_runtime() {
+                Ok(rt) => rt,
+                Err(code) => return code,
+            };
+
+            // Try to get detailed status from daemon
+            let result = rt.block_on(async {
+                let client = daemon::DaemonClient::new();
+                client.status().await
+            });
+
+            print_heading("Daemon Status");
+            print_status("Running", true);
+            print_kv("PID", &pid.to_string());
+            print_kv("Socket", &daemon::socket_path().display().to_string());
+
+            if let Ok(status) = result {
+                print_kv("Version", &status.version);
+                print_kv("Uptime", &format_uptime(status.uptime_secs));
+            }
+
+            0
+        }
+        None => {
+            print_heading("Daemon Status");
+            print_status("Running", false);
+            print_info("Start with: burrow daemon");
+            1
+        }
+    }
+}
+
+fn format_uptime(secs: u64) -> String {
+    let hours = secs / 3600;
+    let minutes = (secs % 3600) / 60;
+    let seconds = secs % 60;
+
+    if hours > 0 {
+        format!("{}h {}m {}s", hours, minutes, seconds)
+    } else if minutes > 0 {
+        format!("{}m {}s", minutes, seconds)
+    } else {
+        format!("{}s", seconds)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -614,5 +961,25 @@ mod tests {
         // This just tests the exit code, not the actual output
         let exit_code = cmd_config(true);
         assert_eq!(exit_code, 0);
+    }
+
+    #[test]
+    fn format_uptime_seconds_only() {
+        assert_eq!(format_uptime(45), "45s");
+    }
+
+    #[test]
+    fn format_uptime_minutes() {
+        assert_eq!(format_uptime(125), "2m 5s");
+    }
+
+    #[test]
+    fn format_uptime_hours() {
+        assert_eq!(format_uptime(3725), "1h 2m 5s");
+    }
+
+    #[test]
+    fn format_uptime_zero() {
+        assert_eq!(format_uptime(0), "0s");
     }
 }

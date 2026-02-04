@@ -14,6 +14,7 @@ pub struct AppConfig {
     pub history: HistoryConfig,
     pub search: SearchConfig,
     pub onepass: OnePassConfig,
+    pub daemon: DaemonConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -27,6 +28,24 @@ impl Default for OnePassConfig {
     fn default() -> Self {
         Self {
             idle_timeout_minutes: 10,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct DaemonConfig {
+    /// Whether CLI commands should auto-start the daemon if not running.
+    pub auto_start: bool,
+    /// Timeout in seconds when waiting for daemon to start.
+    pub startup_timeout_secs: u64,
+}
+
+impl Default for DaemonConfig {
+    fn default() -> Self {
+        Self {
+            auto_start: true,
+            startup_timeout_secs: 5,
         }
     }
 }
@@ -465,6 +484,26 @@ interval_hours = 6
         assert_eq!(cfg.indexer.interval_hours, 6);
         assert_eq!(cfg.indexer.max_content_chars, 4096); // default
         assert!(!cfg.indexer.file_extensions.is_empty()); // default
+    }
+
+    #[test]
+    fn default_daemon_config() {
+        let cfg = AppConfig::default();
+        assert!(cfg.daemon.auto_start);
+        assert_eq!(cfg.daemon.startup_timeout_secs, 5);
+    }
+
+    #[test]
+    fn parse_daemon_config() {
+        let cfg = parse_config(
+            r#"
+[daemon]
+auto_start = false
+startup_timeout_secs = 10
+"#,
+        );
+        assert!(!cfg.daemon.auto_start);
+        assert_eq!(cfg.daemon.startup_timeout_secs, 10);
     }
 
     #[test]
