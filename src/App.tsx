@@ -230,6 +230,10 @@ function App() {
       return;
     }
 
+    // Note: In secondary mode, modifiers are captured but have no effect on Special category
+    // commands (which use input_spec). This is intentional - secondary mode is for collecting
+    // text input, not selecting action variants. Modifiers are still passed to allow future
+    // categories to use them if needed.
     const modifier = e
       ? parseModifier({
           shift: e.shiftKey,

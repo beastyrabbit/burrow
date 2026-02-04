@@ -160,33 +160,16 @@ fn handle_file(
     }
 }
 
-/// Escape user input for safe shell interpolation.
-/// Handles: backslashes, single quotes, double quotes, backticks, dollar signs, semicolons, pipes, ampersands.
-fn escape_shell_input(input: &str) -> String {
-    let mut escaped = String::with_capacity(input.len() * 2);
-    for c in input.chars() {
-        match c {
-            '\\' => escaped.push_str("\\\\"),
-            '\'' => escaped.push_str("'\\''"),
-            '"' => escaped.push_str("\\\""),
-            '`' => escaped.push_str("\\`"),
-            '$' => escaped.push_str("\\$"),
-            ';' => escaped.push_str("\\;"),
-            '|' => escaped.push_str("\\|"),
-            '&' => escaped.push_str("\\&"),
-            '>' => escaped.push_str("\\>"),
-            '<' => escaped.push_str("\\<"),
-            '(' => escaped.push_str("\\("),
-            ')' => escaped.push_str("\\)"),
-            '\n' => escaped.push_str("\\n"),
-            '\r' => escaped.push_str("\\r"),
-            _ => escaped.push(c),
-        }
-    }
-    escaped
+/// Escape user input for safe shell interpolation by wrapping in single quotes.
+/// Single quotes prevent all shell interpretation except for single quotes themselves,
+/// which are escaped using the `'\''` technique (end quote, escaped literal quote, restart quote).
+fn escape_for_single_quotes(input: &str) -> String {
+    // Replace ' with '\'' (end single quote, add escaped literal quote, start single quote)
+    input.replace('\'', "'\\''")
 }
 
 /// Resolve final command, applying secondary input if provided.
+/// The input is wrapped in single quotes for shell safety.
 fn resolve_exec(result: &SearchResult, secondary_input: Option<&str>) -> String {
     match (&result.input_spec, secondary_input) {
         (Some(spec), Some(input)) if !input.is_empty() => {
@@ -197,7 +180,8 @@ fn resolve_exec(result: &SearchResult, secondary_input: Option<&str>) -> String 
                 );
                 return result.exec.clone();
             }
-            let escaped = escape_shell_input(input);
+            // Wrap in single quotes for consistent shell safety
+            let escaped = format!("'{}'", escape_for_single_quotes(input));
             spec.template.replace("{}", &escaped)
         }
         _ => result.exec.clone(),
@@ -425,7 +409,7 @@ mod tests {
             exec: "base-command".into(),
             input_spec: Some(InputSpec {
                 placeholder: "Enter value".into(),
-                template: "templated-command \"{}\"".into(),
+                template: "templated-command {}".into(),
             }),
         };
         assert_eq!(
@@ -451,13 +435,14 @@ mod tests {
             exec: "base-command".into(),
             input_spec: Some(InputSpec {
                 placeholder: "Enter value".into(),
-                template: "templated-command \"{}\"".into(),
+                template: "templated-command {}".into(),
             }),
         };
+        // Input is wrapped in single quotes
         assert_eq!(
             resolve_exec(&result, Some("my-value")),
-            "templated-command \"my-value\"",
-            "should substitute input into template"
+            "templated-command 'my-value'",
+            "should substitute input wrapped in single quotes"
         );
     }
 
@@ -472,19 +457,20 @@ mod tests {
             exec: "base".into(),
             input_spec: Some(InputSpec {
                 placeholder: "".into(),
-                template: "echo '{}'".into(),
+                template: "echo {}".into(),
             }),
         };
         let output = resolve_exec(&result, Some("it's a test"));
-        assert!(
-            output.contains("it'\\''s a test"),
-            "should escape single quotes, got: {}",
-            output
+        // Single quotes are escaped using '\'' technique inside single-quoted string
+        assert_eq!(
+            output, "echo 'it'\\''s a test'",
+            "should wrap in single quotes and escape internal single quotes"
         );
     }
 
     #[test]
-    fn resolve_exec_escapes_double_quotes() {
+    fn resolve_exec_preserves_special_chars_in_single_quotes() {
+        // Single quotes protect against all shell metacharacters except single quotes
         let result = SearchResult {
             id: "test".into(),
             name: "Test".into(),
@@ -494,19 +480,19 @@ mod tests {
             exec: "base".into(),
             input_spec: Some(InputSpec {
                 placeholder: "".into(),
-                template: "echo \"{}\"".into(),
+                template: "echo {}".into(),
             }),
         };
-        let output = resolve_exec(&result, Some("say \"hello\""));
-        assert!(
-            output.contains("say \\\"hello\\\""),
-            "should escape double quotes, got: {}",
-            output
+        // All these dangerous chars are safe inside single quotes
+        let output = resolve_exec(&result, Some("$HOME; rm -rf / | cat && whoami > /tmp/x"));
+        assert_eq!(
+            output, "echo '$HOME; rm -rf / | cat && whoami > /tmp/x'",
+            "shell metacharacters should be preserved literally inside single quotes"
         );
     }
 
     #[test]
-    fn resolve_exec_escapes_backticks() {
+    fn resolve_exec_handles_backticks_in_single_quotes() {
         let result = SearchResult {
             id: "test".into(),
             name: "Test".into(),
@@ -516,19 +502,16 @@ mod tests {
             exec: "base".into(),
             input_spec: Some(InputSpec {
                 placeholder: "".into(),
-                template: "echo \"{}\"".into(),
+                template: "echo {}".into(),
             }),
         };
         let output = resolve_exec(&result, Some("`whoami`"));
-        assert!(
-            output.contains("\\`whoami\\`"),
-            "should escape backticks, got: {}",
-            output
-        );
+        // Backticks are safe inside single quotes
+        assert_eq!(output, "echo '`whoami`'");
     }
 
     #[test]
-    fn resolve_exec_escapes_dollar_substitution() {
+    fn resolve_exec_handles_dollar_in_single_quotes() {
         let result = SearchResult {
             id: "test".into(),
             name: "Test".into(),
@@ -538,19 +521,16 @@ mod tests {
             exec: "base".into(),
             input_spec: Some(InputSpec {
                 placeholder: "".into(),
-                template: "echo \"{}\"".into(),
+                template: "echo {}".into(),
             }),
         };
-        let output = resolve_exec(&result, Some("$(rm -rf /)"));
-        assert!(
-            output.contains("\\$\\(rm -rf /\\)"),
-            "should escape $() command substitution, got: {}",
-            output
-        );
+        let output = resolve_exec(&result, Some("$(cat /etc/passwd)"));
+        // $() is safe inside single quotes
+        assert_eq!(output, "echo '$(cat /etc/passwd)'");
     }
 
     #[test]
-    fn resolve_exec_escapes_semicolon() {
+    fn resolve_exec_handles_double_quotes_in_single_quotes() {
         let result = SearchResult {
             id: "test".into(),
             name: "Test".into(),
@@ -560,81 +540,12 @@ mod tests {
             exec: "base".into(),
             input_spec: Some(InputSpec {
                 placeholder: "".into(),
-                template: "echo \"{}\"".into(),
+                template: "echo {}".into(),
             }),
         };
-        let output = resolve_exec(&result, Some("foo; rm -rf /"));
-        assert!(
-            output.contains("foo\\; rm -rf /"),
-            "should escape semicolons, got: {}",
-            output
-        );
-    }
-
-    #[test]
-    fn resolve_exec_escapes_pipe_and_ampersand() {
-        let result = SearchResult {
-            id: "test".into(),
-            name: "Test".into(),
-            description: "".into(),
-            icon: "".into(),
-            category: Category::Special,
-            exec: "base".into(),
-            input_spec: Some(InputSpec {
-                placeholder: "".into(),
-                template: "echo \"{}\"".into(),
-            }),
-        };
-        let output = resolve_exec(&result, Some("a | b && c"));
-        assert!(
-            output.contains("a \\| b \\&\\& c"),
-            "should escape pipes and ampersands, got: {}",
-            output
-        );
-    }
-
-    #[test]
-    fn resolve_exec_escapes_redirects() {
-        let result = SearchResult {
-            id: "test".into(),
-            name: "Test".into(),
-            description: "".into(),
-            icon: "".into(),
-            category: Category::Special,
-            exec: "base".into(),
-            input_spec: Some(InputSpec {
-                placeholder: "".into(),
-                template: "echo \"{}\"".into(),
-            }),
-        };
-        let output = resolve_exec(&result, Some("a > /etc/passwd < /dev/null"));
-        assert!(
-            output.contains("a \\> /etc/passwd \\< /dev/null"),
-            "should escape redirects, got: {}",
-            output
-        );
-    }
-
-    #[test]
-    fn resolve_exec_escapes_backslashes() {
-        let result = SearchResult {
-            id: "test".into(),
-            name: "Test".into(),
-            description: "".into(),
-            icon: "".into(),
-            category: Category::Special,
-            exec: "base".into(),
-            input_spec: Some(InputSpec {
-                placeholder: "".into(),
-                template: "echo \"{}\"".into(),
-            }),
-        };
-        let output = resolve_exec(&result, Some("path\\to\\file"));
-        assert!(
-            output.contains("path\\\\to\\\\file"),
-            "should escape backslashes, got: {}",
-            output
-        );
+        let output = resolve_exec(&result, Some("say \"hello\""));
+        // Double quotes are safe inside single quotes
+        assert_eq!(output, "echo 'say \"hello\"'");
     }
 
     #[test]
@@ -658,27 +569,27 @@ mod tests {
         );
     }
 
-    // --- escape_shell_input tests ---
+    // --- escape_for_single_quotes tests ---
 
     #[test]
-    fn escape_shell_input_simple_text() {
-        assert_eq!(escape_shell_input("hello world"), "hello world");
+    fn escape_for_single_quotes_simple_text() {
+        assert_eq!(escape_for_single_quotes("hello world"), "hello world");
     }
 
     #[test]
-    fn escape_shell_input_all_dangerous_chars() {
-        // Input contains: ' " \ ` $ ; | & > < ( )
-        let input = r#"'"\`$;|&><()"#;
-        // Expected: '\'' \" \\ \` \$ \; \| \& \> \< \( \)
-        let expected = r#"'\''\"\\\`\$\;\|\&\>\<\(\)"#;
-        assert_eq!(escape_shell_input(input), expected);
+    fn escape_for_single_quotes_with_single_quote() {
+        assert_eq!(escape_for_single_quotes("it's"), "it'\\''s");
     }
 
     #[test]
-    fn escape_shell_input_newlines() {
-        assert_eq!(
-            escape_shell_input("line1\nline2\rline3"),
-            "line1\\nline2\\rline3"
-        );
+    fn escape_for_single_quotes_preserves_other_chars() {
+        // Only single quotes need escaping inside single-quoted strings
+        let input = "\"$HOME`whoami`;rm -rf /|cat&&echo>file";
+        assert_eq!(escape_for_single_quotes(input), input);
+    }
+
+    #[test]
+    fn escape_for_single_quotes_multiple_quotes() {
+        assert_eq!(escape_for_single_quotes("'a'b'"), "'\\''a'\\''b'\\''");
     }
 }
