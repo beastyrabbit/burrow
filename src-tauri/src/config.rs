@@ -160,7 +160,8 @@ impl AppConfig {
         );
 
         // ── String validations ───────────────────────────────────
-        if self.ollama.url.trim().is_empty() {
+        self.ollama.url = self.ollama.url.trim().to_string();
+        if self.ollama.url.is_empty() {
             w.push(format!(
                 "config: ollama.url is invalid — expected non-empty string, got \"\", reset to default \"{}\"",
                 defaults.ollama.url
