@@ -124,7 +124,7 @@ impl Default for IndexerConfig {
 
 impl Default for HistoryConfig {
     fn default() -> Self {
-        Self { max_results: 10 }
+        Self { max_results: 6 }
     }
 }
 
@@ -225,7 +225,7 @@ mod tests {
         assert_eq!(cfg.ollama.timeout_secs, 30);
         assert!(cfg.vector_search.enabled);
         assert_eq!(cfg.vector_search.top_k, 10);
-        assert_eq!(cfg.history.max_results, 10);
+        assert_eq!(cfg.history.max_results, 6);
         assert_eq!(cfg.search.max_results, 10);
     }
 

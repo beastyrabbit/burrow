@@ -63,7 +63,7 @@ fn query_frecent(conn: &Connection) -> Result<Vec<SearchResult>, rusqlite::Error
     let mut stmt = conn.prepare(
         "SELECT id, name, exec, icon, description FROM launches
          ORDER BY count * (1.0 / (1.0 + (julianday('now') - last_used))) DESC
-         LIMIT 10",
+         LIMIT 6",
     )?;
 
     let results = stmt
@@ -264,7 +264,7 @@ mod tests {
     }
 
     #[test]
-    fn limit_to_10_results() {
+    fn limit_to_6_results() {
         let conn = test_db();
         for i in 0..20 {
             insert_launch(
@@ -278,7 +278,7 @@ mod tests {
             .unwrap();
         }
         let results = query_frecent(&conn).unwrap();
-        assert_eq!(results.len(), 10);
+        assert_eq!(results.len(), 6);
     }
 
     #[test]
