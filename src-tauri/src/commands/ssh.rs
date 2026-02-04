@@ -34,31 +34,34 @@ pub fn parse_ssh_config_content(content: &str) -> Vec<SshHost> {
         }
     };
 
+    // Try to strip a keyword prefix (space or tab delimited)
+    let strip_key = |line: &str, keys: &[&str]| -> Option<String> {
+        for key in keys {
+            for sep in [" ", "\t"] {
+                let prefix = format!("{key}{sep}");
+                if let Some(val) = line.strip_prefix(&prefix) {
+                    return Some(val.trim().to_string());
+                }
+            }
+        }
+        None
+    };
+
     for line in content.lines() {
         let line = line.trim();
         if line.is_empty() || line.starts_with('#') {
             continue;
         }
 
-        if let Some(host) = line
-            .strip_prefix("Host ")
-            .or_else(|| line.strip_prefix("Host\t"))
-        {
+        if let Some(host) = strip_key(line, &["Host"]) {
             flush_host(&current_name, &current_hostname, &current_user, &mut hosts);
-            current_name = host.trim().to_string();
+            current_name = host;
             current_hostname.clear();
             current_user.clear();
-        } else if let Some(val) = line
-            .strip_prefix("HostName ")
-            .or_else(|| line.strip_prefix("HostName\t"))
-            .or_else(|| line.strip_prefix("Hostname "))
-        {
-            current_hostname = val.trim().to_string();
-        } else if let Some(val) = line
-            .strip_prefix("User ")
-            .or_else(|| line.strip_prefix("User\t"))
-        {
-            current_user = val.trim().to_string();
+        } else if let Some(val) = strip_key(line, &["HostName", "Hostname"]) {
+            current_hostname = val;
+        } else if let Some(val) = strip_key(line, &["User"]) {
+            current_user = val;
         }
     }
 
