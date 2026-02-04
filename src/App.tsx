@@ -63,6 +63,7 @@ function App() {
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLUListElement>(null);
   const queryRef = useRef(query);
+  const mouseEnabledRef = useRef(false);
 
   const doSearch = useCallback(async (q: string) => {
     try {
@@ -134,10 +135,21 @@ function App() {
         setSelectedIndex(0);
         setChatAnswer("");
         setChatLoading(false);
+        mouseEnabledRef.current = false;
       }
     };
     document.addEventListener("visibilitychange", onVisibilityChange);
     return () => document.removeEventListener("visibilitychange", onVisibilityChange);
+  }, []);
+
+  // Enable mouse hover selection only after user moves mouse
+  // Prevents accidental selection when window appears under cursor
+  useEffect(() => {
+    const onMouseMove = () => {
+      mouseEnabledRef.current = true;
+    };
+    window.addEventListener("mousemove", onMouseMove);
+    return () => window.removeEventListener("mousemove", onMouseMove);
   }, []);
 
   // Hide window when it loses focus (standard launcher behavior).
@@ -309,7 +321,7 @@ function App() {
           <li
             key={item.id}
             className={`result-item ${i === selectedIndex ? "selected" : ""}`}
-            onMouseEnter={() => setSelectedIndex(i)}
+            onMouseEnter={() => { if (mouseEnabledRef.current) setSelectedIndex(i); }}
             onClick={() => executeAction(null, item)}
           >
             <ResultIcon icon={item.icon} category={item.category} />
