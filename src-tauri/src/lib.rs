@@ -153,6 +153,12 @@ pub fn run() {
         // When a second instance is launched (e.g. `burrow toggle` from a keybinding),
         // toggle or focus the existing window instead of opening a duplicate.
         .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+            // In headless mode, ignore single-instance window toggles
+            if std::env::var("BURROW_HEADLESS").is_ok() {
+                tracing::info!("headless mode: ignoring single-instance window toggle");
+                return;
+            }
+
             let Some(win) = app.get_webview_window("main") else {
                 tracing::warn!("main window not found, cannot toggle");
                 return;
