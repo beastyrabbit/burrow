@@ -296,14 +296,25 @@ pub fn load_config() -> AppConfig {
 fn load_config_from_path(path: &PathBuf) -> AppConfig {
     match std::fs::read_to_string(path) {
         Ok(content) => parse_config(&content),
-        Err(_) => {
+        Err(e) => {
+            // Log at debug level since missing config on first run is expected
+            if path.exists() {
+                tracing::warn!(path = %path.display(), error = %e, "failed to read config file, using defaults");
+            } else {
+                tracing::debug!(path = %path.display(), "config file not found, creating with defaults");
+            }
+
             // Create default config file if dir exists or can be created
             let cfg = AppConfig::default();
             if let Some(dir) = path.parent() {
-                std::fs::create_dir_all(dir).ok();
+                if let Err(e) = std::fs::create_dir_all(dir) {
+                    tracing::warn!(dir = %dir.display(), error = %e, "failed to create config directory");
+                }
             }
             if let Ok(toml_str) = toml::to_string_pretty(&cfg) {
-                std::fs::write(path, &toml_str).ok();
+                if let Err(e) = std::fs::write(path, &toml_str) {
+                    tracing::warn!(path = %path.display(), error = %e, "failed to write default config");
+                }
             }
             cfg
         }
@@ -311,7 +322,13 @@ fn load_config_from_path(path: &PathBuf) -> AppConfig {
 }
 
 fn parse_config(content: &str) -> AppConfig {
-    toml::from_str(content).unwrap_or_default()
+    match toml::from_str(content) {
+        Ok(cfg) => cfg,
+        Err(e) => {
+            tracing::warn!(error = %e, "failed to parse config TOML, using defaults");
+            AppConfig::default()
+        }
+    }
 }
 
 fn apply_env_overrides(mut cfg: AppConfig) -> AppConfig {

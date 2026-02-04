@@ -89,6 +89,17 @@ pub fn deserialize_embedding(bytes: &[u8]) -> Vec<f32> {
         .collect()
 }
 
+/// Parse models from Ollama /api/tags JSON response
+fn parse_ollama_models(json: &serde_json::Value) -> Result<Vec<String>, String> {
+    let models = json["models"]
+        .as_array()
+        .ok_or("No models array in response")?
+        .iter()
+        .filter_map(|m| m["name"].as_str().map(|s| s.to_string()))
+        .collect();
+    Ok(models)
+}
+
 /// Fetch available models from Ollama API
 pub async fn fetch_ollama_models() -> Result<Vec<String>, String> {
     let cfg = config::get_config();
@@ -116,14 +127,7 @@ pub async fn fetch_ollama_models() -> Result<Vec<String>, String> {
         .await
         .map_err(|e| format!("Failed to parse Ollama response: {e}"))?;
 
-    let models = json["models"]
-        .as_array()
-        .ok_or("No models array in response")?
-        .iter()
-        .filter_map(|m| m["name"].as_str().map(|s| s.to_string()))
-        .collect();
-
-    Ok(models)
+    parse_ollama_models(&json)
 }
 
 /// Fetch available models from Ollama API (blocking version for CLI)
@@ -151,14 +155,7 @@ pub fn fetch_ollama_models_blocking() -> Result<Vec<String>, String> {
         .json()
         .map_err(|e| format!("Failed to parse Ollama response: {e}"))?;
 
-    let models = json["models"]
-        .as_array()
-        .ok_or("No models array in response")?
-        .iter()
-        .filter_map(|m| m["name"].as_str().map(|s| s.to_string()))
-        .collect();
-
-    Ok(models)
+    parse_ollama_models(&json)
 }
 
 #[cfg(test)]

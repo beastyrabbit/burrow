@@ -7,16 +7,13 @@ use crate::chat::{self, ContextSnippet};
 use crate::commands::{health, history, vectors};
 use crate::config;
 use crate::daemon;
-use crate::indexer;
+use crate::indexer::{self, is_file_modified};
 use crate::ollama;
 use dialoguer::{FuzzySelect, Select};
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::sync::Arc;
-
-/// Threshold for mtime comparison (1 second) to account for filesystem precision.
-const MTIME_EPSILON: f64 = 1.0;
 
 /// Run a CLI command and return the exit code
 pub fn run_command(cmd: Commands) -> i32 {
@@ -516,11 +513,6 @@ fn show_daemon_progress(rt: &tokio::runtime::Runtime) {
     }
 }
 
-/// Check if a file has been modified based on mtime comparison.
-fn is_file_modified(current_mtime: f64, db_mtime: f64) -> bool {
-    (current_mtime - db_mtime).abs() >= MTIME_EPSILON
-}
-
 fn run_indexer(
     conn: &rusqlite::Connection,
     cfg: &config::AppConfig,
@@ -951,7 +943,8 @@ fn format_uptime(secs: u64) -> String {
 // Chat commands
 // ============================================================================
 
-fn cmd_chat_docs(query: &str, small: bool) -> i32 {
+/// Execute chat with optional RAG context.
+fn execute_chat(query: &str, small: bool, use_rag: bool) -> i32 {
     let rt = match create_runtime() {
         Ok(rt) => rt,
         Err(code) => return code,
@@ -959,18 +952,22 @@ fn cmd_chat_docs(query: &str, small: bool) -> i32 {
 
     let cfg = config::get_config();
 
-    // Fetch vector context from DB
-    let context = match fetch_context_for_query(query, cfg) {
-        Ok(ctx) => ctx,
-        Err(e) => {
-            print_error(&format!("Failed to fetch context: {e}"));
-            return 1;
+    let context = if use_rag {
+        match fetch_context_for_query(query, cfg) {
+            Ok(ctx) => {
+                if ctx.is_empty() {
+                    print_warning("No relevant documents found for context");
+                }
+                ctx
+            }
+            Err(e) => {
+                print_error(&format!("Failed to fetch context: {e}"));
+                return 1;
+            }
         }
+    } else {
+        vec![]
     };
-
-    if context.is_empty() {
-        print_warning("No relevant documents found for context");
-    }
 
     let model = if small {
         &cfg.models.chat
@@ -980,9 +977,7 @@ fn cmd_chat_docs(query: &str, small: bool) -> i32 {
 
     print_info(&format!("Using {} via {}", model.name, model.provider));
 
-    let result = rt.block_on(chat::generate_chat(query, &context, model));
-
-    match result {
+    match rt.block_on(chat::generate_chat(query, &context, model)) {
         Ok(response) => {
             println!("\n{response}");
             0
@@ -994,33 +989,12 @@ fn cmd_chat_docs(query: &str, small: bool) -> i32 {
     }
 }
 
+fn cmd_chat_docs(query: &str, small: bool) -> i32 {
+    execute_chat(query, small, true)
+}
+
 fn cmd_chat(query: &str, small: bool) -> i32 {
-    let rt = match create_runtime() {
-        Ok(rt) => rt,
-        Err(code) => return code,
-    };
-
-    let cfg = config::get_config();
-    let model = if small {
-        &cfg.models.chat
-    } else {
-        &cfg.models.chat_large
-    };
-
-    print_info(&format!("Using {} via {}", model.name, model.provider));
-
-    let result = rt.block_on(chat::generate_chat(query, &[], model));
-
-    match result {
-        Ok(response) => {
-            println!("\n{response}");
-            0
-        }
-        Err(e) => {
-            print_error(&format!("Chat failed: {e}"));
-            1
-        }
-    }
+    execute_chat(query, small, false)
 }
 
 /// Fetch context snippets from vector DB for RAG

@@ -9,6 +9,9 @@ use std::time::SystemTime;
 use tauri::Manager;
 use walkdir::WalkDir;
 
+/// Threshold for mtime comparison (1 second) to account for filesystem precision.
+pub const MTIME_EPSILON: f64 = 1.0;
+
 #[derive(Debug, Clone, Serialize, Default)]
 pub struct IndexStats {
     pub indexed: u32,
@@ -68,8 +71,8 @@ impl IndexerState {
         self.0.lock().map(|p| p.clone()).unwrap_or_default()
     }
 
-    /// Start indexing (standalone mode - no Tauri state).
-    pub fn start_standalone(&self) {
+    /// Start indexing - resets progress state.
+    pub fn start(&self) {
         self.update(|p| {
             p.running = true;
             p.phase = "scanning".into();
@@ -80,8 +83,8 @@ impl IndexerState {
         });
     }
 
-    /// Finish indexing (standalone mode - no Tauri state).
-    pub fn finish_standalone(&self, result: String) {
+    /// Finish indexing with a result message.
+    pub fn finish(&self, result: String) {
         self.update(|p| {
             p.running = false;
             p.phase = "idle".into();
@@ -113,33 +116,19 @@ impl IndexerState {
         });
     }
 
-    fn start(&self) {
-        self.update(|p| {
-            p.running = true;
-            p.phase = "scanning".into();
-            p.processed = 0;
-            p.total = 0;
-            p.errors = 0;
-            p.current_file.clear();
-        });
+    /// Alias for start() - backward compatibility for standalone mode.
+    pub fn start_standalone(&self) {
+        self.start();
     }
 
-    fn finish(&self, result: String) {
-        self.update(|p| {
-            p.running = false;
-            p.phase = "idle".into();
-            p.current_file.clear();
-            p.last_result = result;
-        });
+    /// Alias for finish() - backward compatibility for standalone mode.
+    pub fn finish_standalone(&self, result: String) {
+        self.finish(result);
     }
 
-    fn finish_with_error(&self, error: String) {
-        self.update(|p| {
-            p.running = false;
-            p.phase = "idle".into();
-            p.current_file.clear();
-            p.last_result = error;
-        });
+    /// Finish with error - same as finish() but named for clarity.
+    pub fn finish_with_error(&self, error: String) {
+        self.finish(error);
     }
 }
 
@@ -190,6 +179,12 @@ pub fn file_mtime(path: &Path) -> f64 {
         .and_then(|t| t.duration_since(SystemTime::UNIX_EPOCH).ok())
         .map(|d| d.as_secs_f64())
         .unwrap_or(0.0)
+}
+
+/// Check if a file has been modified based on mtime comparison.
+/// Uses MTIME_EPSILON to account for filesystem precision.
+pub fn is_file_modified(current_mtime: f64, db_mtime: f64) -> bool {
+    (current_mtime - db_mtime).abs() >= MTIME_EPSILON
 }
 
 /// Expand `~/` prefix to the user's home directory.
@@ -391,7 +386,7 @@ pub async fn index_incremental(app: &tauri::AppHandle) -> IndexStats {
             let path_str = path.to_string_lossy().to_string();
             let mtime = file_mtime(path);
             match existing.get(&path_str) {
-                Some(&db_mtime) => (mtime - db_mtime).abs() >= 1.0,
+                Some(&db_mtime) => is_file_modified(mtime, db_mtime),
                 None => true,
             }
         })
@@ -538,6 +533,23 @@ mod tests {
 
     fn default_exts() -> Vec<String> {
         DEFAULT_EXTENSIONS.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn mtime_epsilon_is_one_second() {
+        assert_eq!(MTIME_EPSILON, 1.0);
+    }
+
+    #[test]
+    fn is_file_modified_detects_change() {
+        assert!(is_file_modified(100.0, 99.0));
+        assert!(is_file_modified(99.0, 100.0));
+    }
+
+    #[test]
+    fn is_file_modified_same_time() {
+        assert!(!is_file_modified(100.0, 100.0));
+        assert!(!is_file_modified(100.0, 100.5)); // Within epsilon
     }
 
     #[test]
