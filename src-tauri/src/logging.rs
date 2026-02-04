@@ -27,7 +27,7 @@ pub fn init_logging_cli() {
     init_logging_inner(false);
 }
 
-fn init_logging_inner(_with_stderr: bool) {
+fn init_logging_inner(with_stderr: bool) {
     let log_dir = PathBuf::from(LOG_DIR);
 
     // Clear old logs on startup
@@ -60,7 +60,7 @@ fn init_logging_inner(_with_stderr: bool) {
     let filter = EnvFilter::try_from_env("BURROW_LOG")
         .unwrap_or_else(|_| EnvFilter::new("info,hyper=warn,reqwest=warn"));
 
-    // Build the subscriber with both file and stderr output
+    // Build the subscriber with file and optionally stderr output
     let subscriber = tracing_subscriber::registry().with(filter);
 
     if let Some(appender) = file_appender {
@@ -68,24 +68,24 @@ fn init_logging_inner(_with_stderr: bool) {
         // Leak the guard to keep the writer alive for the program's lifetime
         std::mem::forget(_guard);
 
-        subscriber
-            .with(
-                fmt::layer()
-                    .with_writer(non_blocking)
-                    .with_ansi(false)
-                    .with_target(true)
-                    .with_thread_ids(false)
-                    .with_file(true)
-                    .with_line_number(true),
-            )
-            .with(
-                fmt::layer()
-                    .with_writer(std::io::stderr)
-                    .with_ansi(true)
-                    .with_target(true),
-            )
-            .init();
-    } else {
+        let file_layer = fmt::layer()
+            .with_writer(non_blocking)
+            .with_ansi(false)
+            .with_target(true)
+            .with_thread_ids(false)
+            .with_file(true)
+            .with_line_number(true);
+
+        if with_stderr {
+            let stderr_layer = fmt::layer()
+                .with_writer(std::io::stderr)
+                .with_ansi(true)
+                .with_target(true);
+            subscriber.with(file_layer).with(stderr_layer).init();
+        } else {
+            subscriber.with(file_layer).init();
+        }
+    } else if with_stderr {
         // File appender failed, just use stderr
         subscriber
             .with(
@@ -95,6 +95,9 @@ fn init_logging_inner(_with_stderr: bool) {
                     .with_target(true),
             )
             .init();
+    } else {
+        // No file appender and no stderr - just initialize empty subscriber
+        subscriber.init();
     }
 
     tracing::info!("Burrow logging initialized (log dir: {LOG_DIR})");

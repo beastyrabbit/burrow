@@ -33,9 +33,20 @@ pub fn remove_pid_file() -> Result<(), String> {
 /// Read the PID from the PID file.
 pub fn read_pid() -> Option<u32> {
     let path = pid_path();
-    fs::read_to_string(&path)
-        .ok()
-        .and_then(|s| s.trim().parse().ok())
+    match fs::read_to_string(&path) {
+        Ok(content) => match content.trim().parse() {
+            Ok(pid) => Some(pid),
+            Err(e) => {
+                tracing::warn!(path = %path.display(), error = %e, "PID file contains invalid content");
+                None
+            }
+        },
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+        Err(e) => {
+            tracing::warn!(path = %path.display(), error = %e, "failed to read PID file");
+            None
+        }
+    }
 }
 
 /// Check if a process with the given PID is running.
@@ -46,7 +57,16 @@ fn is_process_alive(pid: u32) -> bool {
         // Use kill -0 to check if process exists
         // SAFETY: kill with signal 0 only checks if the process exists, it doesn't affect it
         let result = unsafe { libc::kill(pid as i32, 0) };
-        result == 0
+        if result == 0 {
+            // Signal sent successfully - process exists and we have permission
+            true
+        } else {
+            // Check errno to distinguish between "no such process" and "permission denied"
+            let errno = std::io::Error::last_os_error().raw_os_error().unwrap_or(0);
+            // ESRCH (3) = No such process
+            // EPERM (1) = Permission denied (process exists but we can't signal it)
+            errno == libc::EPERM
+        }
     }
 
     #[cfg(not(unix))]
@@ -69,7 +89,9 @@ pub fn is_daemon_running() -> Option<u32> {
     } else {
         // Stale PID file - clean it up
         tracing::debug!(pid, "found stale PID file, removing");
-        let _ = remove_pid_file();
+        if let Err(e) = remove_pid_file() {
+            tracing::warn!(pid, error = %e, "failed to remove stale PID file");
+        }
         None
     }
 }

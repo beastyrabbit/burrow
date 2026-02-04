@@ -445,10 +445,6 @@ fn delegate_to_daemon(full: bool, quiet: bool) -> i32 {
 
             if !quiet {
                 print_success(&resp.message);
-            }
-
-            // If not quiet, poll for progress until done
-            if !quiet {
                 show_daemon_progress(&rt);
             }
 
@@ -468,36 +464,45 @@ fn show_daemon_progress(rt: &tokio::runtime::Runtime) {
     let client = daemon::DaemonClient::new();
     let mut last_processed = 0u32;
 
-    while let Ok(progress) = rt.block_on(client.progress()) {
-        if !progress.running {
-            if !progress.last_result.is_empty() {
-                println!();
-                print_success(&progress.last_result);
-            }
-            break;
-        }
-
-        // Only print on change to avoid spamming
-        if progress.processed != last_processed {
-            let pct = if progress.total > 0 {
-                (progress.processed as f64 / progress.total as f64 * 100.0).round() as u32
-            } else {
-                0
-            };
-            print!(
-                "\r{}: {}/{} ({}%) {}",
-                progress.phase,
-                progress.processed,
-                progress.total,
-                pct,
-                if progress.errors > 0 {
-                    format!("[{} errors]", progress.errors)
-                } else {
-                    String::new()
+    loop {
+        match rt.block_on(client.progress()) {
+            Ok(progress) => {
+                if !progress.running {
+                    if !progress.last_result.is_empty() {
+                        println!();
+                        print_success(&progress.last_result);
+                    }
+                    break;
                 }
-            );
-            let _ = std::io::stdout().flush();
-            last_processed = progress.processed;
+
+                // Only print on change to avoid spamming
+                if progress.processed != last_processed {
+                    let pct = if progress.total > 0 {
+                        (progress.processed as f64 / progress.total as f64 * 100.0).round() as u32
+                    } else {
+                        0
+                    };
+                    print!(
+                        "\r{}: {}/{} ({}%) {}",
+                        progress.phase,
+                        progress.processed,
+                        progress.total,
+                        pct,
+                        if progress.errors > 0 {
+                            format!("[{} errors]", progress.errors)
+                        } else {
+                            String::new()
+                        }
+                    );
+                    let _ = std::io::stdout().flush();
+                    last_processed = progress.processed;
+                }
+            }
+            Err(e) => {
+                println!();
+                print_warning(&format!("Lost connection to daemon: {e}"));
+                break;
+            }
         }
 
         std::thread::sleep(std::time::Duration::from_millis(200));
@@ -808,11 +813,12 @@ fn run_daemon_foreground() -> i32 {
     let running = Arc::new(std::sync::atomic::AtomicBool::new(true));
     let running_clone = running.clone();
 
-    ctrlc::set_handler(move || {
+    if let Err(e) = ctrlc::set_handler(move || {
         tracing::info!("received shutdown signal");
         running_clone.store(false, std::sync::atomic::Ordering::SeqCst);
-    })
-    .ok();
+    }) {
+        tracing::warn!(error = %e, "failed to set signal handler, Ctrl+C may not work");
+    }
 
     // Create runtime and run the daemon
     let rt = match create_runtime() {

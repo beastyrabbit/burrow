@@ -204,6 +204,8 @@ async fn run_index_all(progress: &IndexerState) -> IndexStats {
 
     if let Err(e) = conn.execute("DELETE FROM vectors", []) {
         tracing::error!(error = %e, "failed to clear vectors table");
+        progress.finish_standalone(format!("Failed to clear vectors: {e}"));
+        return stats;
     }
     drop(conn);
 
@@ -266,7 +268,15 @@ async fn run_index_incremental(progress: &IndexerState) -> IndexStats {
         let result = match stmt.query_map([], |row| {
             Ok((row.get::<_, String>(0)?, row.get::<_, f64>(1)?))
         }) {
-            Ok(rows) => rows.filter_map(|r| r.ok()).collect(),
+            Ok(rows) => rows
+                .filter_map(|r| match r {
+                    Ok(v) => Some(v),
+                    Err(e) => {
+                        tracing::warn!(error = %e, "skipping corrupted mtime row");
+                        None
+                    }
+                })
+                .collect(),
             Err(e) => {
                 tracing::warn!(error = %e, "failed to query mtimes");
                 std::collections::HashMap::new()
@@ -371,7 +381,15 @@ fn cleanup_stale_standalone(valid_paths: &std::collections::HashSet<String>) -> 
             }
         };
         let result = match stmt.query_map([], |row| row.get(0)) {
-            Ok(rows) => rows.filter_map(|r| r.ok()).collect(),
+            Ok(rows) => rows
+                .filter_map(|r| match r {
+                    Ok(p) => Some(p),
+                    Err(e) => {
+                        tracing::warn!(error = %e, "skipping corrupted path row during cleanup");
+                        None
+                    }
+                })
+                .collect(),
             Err(e) => {
                 tracing::error!(error = %e, "failed to query paths for cleanup");
                 return 0;
