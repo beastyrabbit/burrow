@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "A fast application launcher for Linux"
 authors = ["beasty"]
 edition = "2021"
+default-run = "burrow"
 
 [lib]
 name = "burrow_lib"
