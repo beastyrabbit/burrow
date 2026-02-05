@@ -1,4 +1,5 @@
 use crate::commands::{apps, files, math, onepass, special, ssh, vectors};
+use crate::context::AppContext;
 use serde::{Deserialize, Serialize};
 
 /// Specification for optional secondary input on a result.
@@ -115,10 +116,10 @@ fn build_chat_results(q: &str) -> Vec<SearchResult> {
     }
 }
 
-#[tauri::command]
-pub async fn search(query: String, app: tauri::AppHandle) -> Result<Vec<SearchResult>, String> {
+/// Primary search implementation — Tauri-free.
+pub async fn search(query: String, ctx: &AppContext) -> Result<Vec<SearchResult>, String> {
     match classify_query(&query) {
-        RouteKind::History => apps::get_all_apps_with_frecency(&app),
+        RouteKind::History => apps::get_all_apps_with_frecency(ctx),
         RouteKind::Special => {
             let q = query.trim_start_matches('#').trim();
             special::search_special(q)
@@ -132,7 +133,7 @@ pub async fn search(query: String, app: tauri::AppHandle) -> Result<Vec<SearchRe
             if content_query.is_empty() {
                 Ok(vec![])
             } else {
-                vectors::search_by_content(content_query, &app).await
+                vectors::search_by_content(content_query, ctx).await
             }
         }
         RouteKind::FileSearch => {
@@ -156,6 +157,14 @@ pub async fn search(query: String, app: tauri::AppHandle) -> Result<Vec<SearchRe
         }
         RouteKind::App => apps::search_apps(&query),
     }
+}
+
+/// Tauri command wrapper for search.
+#[tauri::command]
+pub async fn search_cmd(query: String, app: tauri::AppHandle) -> Result<Vec<SearchResult>, String> {
+    use tauri::Manager;
+    let ctx = app.state::<AppContext>();
+    search(query, &ctx).await
 }
 
 #[cfg(test)]

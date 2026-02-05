@@ -1,3 +1,4 @@
+use crate::context::AppContext;
 use crate::router::{Category, SearchResult};
 use rusqlite::Connection;
 use std::path::PathBuf;
@@ -94,7 +95,14 @@ pub fn query_frecent(conn: &Connection) -> Result<Vec<SearchResult>, rusqlite::E
     Ok(results)
 }
 
-pub fn get_frecent(app: &AppHandle) -> Result<Vec<SearchResult>, String> {
+/// Get frecent results using AppContext (Tauri-free).
+pub fn get_frecent(ctx: &AppContext) -> Result<Vec<SearchResult>, String> {
+    let conn = ctx.db.lock()?;
+    query_frecent(&conn).map_err(|e| e.to_string())
+}
+
+/// Get frecent results via Tauri AppHandle (legacy path for Tauri commands).
+pub fn get_frecent_tauri(app: &AppHandle) -> Result<Vec<SearchResult>, String> {
     let state = app.state::<DbState>();
     let conn = state.lock()?;
     query_frecent(&conn).map_err(|e| e.to_string())
@@ -102,6 +110,14 @@ pub fn get_frecent(app: &AppHandle) -> Result<Vec<SearchResult>, String> {
 
 /// Returns a map of app id → frecency score for all entries in the history DB.
 pub fn get_frecency_scores(
+    ctx: &AppContext,
+) -> Result<std::collections::HashMap<String, f64>, String> {
+    let conn = ctx.db.lock()?;
+    query_frecency_scores(&conn).map_err(|e| e.to_string())
+}
+
+/// Returns frecency scores via Tauri AppHandle (legacy path).
+pub fn get_frecency_scores_tauri(
     app: &AppHandle,
 ) -> Result<std::collections::HashMap<String, f64>, String> {
     let state = app.state::<DbState>();
@@ -151,8 +167,21 @@ fn insert_launch(
     Ok(())
 }
 
-#[tauri::command]
+/// Record a launch using AppContext (Tauri-free).
 pub fn record_launch(
+    id: &str,
+    name: &str,
+    exec: &str,
+    icon: &str,
+    description: &str,
+    ctx: &AppContext,
+) -> Result<(), String> {
+    let conn = ctx.db.lock()?;
+    insert_launch(&conn, id, name, exec, icon, description).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn record_launch_cmd(
     id: String,
     name: String,
     exec: String,

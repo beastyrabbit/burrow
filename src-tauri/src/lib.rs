@@ -3,8 +3,8 @@ pub(crate) mod chat;
 pub mod cli;
 pub mod commands;
 pub mod config;
+pub mod context;
 pub mod daemon;
-#[cfg(debug_assertions)]
 pub mod dev_server;
 pub mod icons;
 pub mod indexer;
@@ -14,6 +14,7 @@ pub mod router;
 pub(crate) mod text_extract;
 
 use commands::{apps, history, vectors};
+use context::AppContext;
 use tauri::Manager;
 
 #[tauri::command]
@@ -70,6 +71,20 @@ pub fn run() {
             // Vault is loaded on-demand via "Load 1Password Data" action
             app.manage(indexer::IndexerState::new());
             indexer::start_background_indexer(app.handle().clone());
+
+            // Create AppContext with Tauri AppHandle for window operations
+            let ctx = AppContext::new(
+                history::DbState::new(
+                    history::open_history_db().expect("open history DB for AppContext"),
+                ),
+                vectors::VectorDbState::new(
+                    vectors::open_vector_db().expect("open vector DB for AppContext"),
+                ),
+                indexer::IndexerState::new(),
+            )
+            .with_app_handle(app.handle().clone());
+            app.manage(ctx);
+
             #[cfg(debug_assertions)]
             dev_server::start(app.handle().clone());
 
@@ -91,12 +106,12 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            router::search,
-            history::record_launch,
+            router::search_cmd,
+            history::record_launch_cmd,
             apps::launch_app,
-            commands::chat::chat_ask,
-            commands::health::health_check,
-            actions::execute_action,
+            commands::chat::chat_ask_cmd,
+            commands::health::health_check_cmd,
+            actions::execute_action_cmd,
             hide_window,
         ])
         .run(tauri::generate_context!())

@@ -1,18 +1,20 @@
 use axum::{extract::State, http::StatusCode, routing::post, Json, Router};
 use serde::Deserialize;
+use std::sync::Arc;
 use tower_http::cors::{AllowOrigin, CorsLayer};
 
 use crate::actions::{self, modifier::Modifier};
 use crate::commands::{apps, chat, health, history};
+use crate::context::AppContext;
 use crate::router::{self, SearchResult};
 
-type AppState = tauri::AppHandle;
+type AppState = Arc<AppContext>;
 
 async fn search(
-    State(app): State<AppState>,
+    State(ctx): State<AppState>,
     Json(body): Json<SearchBody>,
 ) -> Result<Json<Vec<SearchResult>>, (StatusCode, String)> {
-    router::search(body.query, app)
+    router::search(body.query, &ctx)
         .await
         .map(Json)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))
@@ -25,16 +27,16 @@ struct SearchBody {
 }
 
 async fn record_launch(
-    State(app): State<AppState>,
+    State(ctx): State<AppState>,
     Json(body): Json<RecordLaunchBody>,
 ) -> Result<Json<()>, (StatusCode, String)> {
     history::record_launch(
-        body.id,
-        body.name,
-        body.exec,
-        body.icon,
-        body.description,
-        app,
+        &body.id,
+        &body.name,
+        &body.exec,
+        &body.icon,
+        &body.description,
+        &ctx,
     )
     .map(Json)
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))
@@ -61,10 +63,10 @@ struct LaunchAppBody {
 }
 
 async fn chat_ask(
-    State(app): State<AppState>,
+    State(ctx): State<AppState>,
     Json(body): Json<ChatAskBody>,
 ) -> Result<Json<String>, (StatusCode, String)> {
-    chat::chat_ask(body.query, app)
+    chat::chat_ask(body.query, &ctx)
         .await
         .map(Json)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))
@@ -76,19 +78,19 @@ struct ChatAskBody {
 }
 
 async fn health_check(
-    State(app): State<AppState>,
+    State(ctx): State<AppState>,
 ) -> Result<Json<health::HealthStatus>, (StatusCode, String)> {
-    health::health_check(app)
+    health::health_check(&ctx)
         .await
         .map(Json)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))
 }
 
 async fn execute_action(
-    State(app): State<AppState>,
+    State(ctx): State<AppState>,
     Json(body): Json<ExecuteActionBody>,
 ) -> Result<Json<()>, (StatusCode, String)> {
-    actions::execute_action(body.result, body.modifier, body.secondary_input, app)
+    actions::execute_action(body.result, body.modifier, body.secondary_input, &ctx)
         .await
         .map(Json)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))
@@ -109,21 +111,20 @@ async fn load_vault() -> Result<Json<String>, (StatusCode, String)> {
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))
 }
 
-async fn hide_window(State(app): State<AppState>) -> Result<Json<()>, (StatusCode, String)> {
-    crate::hide_window(app)
-        .map(Json)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))
+async fn hide_window_noop() -> Result<Json<()>, (StatusCode, String)> {
+    Ok(Json(()))
 }
 
-pub fn start(app: tauri::AppHandle) {
-    let router = Router::new()
+/// Build the axum router with all API endpoints. Shared between dev_server and test-server.
+pub fn build_router(ctx: Arc<AppContext>) -> Router {
+    Router::new()
         .route("/api/search", post(search))
         .route("/api/record_launch", post(record_launch))
         .route("/api/launch_app", post(launch_app))
         .route("/api/chat_ask", post(chat_ask))
         .route("/api/health_check", post(health_check))
         .route("/api/execute_action", post(execute_action))
-        .route("/api/hide_window", post(hide_window))
+        .route("/api/hide_window", post(hide_window_noop))
         .route("/api/load_vault", post(load_vault))
         .layer(
             CorsLayer::new()
@@ -134,7 +135,27 @@ pub fn start(app: tauri::AppHandle) {
                 .allow_methods([axum::http::Method::POST])
                 .allow_headers([axum::http::header::CONTENT_TYPE]),
         )
-        .with_state(app);
+        .with_state(ctx)
+}
+
+pub fn start(app: tauri::AppHandle) {
+    use crate::commands::{history, vectors};
+
+    // Build AppContext from Tauri managed state
+    let ctx = Arc::new(
+        AppContext::new(
+            history::DbState::new(
+                history::open_history_db().expect("open history DB for dev server"),
+            ),
+            vectors::VectorDbState::new(
+                vectors::open_vector_db().expect("open vector DB for dev server"),
+            ),
+            crate::indexer::IndexerState::new(),
+        )
+        .with_app_handle(app),
+    );
+
+    let router = build_router(ctx);
 
     tauri::async_runtime::spawn(async move {
         let listener = match tokio::net::TcpListener::bind("127.0.0.1:3001").await {

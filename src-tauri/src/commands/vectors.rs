@@ -1,3 +1,4 @@
+use crate::context::AppContext;
 use crate::ollama;
 use crate::router::{Category, SearchResult};
 use rusqlite::Connection;
@@ -121,7 +122,38 @@ fn search_vectors(
         .collect())
 }
 
-pub async fn search_by_content(query: &str, app: &AppHandle) -> Result<Vec<SearchResult>, String> {
+/// Search by content using AppContext (Tauri-free).
+pub async fn search_by_content(query: &str, ctx: &AppContext) -> Result<Vec<SearchResult>, String> {
+    let cfg = crate::config::get_config();
+    if !cfg.vector_search.enabled {
+        return Ok(vec![SearchResult {
+            id: "vector-disabled".into(),
+            name: "Vector search is disabled".into(),
+            description: "Enable in ~/.config/burrow/config.toml".into(),
+            icon: "".into(),
+            category: Category::Info,
+            exec: "".into(),
+            input_spec: None,
+        }]);
+    }
+
+    let query_embedding = ollama::generate_embedding(query).await?;
+
+    let conn = ctx.vector_db.lock()?;
+    search_vectors(
+        &conn,
+        &query_embedding,
+        cfg.vector_search.top_k,
+        cfg.vector_search.min_score,
+    )
+    .map_err(|e| e.to_string())
+}
+
+/// Search by content via Tauri AppHandle (legacy path).
+pub async fn search_by_content_tauri(
+    query: &str,
+    app: &AppHandle,
+) -> Result<Vec<SearchResult>, String> {
     let cfg = crate::config::get_config();
     if !cfg.vector_search.enabled {
         return Ok(vec![SearchResult {
