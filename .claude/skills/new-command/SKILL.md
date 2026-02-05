@@ -22,7 +22,7 @@ pub async fn my_command(arg: &str, ctx: &AppContext) -> Result<MyResponse, Strin
 
 ## 2. Tauri Wrapper
 
-Add `_cmd` suffix wrapper (in `src-tauri/src/lib.rs` or same module):
+Add `_cmd` suffix wrapper in the same module as the primary function:
 
 ```rust
 #[tauri::command]
@@ -30,8 +30,8 @@ pub async fn my_command_cmd(
     arg: String,
     app: tauri::AppHandle,
 ) -> Result<MyResponse, String> {
-    let ctx = app.state::<Arc<AppContext>>();
-    my_command(&arg, &ctx).await
+    let ctx = app.state::<AppContext>();
+    my_command(&arg, ctx.inner()).await
 }
 ```
 
@@ -63,11 +63,11 @@ struct MyCommandBody {
 async fn my_command_handler(
     State(ctx): State<Arc<AppContext>>,
     Json(body): Json<MyCommandBody>,
-) -> Json<serde_json::Value> {
-    match my_command(&body.arg, &ctx).await {
-        Ok(result) => Json(serde_json::to_value(result).unwrap()),
-        Err(e) => Json(json!({"error": e})),
-    }
+) -> Result<Json<MyResponse>, (StatusCode, String)> {
+    my_command(&body.arg, &ctx)
+        .await
+        .map(Json)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))
 }
 ```
 
@@ -91,4 +91,4 @@ This works in both Tauri (native IPC) and browser (HTTP bridge via `mock-tauri.t
 
 - `test-server` binary does NOT need changes — it calls `build_router()` which picks up new routes automatically
 - The Tauri wrapper and HTTP handler both call the same primary function
-- Use `Arc<AppContext>` for state in both Tauri (`app.state::<Arc<AppContext>>()`) and axum (`State(ctx)`)
+- Use `AppContext` for Tauri state (`app.state::<AppContext>()`) and `Arc<AppContext>` for axum state (`State(ctx): State<Arc<AppContext>>`)
