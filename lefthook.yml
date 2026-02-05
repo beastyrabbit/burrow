@@ -20,3 +20,11 @@ pre-commit:
     rust-test:
       glob: "**/*.rs"
       run: cargo test --manifest-path src-tauri/Cargo.toml --quiet
+
+pre-push:
+  parallel: false
+  commands:
+    rust-test-full:
+      run: cargo test --manifest-path src-tauri/Cargo.toml
+    playwright-e2e:
+      run: npx playwright test
