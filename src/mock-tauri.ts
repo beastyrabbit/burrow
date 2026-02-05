@@ -5,6 +5,17 @@
 
 const DEV_API = "http://127.0.0.1:3001/api";
 
+// Tauri registers command handlers with a _cmd suffix to avoid name collisions
+// with the core (Tauri-free) functions in Rust. The frontend and HTTP bridge use
+// clean names; this map translates for real Tauri IPC calls.
+const TAURI_CMD: Record<string, string> = {
+  search: "search_cmd",
+  health_check: "health_check_cmd",
+  chat_ask: "chat_ask_cmd",
+  record_launch: "record_launch_cmd",
+  execute_action: "execute_action_cmd",
+};
+
 // Type for Tauri event callbacks
 type EventCallback<T> = (event: { payload: T }) => void;
 
@@ -14,7 +25,7 @@ export async function invoke<T>(cmd: string, args?: Record<string, unknown>): Pr
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const tauriInternals = (window as any).__TAURI_INTERNALS__;
   if (tauriInternals) {
-    return tauriInternals.invoke(cmd, args);
+    return tauriInternals.invoke(TAURI_CMD[cmd] ?? cmd, args);
   }
 
   let res: Response;
