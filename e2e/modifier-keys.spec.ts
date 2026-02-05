@@ -95,29 +95,6 @@ test.describe("Modifier Key Actions", () => {
     expect(logs.some((l) => l.includes("execute_action") && l.includes("modifier=shift"))).toBe(true);
   });
 
-  // --- Action category still uses run_setting ---
-
-  test("Enter on action result uses run_setting not execute_action", async ({ page }) => {
-    const input = page.locator(".search-input");
-    await input.fill(":stats");
-    await page.waitForTimeout(200);
-
-    const items = page.locator(".result-item:not(.empty)");
-    await expect(items.first()).toBeVisible();
-
-    const logs: string[] = [];
-    page.on("console", (msg) => logs.push(msg.text()));
-
-    await page.keyboard.press("Enter");
-    await page.waitForTimeout(100);
-
-    // Action should NOT invoke execute_action — uses run_setting instead
-    expect(logs.some((l) => l.includes("execute_action"))).toBe(false);
-    // Should show notification from run_setting
-    const notification = page.locator(".notification");
-    await expect(notification).toBeVisible();
-  });
-
   // --- SSH category ---
 
   test("Enter on SSH result invokes execute_action", async ({ page }) => {

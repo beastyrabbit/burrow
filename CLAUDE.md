@@ -99,7 +99,7 @@
 
 | Command | Purpose |
 |---------|---------|
-| `cd src-tauri && cargo test` | Run all Rust unit tests (375+ tests) |
+| `cd src-tauri && cargo test` | Run all Rust unit tests (450+ tests) |
 | `npx playwright test` | Run all e2e tests (starts `pnpm tauri dev` if needed) |
 | `pnpm dev` | Start Vite dev server on :1420 (needs HTTP bridge on :3001) |
 | `pnpm tauri dev` | Start full Tauri app (real backend) |
@@ -159,7 +159,7 @@ Providers: `ollama`, `openrouter`
 
 - `src-tauri/src/config.rs` — TOML config loading, env overrides, defaults, ModelsConfig
 - `src-tauri/src/ollama.rs` — Ollama HTTP client, cosine similarity, embedding serialization, model fetching
-- `src-tauri/src/commands/` — Backend providers (apps, history, math, ssh, onepass, files, vectors, chat, health, settings)
+- `src-tauri/src/commands/` — Backend providers (apps, history, math, ssh, onepass, files, vectors, chat, health)
 - `src-tauri/src/chat.rs` — Provider-agnostic AI chat (Ollama/OpenRouter), RAG prompt building
 - `src-tauri/src/text_extract.rs` — Document text extraction (PDF, DOC via external LibreOffice, DOCX, XLSX, ODS, etc.)
 - `src-tauri/src/router.rs` — Input classification and dispatch
@@ -188,13 +188,12 @@ Providers: `ollama`, `openrouter`
 - Use in-memory SQLite (`Connection::open_in_memory()`) for DB tests
 - Config uses `OnceLock` for thread-safe singleton; tests use `parse_config()` directly
 - Configure your Ollama instance URL and embedding model in `~/.config/burrow/config.toml`
-- When adding a new settings action: add `SettingDef` in `commands/settings.rs`, add match arm in `run_setting()` in `lib.rs`, update settings count in tests
 - When adding a new Tauri command: add route in `dev_server.rs` with request body struct, add to `generate_handler![]` in `lib.rs`
 - `dev_server.rs` endpoints mirror Tauri command signatures — each gets a Deserialize body struct and calls the same function
 - Playwright tests now run against real backend via HTTP bridge — no more mock data to maintain in `mock-tauri.ts`
 - Pre-commit hooks run rustfmt — always run `cargo fmt` before staging, or stage after the first failed commit attempt
-- Health indicator checks only core services (Ollama, vector DB), not optional features (API key) to avoid false alarms
-- `e2e/launcher.spec.ts`, `e2e/edge-cases.spec.ts`, and `e2e/icons.spec.ts` have hardcoded settings count — update when adding new settings
+- Health indicator is tri-state: green checkmark (healthy), blue pulsing ⟳ (indexing), red ! (error). Click shows details in notification bar.
+- Settings and admin tasks (reindex, config, stats, health, etc.) belong in the CLI only. The GUI is exclusively for day-to-day use: launching apps, searching files, SSH, chat.
 - Ollama server defaults to `localhost:11434` — existing user configs override all defaults
 - When new config keys are added, regenerate config (`rm ~/.config/burrow/config.toml`) or manually add new keys
 - When defaults change (values only), existing configs continue working with their current values

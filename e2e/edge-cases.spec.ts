@@ -41,13 +41,7 @@ test.describe("Edge Cases", () => {
   test("switching between prefixes works", async ({ page }) => {
     const input = page.locator(".search-input");
 
-    // Start with settings prefix
-    await input.fill(":");
-    await page.waitForTimeout(200);
-    const settingsItems = page.locator(".result-item:not(.empty)");
-    await expect(settingsItems).toHaveCount(6);
-
-    // Switch to math
+    // Start with math
     await input.fill("2+2");
     await page.waitForTimeout(200);
     const mathResult = page.locator(".result-name").first();
@@ -58,6 +52,12 @@ test.describe("Edge Cases", () => {
     await page.waitForTimeout(200);
     const list = page.locator(".results-list");
     await expect(list).toBeVisible();
+
+    // Switch to chat
+    await input.fill("?hello");
+    await page.waitForTimeout(200);
+    const chatResult = page.locator(".result-name").first();
+    await expect(chatResult).toContainText("Ask:");
   });
 
   test("empty after typing returns to initial state", async ({ page }) => {

@@ -1,5 +1,4 @@
 use burrow_lib::commands::math::try_calculate;
-use burrow_lib::commands::settings::search_settings;
 use burrow_lib::commands::ssh::{filter_hosts, parse_ssh_config_content};
 use burrow_lib::router::{classify_query, Category, RouteKind};
 
@@ -11,20 +10,8 @@ fn math_expression_returns_result() {
 }
 
 #[test]
-fn settings_prefix_returns_actions() {
-    let results = search_settings("reindex").unwrap();
-    assert_eq!(results.len(), 1);
-    assert_eq!(results[0].category, Category::Action);
-}
-
-#[test]
 fn empty_query_classifies_as_history() {
     assert_eq!(classify_query(""), RouteKind::History);
-}
-
-#[test]
-fn colon_classifies_as_settings() {
-    assert_eq!(classify_query(":anything"), RouteKind::Settings);
 }
 
 #[test]
@@ -57,18 +44,6 @@ Host local
     assert_eq!(results[0].name, "prod");
     // exec now contains just the host alias (no shell command for security)
     assert_eq!(results[0].exec, "prod");
-}
-
-#[test]
-fn all_settings_have_consistent_structure() {
-    let results = search_settings("").unwrap();
-    for r in &results {
-        assert_eq!(r.category, Category::Action);
-        assert!(r.exec.is_empty());
-        assert!(r.name.starts_with(':'));
-        assert!(!r.id.is_empty());
-        assert!(!r.description.is_empty());
-    }
 }
 
 #[test]

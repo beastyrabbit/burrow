@@ -1,5 +1,6 @@
 use crate::commands::vectors::VectorDbState;
 use crate::config;
+use crate::indexer::IndexerState;
 use serde::{Deserialize, Serialize};
 use tauri::Manager;
 
@@ -8,12 +9,13 @@ pub struct HealthStatus {
     pub ollama: bool,
     pub vector_db: bool,
     pub api_key: bool,
+    pub indexing: bool,
     pub issues: Vec<String>,
 }
 
 /// Shared health check logic - checks Ollama and constructs status.
 /// `vector_db_check` is a closure that performs the DB check (different for Tauri vs CLI).
-async fn health_check_core<F>(vector_db_check: F) -> Result<HealthStatus, String>
+async fn health_check_core<F>(vector_db_check: F, indexing: bool) -> Result<HealthStatus, String>
 where
     F: FnOnce() -> Result<(), String>,
 {
@@ -45,18 +47,20 @@ where
         ollama,
         vector_db,
         api_key,
+        indexing,
         issues,
     })
 }
 
 #[tauri::command]
 pub async fn health_check(app: tauri::AppHandle) -> Result<HealthStatus, String> {
-    health_check_core(|| check_vector_db(&app)).await
+    let indexing = app.state::<IndexerState>().get().running;
+    health_check_core(|| check_vector_db(&app), indexing).await
 }
 
 /// Standalone health check for CLI (no Tauri state)
 pub async fn health_check_standalone() -> Result<HealthStatus, String> {
-    health_check_core(check_vector_db_standalone).await
+    health_check_core(check_vector_db_standalone, false).await
 }
 
 fn check_vector_db_standalone() -> Result<(), String> {
@@ -110,6 +114,10 @@ pub fn format_health(status: &HealthStatus) -> String {
         format!("Ollama: {}", ok(status.ollama)),
         format!("Vector DB: {}", ok(status.vector_db)),
         format!("API Key: {}", ok(status.api_key)),
+        format!(
+            "Indexer: {}",
+            if status.indexing { "running" } else { "idle" }
+        ),
     ];
     if !status.issues.is_empty() {
         lines.push(format!("Issues: {}", status.issues.join("; ")));
@@ -149,6 +157,7 @@ mod tests {
             ollama: true,
             vector_db: true,
             api_key: true,
+            indexing: false,
             issues: vec![],
         };
         assert!(status.ollama && status.vector_db && status.api_key);
@@ -161,6 +170,7 @@ mod tests {
             ollama: false,
             vector_db: true,
             api_key: true,
+            indexing: false,
             issues: vec!["Ollama: unreachable".into()],
         };
         assert!(!status.ollama);
@@ -173,12 +183,14 @@ mod tests {
             ollama: true,
             vector_db: true,
             api_key: true,
+            indexing: false,
             issues: vec![],
         };
         let s = format_health(&status);
         assert!(s.contains("Ollama: OK"));
         assert!(s.contains("Vector DB: OK"));
         assert!(s.contains("API Key: OK"));
+        assert!(s.contains("Indexer: idle"));
         assert!(!s.contains("Issues"));
     }
 
@@ -188,11 +200,25 @@ mod tests {
             ollama: false,
             vector_db: true,
             api_key: false,
+            indexing: false,
             issues: vec!["Ollama: down".into(), "No API key".into()],
         };
         let s = format_health(&status);
         assert!(s.contains("Ollama: FAIL"));
         assert!(s.contains("API Key: FAIL"));
         assert!(s.contains("Issues:"));
+    }
+
+    #[test]
+    fn format_health_indexing() {
+        let status = HealthStatus {
+            ollama: true,
+            vector_db: true,
+            api_key: true,
+            indexing: true,
+            issues: vec![],
+        };
+        let s = format_health(&status);
+        assert!(s.contains("Indexer: running"));
     }
 }

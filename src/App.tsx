@@ -30,9 +30,51 @@ const CATEGORY_LABELS: Record<string, string> = {
   vector: "Content",
   chat: "Chat",
   info: "Info",
-  action: "Action",
   special: "Special",
 };
+
+type HealthState = "ok" | "indexing" | "error";
+
+interface HealthStatus {
+  ollama: boolean;
+  vector_db: boolean;
+  api_key: boolean;
+  indexing: boolean;
+}
+
+function healthStateFrom(status: HealthStatus): HealthState {
+  if (!status.ollama || !status.vector_db) return "error";
+  if (status.indexing) return "indexing";
+  return "ok";
+}
+
+const HEALTH_CLASS: Record<HealthState, string> = {
+  ok: "health-ok",
+  indexing: "health-indexing",
+  error: "health-error",
+};
+
+const HEALTH_TITLE: Record<HealthState, string> = {
+  ok: "System healthy — click for details",
+  indexing: "Indexing in progress — click for details",
+  error: "System health issue — click for details",
+};
+
+const HEALTH_ICON: Record<HealthState, string> = {
+  ok: "\u2713",
+  indexing: "\u27F3",
+  error: "!",
+};
+
+function formatHealthNotification(status: HealthStatus): string {
+  const ok = (v: boolean) => (v ? "OK" : "FAIL");
+  return [
+    `Ollama: ${ok(status.ollama)}`,
+    `Vector DB: ${ok(status.vector_db)}`,
+    `API Key: ${ok(status.api_key)}`,
+    `Indexer: ${status.indexing ? "running" : "idle"}`,
+  ].join(" | ");
+}
 
 function ResultIcon({ icon, category }: { icon: string; category: string }) {
   const [broken, setBroken] = useState(false);
@@ -63,7 +105,7 @@ function App() {
   const [notification, setNotification] = useState("");
   const [chatAnswer, setChatAnswer] = useState("");
   const [chatLoading, setChatLoading] = useState(false);
-  const [healthOk, setHealthOk] = useState(true);
+  const [health, setHealth] = useState<HealthState>("ok");
   // Secondary input mode state
   const [secondaryMode, setSecondaryMode] = useState<{
     active: boolean;
@@ -112,11 +154,11 @@ function App() {
   useEffect(() => {
     const checkHealth = async () => {
       try {
-        const status = await invoke<{ ollama: boolean; vector_db: boolean; api_key: boolean }>("health_check");
-        setHealthOk(status.ollama && status.vector_db);
+        const status = await invoke<HealthStatus>("health_check");
+        setHealth(healthStateFrom(status));
       } catch (e) {
         console.error("Health check failed:", e);
-        setHealthOk(false);
+        setHealth("error");
       }
     };
     checkHealth();
@@ -272,22 +314,6 @@ function App() {
       return;
     }
 
-    // Actions are handled separately via run_setting
-    if (item.category === "action") {
-      try {
-        setNotification("Running...");
-        const msg = await invoke<string>("run_setting", { action: item.id });
-        setNotification(msg);
-      } catch (err) {
-        const errMsg = err instanceof Error ? err.message : String(err);
-        setNotification(`Error: ${errMsg}`);
-      } finally {
-        if (notificationTimer.current) clearTimeout(notificationTimer.current);
-        notificationTimer.current = setTimeout(() => setNotification(""), 4000);
-      }
-      return;
-    }
-
     // Record launch for non-ephemeral categories
     if (!["math", "info"].includes(item.category)) {
       try {
@@ -379,12 +405,27 @@ function App() {
           autoFocus
           spellCheck={false}
         />
-        {!healthOk && !secondaryMode.active && (
+        {!secondaryMode.active && (
           <span
-            className="health-indicator"
-            title="System health issue — click to check"
-            onClick={() => setQuery(":health")}
-          >!</span>
+            className={`health-indicator ${HEALTH_CLASS[health]}`}
+            title={HEALTH_TITLE[health]}
+            onClick={async () => {
+              try {
+                const status = await invoke<HealthStatus>("health_check");
+                setHealth(healthStateFrom(status));
+                setNotification(formatHealthNotification(status));
+              } catch (err) {
+                setHealth("error");
+                const errMsg = err instanceof Error ? err.message : String(err);
+                setNotification(`Health check failed: ${errMsg}`);
+              } finally {
+                if (notificationTimer.current) clearTimeout(notificationTimer.current);
+                notificationTimer.current = setTimeout(() => setNotification(""), 6000);
+              }
+            }}
+          >
+            {HEALTH_ICON[health]}
+          </span>
         )}
       </div>
       {notification && (

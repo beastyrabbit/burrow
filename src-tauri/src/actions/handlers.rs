@@ -17,7 +17,6 @@ pub fn is_valid_category(category: Category) -> bool {
             | Category::History
             | Category::Ssh
             | Category::Math
-            | Category::Action
             | Category::Info
             | Category::Special
     )
@@ -37,7 +36,6 @@ pub fn handle_action(
         }
         Category::Ssh => handle_ssh(result, modifier),
         Category::Math => handle_math(result, modifier),
-        Category::Action => Ok(()), // No-op: action results are dispatched by frontend via run_setting() command
         Category::Info => Ok(()),
         Category::Chat => Ok(()), // Handled by frontend
     }
@@ -296,7 +294,6 @@ mod tests {
             Category::History,
             Category::Ssh,
             Category::Math,
-            Category::Action,
             Category::Info,
             Category::Special,
         ];

@@ -29,15 +29,6 @@ function Calculator() {
   );
 }
 
-function Settings() {
-  return (
-    <svg {...iconProps}>
-      <path d="M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915" />
-      <circle cx="12" cy="12" r="3" />
-    </svg>
-  );
-}
-
 function FolderOpen() {
   return (
     <svg {...iconProps}>
@@ -111,6 +102,17 @@ function AppWindow() {
   );
 }
 
+function Hash() {
+  return (
+    <svg {...iconProps}>
+      <line x1="4" x2="20" y1="9" y2="9" />
+      <line x1="4" x2="20" y1="15" y2="15" />
+      <line x1="10" x2="8" y1="3" y2="21" />
+      <line x1="16" x2="14" y1="3" y2="21" />
+    </svg>
+  );
+}
+
 const categoryIcons: Record<string, () => React.JSX.Element> = {
   app: AppWindow,
   history: Clock,
@@ -121,7 +123,7 @@ const categoryIcons: Record<string, () => React.JSX.Element> = {
   vector: Search,
   chat: MessageCircle,
   info: Info,
-  action: Settings,
+  special: Hash,
 };
 
 export function CategoryIcon({ category }: { category: string }) {

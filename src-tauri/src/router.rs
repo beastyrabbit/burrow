@@ -1,4 +1,4 @@
-use crate::commands::{apps, files, math, onepass, settings, special, ssh, vectors};
+use crate::commands::{apps, files, math, onepass, special, ssh, vectors};
 use serde::{Deserialize, Serialize};
 
 /// Specification for optional secondary input on a result.
@@ -26,7 +26,6 @@ pub enum Category {
     Vector,
     Chat,
     Info,
-    Action,
     Special,
 }
 
@@ -52,7 +51,6 @@ pub enum RouteKind {
     OnePassword,
     Ssh,
     Math,
-    Settings,
     Chat,
     Special,
 }
@@ -68,10 +66,6 @@ pub fn classify_query(query: &str) -> RouteKind {
 
     if query.starts_with('?') {
         return RouteKind::Chat;
-    }
-
-    if query.starts_with(':') {
-        return RouteKind::Settings;
     }
 
     if query.starts_with(' ') {
@@ -132,10 +126,6 @@ pub async fn search(query: String, app: tauri::AppHandle) -> Result<Vec<SearchRe
         RouteKind::Chat => {
             let q = query.trim_start_matches('?').trim();
             Ok(build_chat_results(q))
-        }
-        RouteKind::Settings => {
-            let cmd = query.trim_start_matches(':').trim();
-            settings::search_settings(cmd)
         }
         RouteKind::VectorSearch => {
             let content_query = query.trim_start().trim_start_matches('*').trim();
@@ -247,18 +237,11 @@ mod tests {
     }
 
     #[test]
-    fn colon_prefix_routes_to_settings() {
-        assert_eq!(classify_query(":reindex"), RouteKind::Settings);
-    }
-
-    #[test]
-    fn colon_alone_routes_to_settings() {
-        assert_eq!(classify_query(":"), RouteKind::Settings);
-    }
-
-    #[test]
-    fn colon_with_text_routes_to_settings() {
-        assert_eq!(classify_query(":config"), RouteKind::Settings);
+    fn colon_prefix_routes_to_app() {
+        // Regression guard: `:` commands were removed — colon queries fall through to app search
+        assert_eq!(classify_query(":reindex"), RouteKind::App);
+        assert_eq!(classify_query(":health"), RouteKind::App);
+        assert_eq!(classify_query(":stats"), RouteKind::App);
     }
 
     #[test]
@@ -344,10 +327,6 @@ mod tests {
         );
         assert_eq!(serde_json::to_string(&Category::Chat).unwrap(), "\"chat\"");
         assert_eq!(serde_json::to_string(&Category::Info).unwrap(), "\"info\"");
-        assert_eq!(
-            serde_json::to_string(&Category::Action).unwrap(),
-            "\"action\""
-        );
         assert_eq!(
             serde_json::to_string(&Category::Special).unwrap(),
             "\"special\""
