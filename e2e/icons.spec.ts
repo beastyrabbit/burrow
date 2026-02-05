@@ -52,21 +52,6 @@ test.describe("Result Icons", () => {
     await expect(svg).toBeVisible();
   });
 
-  test("settings results show gear category icon", async ({ page }) => {
-    const input = page.locator(".search-input");
-    await input.fill(":");
-    await page.waitForTimeout(200);
-
-    const placeholders = page.locator(".result-icon-placeholder");
-    const count = await placeholders.count();
-    expect(count).toBe(6); // all 6 settings have category icons
-
-    for (let i = 0; i < count; i++) {
-      const svg = placeholders.nth(i).locator("svg");
-      await expect(svg).toBeVisible();
-    }
-  });
-
   test("SSH result shows terminal category icon", async ({ page }) => {
     const input = page.locator(".search-input");
     await input.fill("ssh dev");
@@ -158,16 +143,16 @@ test.describe("Result Icons", () => {
     const mathContent = page.locator(".result-content").first();
     const mathBox = await mathContent.boundingBox();
 
-    // Get content position with settings result
-    await input.fill(":");
+    // Get content position with chat result
+    await input.fill("?hello");
     await page.waitForTimeout(200);
-    const settingsContent = page.locator(".result-content").first();
-    const settingsBox = await settingsContent.boundingBox();
+    const chatContent = page.locator(".result-content").first();
+    const chatBox = await chatContent.boundingBox();
 
     // Both should have the same left offset (icon takes same space)
     expect(mathBox).not.toBeNull();
-    expect(settingsBox).not.toBeNull();
-    expect(mathBox!.x).toBe(settingsBox!.x);
+    expect(chatBox).not.toBeNull();
+    expect(mathBox!.x).toBe(chatBox!.x);
   });
 
   // --- App icons (mock mode has no backend icon resolution) ---

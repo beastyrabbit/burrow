@@ -86,6 +86,10 @@ fn display_health_status(status: &health::HealthStatus, json: bool) -> i32 {
         print_status("Ollama", status.ollama);
         print_status("Vector DB", status.vector_db);
         print_status("API Key", status.api_key);
+        print_info(&format!(
+            "Indexer: {}",
+            if status.indexing { "running" } else { "idle" }
+        ));
 
         if !status.issues.is_empty() {
             println!();

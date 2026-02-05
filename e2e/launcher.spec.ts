@@ -280,53 +280,6 @@ test.describe("Launcher UI", () => {
     }
   });
 
-  // --- Settings prefix ---
-
-  test(": prefix shows all settings commands", async ({ page }) => {
-    const input = page.locator(".search-input");
-    await input.fill(":");
-    await page.waitForTimeout(200);
-
-    const items = page.locator(".result-item:not(.empty)");
-    await expect(items).toHaveCount(6);
-  });
-
-  test(":rei matches reindex", async ({ page }) => {
-    const input = page.locator(".search-input");
-    await input.fill(":rei");
-    await page.waitForTimeout(200);
-
-    const resultName = page.locator(".result-name").first();
-    await expect(resultName).toContainText(":reindex");
-  });
-
-  test(":config shows config action", async ({ page }) => {
-    const input = page.locator(".search-input");
-    await input.fill(":config");
-    await page.waitForTimeout(200);
-
-    const resultName = page.locator(".result-name").first();
-    await expect(resultName).toContainText(":config");
-  });
-
-  test("settings results have Action badge", async ({ page }) => {
-    const input = page.locator(".search-input");
-    await input.fill(":");
-    await page.waitForTimeout(200);
-
-    const badge = page.locator(".result-badge").first();
-    await expect(badge).toHaveText("Action");
-  });
-
-  test(":zzz returns no results", async ({ page }) => {
-    const input = page.locator(".search-input");
-    await input.fill(":zzz");
-    await page.waitForTimeout(200);
-
-    const empty = page.locator(".result-item.empty");
-    await expect(empty).toBeVisible();
-  });
-
   // --- All apps on empty query ---
 
   test("empty query shows more than 10 items (all apps)", async ({ page }) => {

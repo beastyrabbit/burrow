@@ -39,11 +39,28 @@ body {
 .health-indicator {
   position: absolute;
   right: 16px;
-  color: #f7768e;
   font-weight: 700;
   font-size: 18px;
   cursor: pointer;
   user-select: none;
+}
+
+.health-ok {
+  color: #9ece6a;
+}
+
+.health-indexing {
+  color: #7aa2f7;
+  animation: pulse 2s ease-in-out infinite;
+}
+
+.health-error {
+  color: #f7768e;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
 }
 
 .search-input::placeholder {

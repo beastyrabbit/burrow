@@ -5,42 +5,24 @@ test.describe("Health Check", () => {
     await page.goto("/");
   });
 
-  test("no health indicator when system is healthy", async ({ page }) => {
-    // Mock returns all-healthy, so ! should not appear
+  test("health indicator is visible when system is healthy", async ({ page }) => {
     await page.waitForTimeout(500);
     const indicator = page.locator(".health-indicator");
-    await expect(indicator).toHaveCount(0);
+    await expect(indicator).toBeVisible();
+    await expect(indicator).toHaveClass(/health-ok/);
+    await expect(indicator).toHaveText("✓");
   });
 
-  test(":health shows in settings list", async ({ page }) => {
-    const input = page.locator(".search-input");
-    await input.fill(":health");
-    await page.waitForTimeout(200);
-
-    const items = page.locator(".result-item:not(.empty)");
-    await expect(items).toHaveCount(1);
-    const name = page.locator(".result-name").first();
-    await expect(name).toContainText(":health");
-  });
-
-  test(": prefix shows 6 settings including health", async ({ page }) => {
-    const input = page.locator(".search-input");
-    await input.fill(":");
-    await page.waitForTimeout(200);
-
-    const items = page.locator(".result-item:not(.empty)");
-    await expect(items).toHaveCount(6);
-  });
-
-  test(":health action shows health status in notification", async ({ page }) => {
-    const input = page.locator(".search-input");
-    await input.fill(":health");
-    await page.waitForTimeout(200);
-
-    await page.keyboard.press("Enter");
+  test("health indicator click shows notification with details", async ({ page }) => {
+    await page.waitForTimeout(500);
+    const indicator = page.locator(".health-indicator");
+    await indicator.click();
     await page.waitForTimeout(300);
 
     const notification = page.locator(".notification");
-    await expect(notification).toContainText("Ollama: OK");
+    await expect(notification).toBeVisible();
+    await expect(notification).toContainText("Ollama:");
+    await expect(notification).toContainText("Vector DB:");
+    await expect(notification).toContainText("Indexer:");
   });
 });

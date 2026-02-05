@@ -84,21 +84,6 @@ async fn health_check(
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))
 }
 
-async fn run_setting(
-    State(app): State<AppState>,
-    Json(body): Json<RunSettingBody>,
-) -> Result<Json<String>, (StatusCode, String)> {
-    crate::run_setting(body.action, app)
-        .await
-        .map(Json)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))
-}
-
-#[derive(Deserialize)]
-struct RunSettingBody {
-    action: String,
-}
-
 async fn execute_action(
     State(app): State<AppState>,
     Json(body): Json<ExecuteActionBody>,
@@ -137,7 +122,6 @@ pub fn start(app: tauri::AppHandle) {
         .route("/api/launch_app", post(launch_app))
         .route("/api/chat_ask", post(chat_ask))
         .route("/api/health_check", post(health_check))
-        .route("/api/run_setting", post(run_setting))
         .route("/api/execute_action", post(execute_action))
         .route("/api/hide_window", post(hide_window))
         .route("/api/load_vault", post(load_vault))
