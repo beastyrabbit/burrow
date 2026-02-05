@@ -3,8 +3,8 @@ pub(crate) mod chat;
 pub mod cli;
 pub mod commands;
 pub mod config;
+pub mod context;
 pub mod daemon;
-#[cfg(debug_assertions)]
 pub mod dev_server;
 pub mod icons;
 pub mod indexer;
@@ -14,6 +14,8 @@ pub mod router;
 pub(crate) mod text_extract;
 
 use commands::{apps, history, vectors};
+use context::AppContext;
+use std::sync::Arc;
 use tauri::Manager;
 
 #[tauri::command]
@@ -64,12 +66,24 @@ pub fn run() {
             }
         }))
         .setup(|app| {
-            history::init_db(app.handle())?;
-            vectors::init_vector_db(app.handle())?;
             apps::init_app_cache();
-            // Vault is loaded on-demand via "Load 1Password Data" action
-            app.manage(indexer::IndexerState::new());
+
+            // Create shared state instances once — used by both Tauri managed state and AppContext.
+            let db = Arc::new(history::DbState::new(history::open_history_db()?));
+            let vector_db = Arc::new(vectors::VectorDbState::new(vectors::open_vector_db()?));
+            let indexer_state = Arc::new(indexer::IndexerState::new());
+
+            // Manage individual states for Tauri commands and background indexer
+            app.manage(db.clone());
+            app.manage(vector_db.clone());
+            app.manage(indexer_state.clone());
             indexer::start_background_indexer(app.handle().clone());
+
+            // Build AppContext sharing the same Arc references — no duplicate connections
+            let ctx = AppContext::from_arcs(db, vector_db, indexer_state)
+                .with_app_handle(app.handle().clone());
+            app.manage(ctx);
+
             #[cfg(debug_assertions)]
             dev_server::start(app.handle().clone());
 
@@ -91,12 +105,12 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            router::search,
-            history::record_launch,
+            router::search_cmd,
+            history::record_launch_cmd,
             apps::launch_app,
-            commands::chat::chat_ask,
-            commands::health::health_check,
-            actions::execute_action,
+            commands::chat::chat_ask_cmd,
+            commands::health::health_check_cmd,
+            actions::execute_action_cmd,
             hide_window,
         ])
         .run(tauri::generate_context!())

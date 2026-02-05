@@ -1,9 +1,10 @@
+use crate::context::AppContext;
 use crate::ollama;
 use crate::router::{Category, SearchResult};
 use rusqlite::Connection;
 use std::path::PathBuf;
 use std::sync::{Mutex, MutexGuard};
-use tauri::{AppHandle, Manager};
+use tauri::AppHandle;
 
 /// Thread-safe wrapper for the vector database connection.
 /// Inner field is private to enforce access through the `lock()` method.
@@ -57,6 +58,7 @@ fn create_vector_table(conn: &Connection) -> Result<(), rusqlite::Error> {
 }
 
 pub fn init_vector_db(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
+    use tauri::Manager;
     let conn = Connection::open(vector_db_path())?;
     create_vector_table(&conn)?;
     app.manage(VectorDbState::new(conn));
@@ -121,7 +123,8 @@ fn search_vectors(
         .collect())
 }
 
-pub async fn search_by_content(query: &str, app: &AppHandle) -> Result<Vec<SearchResult>, String> {
+/// Search by content using AppContext (Tauri-free).
+pub async fn search_by_content(query: &str, ctx: &AppContext) -> Result<Vec<SearchResult>, String> {
     let cfg = crate::config::get_config();
     if !cfg.vector_search.enabled {
         return Ok(vec![SearchResult {
@@ -137,8 +140,7 @@ pub async fn search_by_content(query: &str, app: &AppHandle) -> Result<Vec<Searc
 
     let query_embedding = ollama::generate_embedding(query).await?;
 
-    let state = app.state::<VectorDbState>();
-    let conn = state.lock()?;
+    let conn = ctx.vector_db.lock()?;
     search_vectors(
         &conn,
         &query_embedding,

@@ -1,8 +1,6 @@
-use crate::commands::vectors::VectorDbState;
 use crate::config;
-use crate::indexer::IndexerState;
+use crate::context::AppContext;
 use serde::{Deserialize, Serialize};
-use tauri::Manager;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HealthStatus {
@@ -52,10 +50,25 @@ where
     })
 }
 
+/// Primary health check — Tauri-free.
+pub async fn health_check(ctx: &AppContext) -> Result<HealthStatus, String> {
+    let indexing = ctx.indexer.get().running;
+    health_check_core(
+        || {
+            let conn = ctx.vector_db.lock()?;
+            check_vector_db_conn(&conn)
+        },
+        indexing,
+    )
+    .await
+}
+
+/// Tauri command wrapper for health_check.
 #[tauri::command]
-pub async fn health_check(app: tauri::AppHandle) -> Result<HealthStatus, String> {
-    let indexing = app.state::<IndexerState>().get().running;
-    health_check_core(|| check_vector_db(&app), indexing).await
+pub async fn health_check_cmd(app: tauri::AppHandle) -> Result<HealthStatus, String> {
+    use tauri::Manager;
+    let ctx = app.state::<AppContext>();
+    health_check(ctx.inner()).await
 }
 
 /// Standalone health check for CLI (no Tauri state)
@@ -96,12 +109,6 @@ async fn check_ollama(url: &str) -> Result<(), String> {
         .map_err(|e| format!("unhealthy ({e})"))?;
 
     Ok(())
-}
-
-fn check_vector_db(app: &tauri::AppHandle) -> Result<(), String> {
-    let state = app.state::<VectorDbState>();
-    let conn = state.lock()?;
-    check_vector_db_conn(&conn)
 }
 
 fn check_api_key(key: &str) -> bool {

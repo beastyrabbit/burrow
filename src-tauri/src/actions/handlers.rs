@@ -1,9 +1,9 @@
 use crate::actions::modifier::Modifier;
 use crate::actions::utils;
 use crate::commands::onepass;
+use crate::context::AppContext;
 use crate::router::{Category, SearchResult};
 use serde::Serialize;
-use tauri::Emitter;
 
 /// Check whether a category has a handler in the action dispatcher.
 /// Note: Chat category is handled separately by the frontend and is intentionally excluded.
@@ -26,13 +26,13 @@ pub fn handle_action(
     result: &SearchResult,
     modifier: Modifier,
     secondary_input: Option<&str>,
-    app: &tauri::AppHandle,
+    ctx: &AppContext,
 ) -> Result<(), String> {
     match result.category {
-        Category::Onepass => handle_onepass(result, modifier, app),
-        Category::File | Category::Vector => handle_file(result, modifier, app),
+        Category::Onepass => handle_onepass(result, modifier, ctx),
+        Category::File | Category::Vector => handle_file(result, modifier, ctx),
         Category::App | Category::History | Category::Special => {
-            handle_launch(result, app, secondary_input)
+            handle_launch(result, ctx, secondary_input)
         }
         Category::Ssh => handle_ssh(result, modifier),
         Category::Math => handle_math(result, modifier),
@@ -69,11 +69,11 @@ impl VaultLoadResult {
 fn handle_onepass(
     result: &SearchResult,
     modifier: Modifier,
-    app: &tauri::AppHandle,
+    ctx: &AppContext,
 ) -> Result<(), String> {
     if result.exec == "op-load-vault" {
         // Spawn in a thread because load_vault does blocking I/O + stdin prompts
-        let app_handle = app.clone();
+        let app_handle = ctx.clone_app_handle();
         std::thread::spawn(move || {
             let payload = match onepass::load_vault() {
                 Ok(msg) => {
@@ -85,8 +85,13 @@ fn handle_onepass(
                     VaultLoadResult::failure(e)
                 }
             };
-            if let Err(e) = app_handle.emit("vault-load-result", payload) {
-                tracing::error!(error = %e, "failed to emit vault-load-result event");
+            if let Some(ref app) = app_handle {
+                use tauri::Emitter;
+                if let Err(e) = app.emit("vault-load-result", payload) {
+                    tracing::error!(error = %e, "failed to emit vault-load-result event");
+                }
+            } else {
+                tracing::debug!("[no-window] vault-load-result emit skipped");
             }
         });
         return Ok(());
@@ -97,7 +102,7 @@ fn handle_onepass(
         .strip_prefix("op-vault-item:")
         .ok_or_else(|| "Could not extract 1Password item ID".to_string())?;
 
-    utils::hide_window(app);
+    ctx.hide_window();
 
     match modifier {
         Modifier::Shift => {
@@ -144,13 +149,9 @@ fn handle_onepass(
     }
 }
 
-fn handle_file(
-    result: &SearchResult,
-    modifier: Modifier,
-    app: &tauri::AppHandle,
-) -> Result<(), String> {
+fn handle_file(result: &SearchResult, modifier: Modifier, ctx: &AppContext) -> Result<(), String> {
     let path = &result.id; // file/vector results use id as the path
-    utils::hide_window(app);
+    ctx.hide_window();
     match modifier {
         Modifier::Shift => utils::open_dir_in_terminal(path),
         Modifier::Ctrl => utils::open_in_vscode(path),
@@ -188,10 +189,10 @@ fn resolve_exec(result: &SearchResult, secondary_input: Option<&str>) -> String 
 
 fn handle_launch(
     result: &SearchResult,
-    app: &tauri::AppHandle,
+    ctx: &AppContext,
     secondary_input: Option<&str>,
 ) -> Result<(), String> {
-    utils::hide_window(app);
+    ctx.hide_window();
     utils::exec_shell(&resolve_exec(result, secondary_input))
 }
 

@@ -1,12 +1,12 @@
-use super::vectors::VectorDbState;
 use crate::{
     chat::{self, ContextSnippet},
-    config, ollama,
+    config,
+    context::AppContext,
+    ollama,
 };
-use tauri::Manager;
 
-#[tauri::command]
-pub async fn chat_ask(query: String, app: tauri::AppHandle) -> Result<String, String> {
+/// Primary chat implementation — Tauri-free.
+pub async fn chat_ask(query: String, ctx: &AppContext) -> Result<String, String> {
     let trimmed = query.trim_start_matches('?').trim();
     if trimmed.is_empty() {
         return Err("Empty question".into());
@@ -14,9 +14,9 @@ pub async fn chat_ask(query: String, app: tauri::AppHandle) -> Result<String, St
 
     let cfg = config::get_config();
     let context_snippets = if cfg.vector_search.enabled {
-        fetch_context(
+        fetch_context_ctx(
             trimmed,
-            &app,
+            ctx,
             cfg.vector_search.top_k,
             cfg.vector_search.min_score,
         )
@@ -28,24 +28,30 @@ pub async fn chat_ask(query: String, app: tauri::AppHandle) -> Result<String, St
     chat::generate_answer(trimmed, &context_snippets).await
 }
 
-/// Retrieves the most relevant indexed file snippets for the query via vector similarity.
-/// Returns an empty list on any failure to keep chat functional without vector search.
-async fn fetch_context(
+/// Tauri command wrapper for chat_ask.
+#[tauri::command]
+pub async fn chat_ask_cmd(query: String, app: tauri::AppHandle) -> Result<String, String> {
+    use tauri::Manager;
+    let ctx = app.state::<AppContext>();
+    chat_ask(query, &ctx).await
+}
+
+/// Fetch context snippets using AppContext (Tauri-free).
+async fn fetch_context_ctx(
     query: &str,
-    app: &tauri::AppHandle,
+    ctx: &AppContext,
     top_k: usize,
     min_score: f32,
 ) -> Vec<ContextSnippet> {
     let embedding = match ollama::generate_embedding(query).await {
         Ok(e) => e,
         Err(e) => {
-            tracing::debug!(error = %e, "failed to generate embedding for chat context");
+            tracing::warn!(error = %e, "failed to generate embedding for chat context");
             return vec![];
         }
     };
 
-    let state = app.state::<VectorDbState>();
-    let conn = match state.lock() {
+    let conn = match ctx.vector_db.lock() {
         Ok(c) => c,
         Err(e) => {
             tracing::warn!(error = %e, "vector DB lock failed in chat");
@@ -53,6 +59,17 @@ async fn fetch_context(
         }
     };
 
+    fetch_context_from_conn(&conn, &embedding, top_k, min_score)
+}
+
+/// Retrieves the most relevant indexed file snippets for the query via vector similarity.
+/// Returns an empty list on any failure to keep chat functional without vector search.
+fn fetch_context_from_conn(
+    conn: &rusqlite::Connection,
+    embedding: &[f32],
+    top_k: usize,
+    min_score: f32,
+) -> Vec<ContextSnippet> {
     let mut stmt = match conn.prepare("SELECT file_path, content_preview, embedding FROM vectors") {
         Ok(s) => s,
         Err(e) => {
@@ -84,7 +101,7 @@ async fn fetch_context(
         })
         .filter_map(|(path, preview, blob)| {
             let emb = ollama::deserialize_embedding(&blob);
-            let score = ollama::cosine_similarity(&embedding, &emb);
+            let score = ollama::cosine_similarity(embedding, &emb);
             if score >= min_score {
                 Some((score, path, preview))
             } else {

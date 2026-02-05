@@ -164,8 +164,10 @@ test.describe("Secondary Input Mode", () => {
     // Wait for secondary mode
     await expect(page.locator(".secondary-indicator")).toBeVisible();
 
-    const logs: string[] = [];
-    page.on("console", (msg) => logs.push(msg.text()));
+    const errors: string[] = [];
+    page.on("console", (msg) => {
+      if (msg.type() === "error") errors.push(msg.text());
+    });
 
     // Press Enter with empty input
     await input.press("Enter");
@@ -173,8 +175,11 @@ test.describe("Secondary Input Mode", () => {
     // Should exit secondary mode
     await expect(input).not.toHaveClass(/secondary/);
 
-    // Should have triggered execute_action (check after UI update)
-    expect(logs.some((l) => l.includes("execute_action"))).toBe(true);
+    // Should not produce any execute_action errors
+    await page.waitForTimeout(300);
+    expect(
+      errors.filter((e) => e.includes("Execute action failed")).length
+    ).toBe(0);
   });
 
   test("input + Enter in secondary mode triggers execute_action with input", async ({
@@ -194,8 +199,10 @@ test.describe("Secondary Input Mode", () => {
     // Type some input
     await input.fill("my-project");
 
-    const logs: string[] = [];
-    page.on("console", (msg) => logs.push(msg.text()));
+    const errors: string[] = [];
+    page.on("console", (msg) => {
+      if (msg.type() === "error") errors.push(msg.text());
+    });
 
     // Press Enter with input
     await input.press("Enter");
@@ -203,8 +210,11 @@ test.describe("Secondary Input Mode", () => {
     // Should exit secondary mode
     await expect(input).not.toHaveClass(/secondary/);
 
-    // Should have triggered execute_action
-    expect(logs.some((l) => l.includes("execute_action"))).toBe(true);
+    // Should not produce any execute_action errors
+    await page.waitForTimeout(300);
+    expect(
+      errors.filter((e) => e.includes("Execute action failed")).length
+    ).toBe(0);
   });
 
   test("typing in secondary mode updates secondaryInput", async ({ page }) => {

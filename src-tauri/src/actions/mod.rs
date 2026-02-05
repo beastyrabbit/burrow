@@ -3,17 +3,31 @@ pub mod handlers;
 pub mod modifier;
 pub mod utils;
 
+use crate::context::AppContext;
 use crate::router::SearchResult;
 use modifier::Modifier;
 
-#[tauri::command]
+/// Primary execute_action — Tauri-free.
 pub async fn execute_action(
+    result: SearchResult,
+    modifier: Modifier,
+    secondary_input: Option<String>,
+    ctx: &AppContext,
+) -> Result<(), String> {
+    handlers::handle_action(&result, modifier, secondary_input.as_deref(), ctx)
+}
+
+/// Tauri command wrapper for execute_action.
+#[tauri::command]
+pub async fn execute_action_cmd(
     result: SearchResult,
     modifier: Modifier,
     secondary_input: Option<String>,
     app: tauri::AppHandle,
 ) -> Result<(), String> {
-    handlers::handle_action(&result, modifier, secondary_input.as_deref(), &app)
+    use tauri::Manager;
+    let ctx = app.state::<AppContext>();
+    execute_action(result, modifier, secondary_input, &ctx).await
 }
 
 #[cfg(test)]

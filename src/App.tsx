@@ -131,24 +131,24 @@ function App() {
   const doSearch = useCallback(async (q: string) => {
     try {
       const res = await invoke<SearchResult[]>("search", { query: q });
+      // Discard stale responses — query may have changed while we were waiting
+      if (queryRef.current !== q) return;
       setResults(res);
       setSelectedIndex(0);
     } catch (e) {
       console.error("Search failed:", e);
-      setResults([]);
+      if (queryRef.current === q) {
+        setResults([]);
+      }
     }
   }, []);
 
   useEffect(() => {
     setChatAnswer("");
+    setChatLoading(false);
     const timer = setTimeout(() => doSearch(query), query ? 80 : 0);
     return () => clearTimeout(timer);
   }, [query, doSearch]);
-
-  // Load frecent on mount
-  useEffect(() => {
-    doSearch("");
-  }, [doSearch]);
 
   // Health check on mount + poll every 30s
   useEffect(() => {
@@ -296,18 +296,22 @@ function App() {
 
     if (item.category === "chat") {
       const epoch = visibilityEpoch.current;
+      const chatQuery = query;
       setChatLoading(true);
       setChatAnswer("");
       try {
-        const answer = await invoke<string>("chat_ask", { query });
+        const answer = await invoke<string>("chat_ask", { query: chatQuery });
         if (visibilityEpoch.current !== epoch || document.hidden) return;
+        // Discard if query changed while waiting for response
+        if (queryRef.current !== chatQuery) return;
         setChatAnswer(answer);
       } catch (e) {
         if (visibilityEpoch.current !== epoch || document.hidden) return;
+        if (queryRef.current !== chatQuery) return;
         const errMsg = e instanceof Error ? e.message : String(e);
         setChatAnswer(`Error: ${errMsg}`);
       } finally {
-        if (visibilityEpoch.current === epoch && !document.hidden) {
+        if (visibilityEpoch.current === epoch && !document.hidden && queryRef.current === chatQuery) {
           setChatLoading(false);
         }
       }

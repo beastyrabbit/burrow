@@ -223,9 +223,12 @@ fn sort_apps_by_frecency(
 }
 
 /// Returns all apps sorted by frecency (history first, then alphabetical).
-pub fn get_all_apps_with_frecency(app: &tauri::AppHandle) -> Result<Vec<SearchResult>, String> {
+/// Uses AppContext (Tauri-free).
+pub fn get_all_apps_with_frecency(
+    ctx: &crate::context::AppContext,
+) -> Result<Vec<SearchResult>, String> {
     let apps = APP_CACHE.get().ok_or("App cache not initialized")?;
-    let scores = match super::history::get_frecency_scores(app) {
+    let scores = match super::history::get_frecency_scores(ctx) {
         Ok(s) => s,
         Err(e) => {
             tracing::warn!(error = %e, "failed to load frecency scores, falling back to alphabetical");
