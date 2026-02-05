@@ -73,7 +73,7 @@ fn handle_onepass(
 ) -> Result<(), String> {
     if result.exec == "op-load-vault" {
         // Spawn in a thread because load_vault does blocking I/O + stdin prompts
-        let app_handle = ctx.app_handle.clone();
+        let app_handle = ctx.clone_app_handle();
         std::thread::spawn(move || {
             let payload = match onepass::load_vault() {
                 Ok(msg) => {

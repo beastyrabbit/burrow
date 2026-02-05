@@ -10,8 +10,7 @@ use std::sync::Arc;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Force dry-run to prevent real app launches, clipboard access, etc.
-    std::env::set_var("BURROW_DRY_RUN", "1");
+    // BURROW_DRY_RUN is set by playwright.config.ts env — no need to set here.
 
     burrow_lib::logging::init_logging();
     burrow_lib::config::init_config();

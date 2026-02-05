@@ -112,6 +112,7 @@ async fn load_vault() -> Result<Json<String>, (StatusCode, String)> {
 }
 
 async fn hide_window_noop() -> Result<Json<()>, (StatusCode, String)> {
+    tracing::trace!("hide_window_noop called (no-op in HTTP bridge)");
     Ok(Json(()))
 }
 
@@ -139,18 +140,15 @@ pub fn build_router(ctx: Arc<AppContext>) -> Router {
 }
 
 pub fn start(app: tauri::AppHandle) {
-    use crate::commands::{history, vectors};
+    use tauri::Manager;
 
-    // Build AppContext from Tauri managed state
+    // Reuse the AppContext already managed by Tauri — same DB connections and indexer state.
+    let managed_ctx = app.state::<AppContext>();
     let ctx = Arc::new(
-        AppContext::new(
-            history::DbState::new(
-                history::open_history_db().expect("open history DB for dev server"),
-            ),
-            vectors::VectorDbState::new(
-                vectors::open_vector_db().expect("open vector DB for dev server"),
-            ),
-            crate::indexer::IndexerState::new(),
+        AppContext::from_arcs(
+            managed_ctx.db.clone(),
+            managed_ctx.vector_db.clone(),
+            managed_ctx.indexer.clone(),
         )
         .with_app_handle(app),
     );

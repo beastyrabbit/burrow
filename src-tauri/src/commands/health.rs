@@ -1,7 +1,6 @@
 use crate::config;
 use crate::context::AppContext;
 use serde::{Deserialize, Serialize};
-use tauri::Manager;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HealthStatus {
@@ -67,6 +66,7 @@ pub async fn health_check(ctx: &AppContext) -> Result<HealthStatus, String> {
 /// Tauri command wrapper for health_check.
 #[tauri::command]
 pub async fn health_check_cmd(app: tauri::AppHandle) -> Result<HealthStatus, String> {
+    use tauri::Manager;
     let ctx = app.state::<AppContext>();
     health_check(ctx.inner()).await
 }

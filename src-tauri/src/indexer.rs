@@ -4,7 +4,7 @@ use crate::ollama;
 use glob::Pattern;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
 use tauri::Manager;
 use walkdir::WalkDir;
@@ -275,8 +275,8 @@ pub fn collect_indexable_paths(cfg: &config::AppConfig) -> Vec<PathBuf> {
 
 pub async fn index_all(app: &tauri::AppHandle) -> IndexStats {
     let cfg = config::get_config();
-    let db = app.state::<VectorDbState>();
-    let progress = app.state::<IndexerState>();
+    let db = app.state::<Arc<VectorDbState>>();
+    let progress = app.state::<Arc<IndexerState>>();
     let mut stats = IndexStats::default();
 
     progress.start();
@@ -341,8 +341,8 @@ pub async fn index_all(app: &tauri::AppHandle) -> IndexStats {
 
 pub async fn index_incremental(app: &tauri::AppHandle) -> IndexStats {
     let cfg = config::get_config();
-    let db = app.state::<VectorDbState>();
-    let progress = app.state::<IndexerState>();
+    let db = app.state::<Arc<VectorDbState>>();
+    let progress = app.state::<Arc<IndexerState>>();
     let mut stats = IndexStats::default();
 
     progress.start();

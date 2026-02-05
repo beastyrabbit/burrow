@@ -4,7 +4,6 @@ use crate::{
     context::AppContext,
     ollama,
 };
-use tauri::Manager;
 
 /// Primary chat implementation — Tauri-free.
 pub async fn chat_ask(query: String, ctx: &AppContext) -> Result<String, String> {
@@ -32,6 +31,7 @@ pub async fn chat_ask(query: String, ctx: &AppContext) -> Result<String, String>
 /// Tauri command wrapper for chat_ask.
 #[tauri::command]
 pub async fn chat_ask_cmd(query: String, app: tauri::AppHandle) -> Result<String, String> {
+    use tauri::Manager;
     let ctx = app.state::<AppContext>();
     chat_ask(query, &ctx).await
 }
@@ -46,7 +46,7 @@ async fn fetch_context_ctx(
     let embedding = match ollama::generate_embedding(query).await {
         Ok(e) => e,
         Err(e) => {
-            tracing::debug!(error = %e, "failed to generate embedding for chat context");
+            tracing::warn!(error = %e, "failed to generate embedding for chat context");
             return vec![];
         }
     };

@@ -238,21 +238,6 @@ pub fn get_all_apps_with_frecency(
     Ok(sort_apps_by_frecency(apps, &scores))
 }
 
-/// Returns all apps sorted by frecency via Tauri AppHandle (legacy path).
-pub fn get_all_apps_with_frecency_tauri(
-    app: &tauri::AppHandle,
-) -> Result<Vec<SearchResult>, String> {
-    let apps = APP_CACHE.get().ok_or("App cache not initialized")?;
-    let scores = match super::history::get_frecency_scores_tauri(app) {
-        Ok(s) => s,
-        Err(e) => {
-            tracing::warn!(error = %e, "failed to load frecency scores, falling back to alphabetical");
-            std::collections::HashMap::new()
-        }
-    };
-    Ok(sort_apps_by_frecency(apps, &scores))
-}
-
 pub fn search_apps(query: &str) -> Result<Vec<SearchResult>, String> {
     let apps = APP_CACHE.get().ok_or("App cache not initialized")?;
     Ok(fuzzy_search(apps, query))

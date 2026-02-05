@@ -3,7 +3,7 @@ use crate::router::{Category, SearchResult};
 use rusqlite::Connection;
 use std::path::PathBuf;
 use std::sync::{Mutex, MutexGuard};
-use tauri::{AppHandle, Manager};
+use tauri::AppHandle;
 
 /// Thread-safe wrapper for the history database connection.
 /// Inner field is private to enforce access through the `lock()` method.
@@ -54,6 +54,7 @@ fn create_table(conn: &Connection) -> Result<(), rusqlite::Error> {
 }
 
 pub fn init_db(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
+    use tauri::Manager;
     let conn = Connection::open(db_path())?;
     create_table(&conn)?;
     app.manage(DbState::new(conn));
@@ -101,27 +102,11 @@ pub fn get_frecent(ctx: &AppContext) -> Result<Vec<SearchResult>, String> {
     query_frecent(&conn).map_err(|e| e.to_string())
 }
 
-/// Get frecent results via Tauri AppHandle (legacy path for Tauri commands).
-pub fn get_frecent_tauri(app: &AppHandle) -> Result<Vec<SearchResult>, String> {
-    let state = app.state::<DbState>();
-    let conn = state.lock()?;
-    query_frecent(&conn).map_err(|e| e.to_string())
-}
-
 /// Returns a map of app id → frecency score for all entries in the history DB.
 pub fn get_frecency_scores(
     ctx: &AppContext,
 ) -> Result<std::collections::HashMap<String, f64>, String> {
     let conn = ctx.db.lock()?;
-    query_frecency_scores(&conn).map_err(|e| e.to_string())
-}
-
-/// Returns frecency scores via Tauri AppHandle (legacy path).
-pub fn get_frecency_scores_tauri(
-    app: &AppHandle,
-) -> Result<std::collections::HashMap<String, f64>, String> {
-    let state = app.state::<DbState>();
-    let conn = state.lock()?;
     query_frecency_scores(&conn).map_err(|e| e.to_string())
 }
 
@@ -180,6 +165,7 @@ pub fn record_launch(
     insert_launch(&conn, id, name, exec, icon, description).map_err(|e| e.to_string())
 }
 
+/// Tauri command wrapper for record_launch.
 #[tauri::command]
 pub fn record_launch_cmd(
     id: String,
@@ -189,9 +175,9 @@ pub fn record_launch_cmd(
     description: String,
     app: AppHandle,
 ) -> Result<(), String> {
-    let state = app.state::<DbState>();
-    let conn = state.lock()?;
-    insert_launch(&conn, &id, &name, &exec, &icon, &description).map_err(|e| e.to_string())
+    use tauri::Manager;
+    let ctx = app.state::<AppContext>();
+    record_launch(&id, &name, &exec, &icon, &description, &ctx)
 }
 
 /// Clear all entries from the history database.

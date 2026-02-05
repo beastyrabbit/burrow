@@ -48,7 +48,7 @@
 - Add Rust unit tests for any new backend logic (commands, parsing, search)
 - Add Playwright e2e tests for any new UI behavior
 - If a new provider is added, add tests for: empty query, matching query, no-match query, edge cases
-- Playwright e2e tests start `pnpm tauri dev` automatically via `playwright.config.ts` webServer config (or you can run it manually)
+- Playwright e2e tests start `test-server` (headless axum backend on :3001) + `pnpm dev` (Vite on :1420) automatically via `playwright.config.ts` webServer config
 
 ## Configuration
 
@@ -90,7 +90,7 @@
 ## Architecture
 
 - **Stack:** Tauri v2 + React + TypeScript frontend, Rust backend
-- **HTTP bridge:** In debug builds, Tauri spawns an axum HTTP server on `127.0.0.1:3001` (`src-tauri/src/dev_server.rs`) exposing all commands as `POST /api/{cmd}` endpoints
+- **HTTP bridge:** `src-tauri/src/dev_server.rs` exposes all commands as `POST /api/{cmd}` endpoints via axum on `127.0.0.1:3001`. The `dev_server` module is always compiled; `start()` is called only in debug builds. The standalone `test-server` binary reuses `build_router()` for headless Playwright testing.
 - **Frontend bridge client:** `src/mock-tauri.ts` — Vite aliases `@tauri-apps/api/core` to this file outside Tauri. It forwards `invoke()` calls to the HTTP bridge via `fetch()`. Playwright tests run against the real backend through this bridge.
 - **Routing:** Prefix-based input dispatch in `src-tauri/src/router.rs`
 - **Vector search:** SQLite brute-force cosine similarity (no HNSW needed at <100k vectors). Embeddings via Ollama HTTP API, stored as BLOBs in `~/.local/share/burrow/vectors.db`
@@ -100,7 +100,7 @@
 | Command | Purpose |
 |---------|---------|
 | `cd src-tauri && cargo test` | Run all Rust unit tests (450+ tests) |
-| `npx playwright test` | Run all e2e tests (starts `pnpm tauri dev` if needed) |
+| `npx playwright test` | Run all e2e tests (starts test-server + Vite dev server if needed) |
 | `pnpm dev` | Start Vite dev server on :1420 (needs HTTP bridge on :3001) |
 | `pnpm tauri dev` | Start full Tauri app (real backend) |
 | `pnpm build` | Build frontend for production |
@@ -163,7 +163,8 @@ Providers: `ollama`, `openrouter`
 - `src-tauri/src/chat.rs` — Provider-agnostic AI chat (Ollama/OpenRouter), RAG prompt building
 - `src-tauri/src/text_extract.rs` — Document text extraction (PDF, DOC via external LibreOffice, DOCX, XLSX, ODS, etc.)
 - `src-tauri/src/router.rs` — Input classification and dispatch
-- `src-tauri/src/dev_server.rs` — Axum HTTP bridge for browser/Playwright testing (debug builds only, `#[cfg(debug_assertions)]`)
+- `src-tauri/src/dev_server.rs` — Axum HTTP bridge; `build_router()` shared between Tauri dev-server and standalone test-server binary
+- `src-tauri/src/bin/test_server.rs` — Standalone axum server for headless Playwright testing (no Tauri runtime, no GUI)
 - `src/App.tsx` — Main UI component
 - `src-tauri/src/icons.rs` — Freedesktop icon name → base64 data URI resolution
 - `src/category-icons.tsx` — Lucide SVG icons for non-app result categories
@@ -190,7 +191,7 @@ Providers: `ollama`, `openrouter`
 - Configure your Ollama instance URL and embedding model in `~/.config/burrow/config.toml`
 - When adding a new Tauri command: add route in `dev_server.rs` with request body struct, add to `generate_handler![]` in `lib.rs`
 - `dev_server.rs` endpoints mirror Tauri command signatures — each gets a Deserialize body struct and calls the same function
-- Playwright tests now run against real backend via HTTP bridge — no more mock data to maintain in `mock-tauri.ts`
+- Playwright tests run against real backend via HTTP bridge (test-server binary on :3001) — no more mock data to maintain in `mock-tauri.ts`
 - Pre-commit hooks run rustfmt — always run `cargo fmt` before staging, or stage after the first failed commit attempt
 - Health indicator is tri-state: green checkmark (healthy), blue pulsing ⟳ (indexing), red ! (error). Click shows details in notification bar.
 - Settings and admin tasks (reindex, config, stats, health, etc.) belong in the CLI only. The GUI is exclusively for day-to-day use: launching apps, searching files, SSH, chat.

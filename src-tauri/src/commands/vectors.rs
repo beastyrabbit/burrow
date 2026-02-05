@@ -4,7 +4,7 @@ use crate::router::{Category, SearchResult};
 use rusqlite::Connection;
 use std::path::PathBuf;
 use std::sync::{Mutex, MutexGuard};
-use tauri::{AppHandle, Manager};
+use tauri::AppHandle;
 
 /// Thread-safe wrapper for the vector database connection.
 /// Inner field is private to enforce access through the `lock()` method.
@@ -58,6 +58,7 @@ fn create_vector_table(conn: &Connection) -> Result<(), rusqlite::Error> {
 }
 
 pub fn init_vector_db(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
+    use tauri::Manager;
     let conn = Connection::open(vector_db_path())?;
     create_vector_table(&conn)?;
     app.manage(VectorDbState::new(conn));
@@ -140,37 +141,6 @@ pub async fn search_by_content(query: &str, ctx: &AppContext) -> Result<Vec<Sear
     let query_embedding = ollama::generate_embedding(query).await?;
 
     let conn = ctx.vector_db.lock()?;
-    search_vectors(
-        &conn,
-        &query_embedding,
-        cfg.vector_search.top_k,
-        cfg.vector_search.min_score,
-    )
-    .map_err(|e| e.to_string())
-}
-
-/// Search by content via Tauri AppHandle (legacy path).
-pub async fn search_by_content_tauri(
-    query: &str,
-    app: &AppHandle,
-) -> Result<Vec<SearchResult>, String> {
-    let cfg = crate::config::get_config();
-    if !cfg.vector_search.enabled {
-        return Ok(vec![SearchResult {
-            id: "vector-disabled".into(),
-            name: "Vector search is disabled".into(),
-            description: "Enable in ~/.config/burrow/config.toml".into(),
-            icon: "".into(),
-            category: Category::Info,
-            exec: "".into(),
-            input_spec: None,
-        }]);
-    }
-
-    let query_embedding = ollama::generate_embedding(query).await?;
-
-    let state = app.state::<VectorDbState>();
-    let conn = state.lock()?;
     search_vectors(
         &conn,
         &query_embedding,
