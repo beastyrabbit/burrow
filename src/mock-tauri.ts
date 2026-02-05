@@ -1,14 +1,15 @@
 // Tauri API bridge — always aliased from @tauri-apps/api/* by Vite.
 // If running inside the Tauri webview, delegates to the real IPC runtime.
-// If running in a plain browser (Playwright), forwards calls to the axum
-// HTTP bridge on port 3001 started by Tauri in debug builds.
+// If running in a plain browser (Playwright / dev), forwards calls to the axum
+// HTTP bridge on port 3001 (either Tauri dev-server or standalone test-server).
 
 const DEV_API = "http://127.0.0.1:3001/api";
 
-// Tauri registers command handlers with a _cmd suffix to avoid name collisions
-// with the core (Tauri-free) functions in Rust. The frontend and HTTP bridge use
-// clean names; this map translates for real Tauri IPC calls.
-const TAURI_CMD: Record<string, string> = {
+// Tauri registers _cmd-suffixed handlers to avoid collisions with core functions.
+// Commands without a _cmd suffix (hide_window, launch_app) pass through via ?? fallback.
+// SYNC: keep in sync with generate_handler![] in src-tauri/src/lib.rs
+type TauriMappedCmd = "search" | "health_check" | "chat_ask" | "record_launch" | "execute_action";
+const TAURI_CMD: Record<TauriMappedCmd, `${TauriMappedCmd}_cmd`> = {
   search: "search_cmd",
   health_check: "health_check_cmd",
   chat_ask: "chat_ask_cmd",
@@ -25,7 +26,13 @@ export async function invoke<T>(cmd: string, args?: Record<string, unknown>): Pr
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const tauriInternals = (window as any).__TAURI_INTERNALS__;
   if (tauriInternals) {
-    return tauriInternals.invoke(TAURI_CMD[cmd] ?? cmd, args);
+    const mapped = TAURI_CMD[cmd as TauriMappedCmd];
+    if (!mapped && import.meta.env.DEV) {
+      console.warn(
+        `[mock-tauri] No TAURI_CMD mapping for "${cmd}" — sending raw name to Tauri IPC.`,
+      );
+    }
+    return tauriInternals.invoke(mapped ?? cmd, args);
   }
 
   let res: Response;
