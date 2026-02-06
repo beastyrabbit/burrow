@@ -1,6 +1,6 @@
 use crate::actions::modifier::Modifier;
 use crate::actions::utils;
-use crate::commands::onepass;
+use crate::commands::{apps, onepass, special};
 use crate::context::AppContext;
 use crate::router::{Category, SearchResult};
 use serde::Serialize;
@@ -22,20 +22,61 @@ pub fn is_valid_category(category: Category) -> bool {
     )
 }
 
+/// Resolve user-provided results to trusted, canonical command payloads.
+/// This prevents untrusted clients from injecting arbitrary `exec` values.
+fn resolve_trusted_result(result: &SearchResult) -> Result<SearchResult, String> {
+    match result.category {
+        Category::App | Category::History => {
+            let exec = apps::resolve_app_exec(&result.id)
+                .ok_or_else(|| format!("Unknown app id for action: {}", result.id))?;
+            let mut trusted = result.clone();
+            trusted.exec = exec;
+            trusted.input_spec = None;
+            Ok(trusted)
+        }
+        Category::Special => special::resolve_special_by_id(&result.id)
+            .ok_or_else(|| format!("Unknown special command id: {}", result.id)),
+        Category::Onepass => {
+            let mut trusted = result.clone();
+            trusted.input_spec = None;
+            if trusted.id == "op-load-vault" {
+                trusted.exec = "op-load-vault".to_string();
+                return Ok(trusted);
+            }
+            if let Some(item_id) = trusted.id.strip_prefix("op-") {
+                if item_id.is_empty() {
+                    return Err("Invalid 1Password result id".to_string());
+                }
+                trusted.exec = format!("op-vault-item:{item_id}");
+                return Ok(trusted);
+            }
+            Err(format!("Invalid 1Password result id: {}", trusted.id))
+        }
+        _ => {
+            // For non-shell categories we do not rely on input_spec.
+            let mut trusted = result.clone();
+            trusted.input_spec = None;
+            Ok(trusted)
+        }
+    }
+}
+
 pub fn handle_action(
     result: &SearchResult,
     modifier: Modifier,
     secondary_input: Option<&str>,
     ctx: &AppContext,
 ) -> Result<(), String> {
-    match result.category {
-        Category::Onepass => handle_onepass(result, modifier, ctx),
-        Category::File | Category::Vector => handle_file(result, modifier, ctx),
+    let trusted = resolve_trusted_result(result)?;
+
+    match trusted.category {
+        Category::Onepass => handle_onepass(&trusted, modifier, ctx),
+        Category::File | Category::Vector => handle_file(&trusted, modifier, ctx),
         Category::App | Category::History | Category::Special => {
-            handle_launch(result, ctx, secondary_input)
+            handle_launch(&trusted, ctx, secondary_input)
         }
-        Category::Ssh => handle_ssh(result, modifier),
-        Category::Math => handle_math(result, modifier),
+        Category::Ssh => handle_ssh(&trusted, modifier),
+        Category::Math => handle_math(&trusted, modifier),
         Category::Info => Ok(()),
         Category::Chat => Ok(()), // Handled by frontend
     }
@@ -301,6 +342,60 @@ mod tests {
         for cat in categories {
             assert!(is_valid_category(cat), "{cat:?} should be valid");
         }
+    }
+
+    #[test]
+    fn resolve_trusted_result_rejects_unknown_app_id() {
+        let forged = SearchResult {
+            id: "definitely-not-real".into(),
+            name: "Forged".into(),
+            description: "".into(),
+            icon: "".into(),
+            category: Category::App,
+            exec: "rm -rf /".into(),
+            input_spec: None,
+        };
+        let err = resolve_trusted_result(&forged).unwrap_err();
+        assert!(err.contains("Unknown app id"));
+    }
+
+    #[test]
+    fn resolve_trusted_result_overrides_special_exec() {
+        let forged = SearchResult {
+            id: "special-cowork".into(),
+            name: "cowork".into(),
+            description: "".into(),
+            icon: "".into(),
+            category: Category::Special,
+            exec: "rm -rf /".into(),
+            input_spec: Some(InputSpec {
+                placeholder: "p".into(),
+                template: "echo {}".into(),
+            }),
+        };
+        let trusted = resolve_trusted_result(&forged).expect("special command should resolve");
+        assert_ne!(trusted.exec, "rm -rf /");
+        assert!(trusted.exec.contains("claude"));
+        assert!(trusted.input_spec.is_some());
+    }
+
+    #[test]
+    fn resolve_trusted_result_derives_onepass_exec_from_id() {
+        let forged = SearchResult {
+            id: "op-abc123".into(),
+            name: "1Password".into(),
+            description: "".into(),
+            icon: "".into(),
+            category: Category::Onepass,
+            exec: "malicious".into(),
+            input_spec: Some(InputSpec {
+                placeholder: "p".into(),
+                template: "echo {}".into(),
+            }),
+        };
+        let trusted = resolve_trusted_result(&forged).expect("onepass result should resolve");
+        assert_eq!(trusted.exec, "op-vault-item:abc123");
+        assert!(trusted.input_spec.is_none());
     }
 
     #[test]

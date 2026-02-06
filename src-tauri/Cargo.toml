@@ -32,9 +32,9 @@ zip = "7"
 mexe = "0.2.0"
 aisdk = { version = "0.4.0", features = ["openrouter", "openaichatcompletions"] }
 tempfile = "3"
-wait-timeout = "0.2"
 freedesktop-icons = "0.4.0"
 base64 = "0.22.1"
+shlex = "1.3.0"
 axum = "0.8.8"
 tower-http = { version = "0.6.8", features = ["cors"] }
 tauri-plugin-single-instance = "2.3.7"

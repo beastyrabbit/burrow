@@ -243,16 +243,30 @@ pub fn search_apps(query: &str) -> Result<Vec<SearchResult>, String> {
     Ok(fuzzy_search(apps, query))
 }
 
-#[tauri::command]
-pub fn launch_app(exec: String) -> Result<(), String> {
-    let parts: Vec<&str> = exec.split_whitespace().collect();
+/// Resolve a canonical app exec command by app ID from cache.
+pub fn resolve_app_exec(id: &str) -> Option<String> {
+    APP_CACHE
+        .get()?
+        .iter()
+        .find(|entry| entry.id == id)
+        .map(|entry| entry.exec.clone())
+}
+
+fn parse_exec_command(exec: &str) -> Result<Vec<String>, String> {
+    let parts = shlex::split(exec).ok_or("Invalid exec command: unclosed quotes".to_string())?;
     if parts.is_empty() {
         return Err("Empty exec command".into());
     }
+    Ok(parts)
+}
+
+#[tauri::command]
+pub fn launch_app(exec: String) -> Result<(), String> {
+    let parts = parse_exec_command(&exec)?;
     if crate::actions::dry_run::is_enabled() {
         return crate::actions::dry_run::launch_app(&exec);
     }
-    Command::new(parts[0])
+    Command::new(&parts[0])
         .args(&parts[1..])
         .spawn()
         .map_err(|e| e.to_string())?;
@@ -435,6 +449,21 @@ mod tests {
     }
 
     // --- launch_app ---
+
+    #[test]
+    fn parse_exec_handles_quoted_args() {
+        let parts = parse_exec_command(r#"my-app --title "My Window" --path '/tmp/a b'"#).unwrap();
+        assert_eq!(
+            parts,
+            vec!["my-app", "--title", "My Window", "--path", "/tmp/a b"]
+        );
+    }
+
+    #[test]
+    fn parse_exec_unclosed_quote_fails() {
+        let err = parse_exec_command(r#"my-app --title "broken"#).unwrap_err();
+        assert!(err.contains("Invalid exec command"));
+    }
 
     #[test]
     fn launch_empty_exec_fails() {

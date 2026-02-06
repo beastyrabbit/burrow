@@ -214,7 +214,6 @@ fn doc_txt_path(path: &Path, out_dir: &Path) -> Result<PathBuf, String> {
 /// the 30-second timeout.
 fn extract_doc_libreoffice(path: &Path, max_chars: usize) -> Result<String, String> {
     use std::time::Duration;
-    use wait_timeout::ChildExt;
 
     const TIMEOUT_SECS: u64 = 30;
 
@@ -238,20 +237,19 @@ fn extract_doc_libreoffice(path: &Path, max_chars: usize) -> Result<String, Stri
         .spawn()
         .map_err(|e| format!("libreoffice not available: {e}"))?;
 
-    let status = match child.wait_timeout(Duration::from_secs(TIMEOUT_SECS)) {
-        Ok(Some(status)) => status,
-        Ok(None) => {
-            child.kill().ok();
-            child.wait().ok();
+    let status = match crate::process_timeout::wait_with_timeout(
+        &mut child,
+        Duration::from_secs(TIMEOUT_SECS),
+    )
+    .map_err(|e| format!("libreoffice wait failed: {e}"))?
+    {
+        Some(status) => status,
+        None => {
+            crate::process_timeout::kill_and_reap(&mut child);
             return Err(format!(
                 "libreoffice timed out after {TIMEOUT_SECS}s for {}",
                 path.display()
             ));
-        }
-        Err(e) => {
-            let _ = child.kill();
-            let _ = child.wait();
-            return Err(format!("libreoffice wait failed: {e}"));
         }
     };
 
