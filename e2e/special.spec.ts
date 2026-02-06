@@ -1,5 +1,10 @@
 import { test, expect } from "@playwright/test";
 
+const coworkResult = (page: import("@playwright/test").Page) =>
+  page
+    .locator(".result-item")
+    .filter({ has: page.locator(".result-name", { hasText: /^cowork$/ }) });
+
 test.describe("Special Commands", () => {
   test.beforeEach(async ({ page }) => {
     await page.goto("/");
@@ -8,17 +13,13 @@ test.describe("Special Commands", () => {
   test("# alone shows all special commands", async ({ page }) => {
     const input = page.locator(".search-input");
     await input.fill("#");
-    await expect(
-      page.locator(".result-item", { hasText: "cowork" })
-    ).toBeVisible();
+    await expect(coworkResult(page)).toBeVisible();
   });
 
   test("#cowork shows matching result with Special badge", async ({ page }) => {
     const input = page.locator(".search-input");
     await input.fill("#cowork");
-    await expect(
-      page.locator(".result-item", { hasText: "cowork" })
-    ).toBeVisible();
+    await expect(coworkResult(page)).toBeVisible();
     await expect(
       page.locator(".result-item .result-badge", { hasText: "Special" })
     ).toBeVisible();
@@ -45,9 +46,7 @@ test.describe("Special Commands", () => {
   test("partial match #cow filters correctly", async ({ page }) => {
     const input = page.locator(".search-input");
     await input.fill("#cow");
-    await expect(
-      page.locator(".result-item", { hasText: "cowork" })
-    ).toBeVisible();
+    await expect(coworkResult(page)).toBeVisible();
   });
 });
 
@@ -59,9 +58,7 @@ test.describe("Secondary Input Mode", () => {
   test("Enter on #cowork enters secondary mode", async ({ page }) => {
     const input = page.locator(".search-input");
     await input.fill("#cowork");
-    await expect(
-      page.locator(".result-item", { hasText: "cowork" })
-    ).toBeVisible();
+    await expect(coworkResult(page)).toBeVisible();
 
     await input.press("Enter");
 
@@ -76,9 +73,7 @@ test.describe("Secondary Input Mode", () => {
   test("secondary mode shows placeholder from input_spec", async ({ page }) => {
     const input = page.locator(".search-input");
     await input.fill("#cowork");
-    await expect(
-      page.locator(".result-item", { hasText: "cowork" })
-    ).toBeVisible();
+    await expect(coworkResult(page)).toBeVisible();
 
     await input.press("Enter");
 
@@ -95,9 +90,7 @@ test.describe("Secondary Input Mode", () => {
   test("secondary mode clears input", async ({ page }) => {
     const input = page.locator(".search-input");
     await input.fill("#cowork");
-    await expect(
-      page.locator(".result-item", { hasText: "cowork" })
-    ).toBeVisible();
+    await expect(coworkResult(page)).toBeVisible();
 
     await input.press("Enter");
 
@@ -111,9 +104,7 @@ test.describe("Secondary Input Mode", () => {
   test("secondary mode hides results list", async ({ page }) => {
     const input = page.locator(".search-input");
     await input.fill("#cowork");
-    await expect(
-      page.locator(".result-item", { hasText: "cowork" })
-    ).toBeVisible();
+    await expect(coworkResult(page)).toBeVisible();
 
     await input.press("Enter");
 
@@ -127,9 +118,7 @@ test.describe("Secondary Input Mode", () => {
   test("Escape in secondary mode exits and restores query", async ({ page }) => {
     const input = page.locator(".search-input");
     await input.fill("#cowork");
-    await expect(
-      page.locator(".result-item", { hasText: "cowork" })
-    ).toBeVisible();
+    await expect(coworkResult(page)).toBeVisible();
 
     await input.press("Enter");
 
@@ -155,9 +144,7 @@ test.describe("Secondary Input Mode", () => {
   }) => {
     const input = page.locator(".search-input");
     await input.fill("#cowork");
-    await expect(
-      page.locator(".result-item", { hasText: "cowork" })
-    ).toBeVisible();
+    await expect(coworkResult(page)).toBeVisible();
 
     await input.press("Enter");
 
@@ -187,9 +174,7 @@ test.describe("Secondary Input Mode", () => {
   }) => {
     const input = page.locator(".search-input");
     await input.fill("#cowork");
-    await expect(
-      page.locator(".result-item", { hasText: "cowork" })
-    ).toBeVisible();
+    await expect(coworkResult(page)).toBeVisible();
 
     await input.press("Enter");
 
@@ -220,9 +205,7 @@ test.describe("Secondary Input Mode", () => {
   test("typing in secondary mode updates secondaryInput", async ({ page }) => {
     const input = page.locator(".search-input");
     await input.fill("#cowork");
-    await expect(
-      page.locator(".result-item", { hasText: "cowork" })
-    ).toBeVisible();
+    await expect(coworkResult(page)).toBeVisible();
 
     await input.press("Enter");
 
