@@ -10,6 +10,7 @@ pub mod icons;
 pub mod indexer;
 pub mod logging;
 pub mod ollama;
+pub mod process_timeout;
 pub mod router;
 pub(crate) mod text_extract;
 

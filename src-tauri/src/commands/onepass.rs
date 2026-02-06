@@ -1,4 +1,5 @@
 use crate::commands::onepass_vault;
+use crate::process_timeout;
 use crate::router::{Category, SearchResult};
 use serde::Deserialize;
 use std::collections::HashMap;
@@ -146,7 +147,6 @@ fn clear_all_sessions() {
 /// Uses a 120-second timeout to allow for user interaction (password prompts).
 fn signin(account_id: &str) -> Result<String, String> {
     use std::io::Read;
-    use wait_timeout::ChildExt;
 
     tracing::info!(account_id, "signing in to 1Password account");
     let mut child = Command::new("op")
@@ -157,8 +157,7 @@ fn signin(account_id: &str) -> Result<String, String> {
         .spawn()
         .map_err(|e| format!("Failed to spawn op signin: {e}"))?;
 
-    match child
-        .wait_timeout(Duration::from_secs(120))
+    match process_timeout::wait_with_timeout(&mut child, Duration::from_secs(120))
         .map_err(|e| e.to_string())?
     {
         Some(status) if status.success() => {
@@ -189,12 +188,7 @@ fn signin(account_id: &str) -> Result<String, String> {
             ))
         }
         None => {
-            if let Err(e) = child.kill() {
-                tracing::warn!(error = %e, "failed to kill timed-out op signin process");
-            }
-            if let Err(e) = child.wait() {
-                tracing::warn!(error = %e, "failed to wait for killed op signin process");
-            }
+            process_timeout::kill_and_reap(&mut child);
             Err(format!("op signin timed out for {account_id}"))
         }
     }
@@ -204,7 +198,6 @@ fn signin(account_id: &str) -> Result<String, String> {
 /// Uses a 30-second timeout to prevent hanging on unresponsive CLI calls.
 fn run_op_once(args: &[&str], token: &str) -> Result<std::process::Output, String> {
     use std::io::Read;
-    use wait_timeout::ChildExt;
 
     let session_flag = format!("--session={token}");
     let mut cmd_args: Vec<&str> = args.to_vec();
@@ -217,8 +210,7 @@ fn run_op_once(args: &[&str], token: &str) -> Result<std::process::Output, Strin
         .spawn()
         .map_err(|e| format!("Failed to spawn op: {e}"))?;
 
-    match child
-        .wait_timeout(Duration::from_secs(30))
+    match process_timeout::wait_with_timeout(&mut child, Duration::from_secs(30))
         .map_err(|e| e.to_string())?
     {
         Some(status) => {
@@ -241,12 +233,7 @@ fn run_op_once(args: &[&str], token: &str) -> Result<std::process::Output, Strin
             })
         }
         None => {
-            if let Err(e) = child.kill() {
-                tracing::warn!(error = %e, "failed to kill timed-out op process");
-            }
-            if let Err(e) = child.wait() {
-                tracing::warn!(error = %e, "failed to wait for killed op process");
-            }
+            process_timeout::kill_and_reap(&mut child);
             Err("op command timed out after 30s".into())
         }
     }
@@ -276,7 +263,6 @@ fn run_op_with_session(account_id: &str, args: &[&str]) -> Result<std::process::
 /// Fetch all account IDs via `op account list`.
 fn fetch_account_ids() -> Result<Vec<String>, String> {
     use std::io::Read;
-    use wait_timeout::ChildExt;
 
     tracing::debug!("fetching 1Password account list");
     let mut child = Command::new("op")
@@ -286,18 +272,12 @@ fn fetch_account_ids() -> Result<Vec<String>, String> {
         .spawn()
         .map_err(|e| format!("Failed to spawn op account list: {e}"))?;
 
-    let status = match child
-        .wait_timeout(Duration::from_secs(30))
+    let status = match process_timeout::wait_with_timeout(&mut child, Duration::from_secs(30))
         .map_err(|e| e.to_string())?
     {
         Some(s) => s,
         None => {
-            if let Err(e) = child.kill() {
-                tracing::warn!(error = %e, "failed to kill timed-out op account list process");
-            }
-            if let Err(e) = child.wait() {
-                tracing::warn!(error = %e, "failed to wait for killed op account list process");
-            }
+            process_timeout::kill_and_reap(&mut child);
             return Err("op account list timed out after 30s".into());
         }
     };

@@ -32,23 +32,36 @@ const COMMANDS: &[SpecialCommand] = &[
     },
 ];
 
+fn command_to_result(cmd: &SpecialCommand) -> SearchResult {
+    SearchResult {
+        id: format!("special-{}", cmd.name),
+        name: cmd.name.to_string(),
+        description: cmd.description.to_string(),
+        icon: cmd.icon.to_string(),
+        category: Category::Special,
+        exec: cmd.exec_command.to_string(),
+        input_spec: cmd.input_spec.map(|(placeholder, template)| InputSpec {
+            placeholder: placeholder.to_string(),
+            template: template.to_string(),
+        }),
+    }
+}
+
+/// Resolve a canonical special command result by `special-*` id.
+pub fn resolve_special_by_id(id: &str) -> Option<SearchResult> {
+    let name = id.strip_prefix("special-")?;
+    COMMANDS
+        .iter()
+        .find(|cmd| cmd.name == name)
+        .map(command_to_result)
+}
+
 pub fn search_special(query: &str) -> Result<Vec<SearchResult>, String> {
     let q = query.to_lowercase();
     Ok(COMMANDS
         .iter()
         .filter(|cmd| q.is_empty() || cmd.name.to_lowercase().contains(&q))
-        .map(|cmd| SearchResult {
-            id: format!("special-{}", cmd.name),
-            name: cmd.name.to_string(),
-            description: cmd.description.to_string(),
-            icon: cmd.icon.to_string(),
-            category: Category::Special,
-            exec: cmd.exec_command.to_string(),
-            input_spec: cmd.input_spec.map(|(placeholder, template)| InputSpec {
-                placeholder: placeholder.to_string(),
-                template: template.to_string(),
-            }),
-        })
+        .map(command_to_result)
         .collect())
 }
 
@@ -190,5 +203,17 @@ mod tests {
             results[0].exec.contains("read -r _"),
             "kub-merge terminal should wait before closing"
         );
+    }
+
+    #[test]
+    fn resolve_special_by_id_returns_canonical_command() {
+        let result = resolve_special_by_id("special-cowork").expect("special-cowork should exist");
+        assert_eq!(result.id, "special-cowork");
+        assert!(result.exec.contains("claude"));
+    }
+
+    #[test]
+    fn resolve_special_by_id_unknown_returns_none() {
+        assert!(resolve_special_by_id("special-unknown").is_none());
     }
 }
