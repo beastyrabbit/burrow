@@ -9,19 +9,28 @@ struct SpecialCommand {
     input_spec: Option<(&'static str, &'static str)>,
 }
 
-const COMMANDS: &[SpecialCommand] = &[SpecialCommand {
-    name: "cowork",
-    description: "Open kitty in ~/cowork and run Claude Code",
-    icon: "",
-    exec_command: "kitty sh -c 'cd ~/cowork && claude /init-cowork'",
-    input_spec: Some((
-        "Enter topic or press Enter to skip",
-        // {} is replaced with single-quoted escaped input by resolve_exec()
-        // Adjacent single-quoted strings concatenate: '/init-cowork ' + 'topic' = one arg
-        // This ensures claude receives "/init-cowork topic" as a single argument
-        "kitty sh -c \"cd ~/cowork && claude '/init-cowork '{}\"",
-    )),
-}];
+const COMMANDS: &[SpecialCommand] = &[
+    SpecialCommand {
+        name: "cowork",
+        description: "Open kitty in ~/cowork and run Claude Code",
+        icon: "",
+        exec_command: "kitty sh -c 'cd ~/cowork && claude /init-cowork'",
+        input_spec: Some((
+            "Enter topic or press Enter to skip",
+            // {} is replaced with single-quoted escaped input by resolve_exec()
+            // Adjacent single-quoted strings concatenate: '/init-cowork ' + 'topic' = one arg
+            // This ensures claude receives "/init-cowork topic" as a single argument
+            "kitty sh -c \"cd ~/cowork && claude '/init-cowork '{}\"",
+        )),
+    },
+    SpecialCommand {
+        name: "kub-merge",
+        description: "Run kub-merge in ~/cowork terminal",
+        icon: "",
+        exec_command: "kitty sh -c 'cd ~/cowork && claude -p \"/kub-merge\"; printf \"\\nPress Enter to close...\"; read -r _'",
+        input_spec: None,
+    },
+];
 
 pub fn search_special(query: &str) -> Result<Vec<SearchResult>, String> {
     let q = query.to_lowercase();
@@ -148,6 +157,38 @@ mod tests {
             spec.template.contains("/init-cowork"),
             "template should use /init-cowork command, got: {}",
             spec.template
+        );
+    }
+
+    #[test]
+    fn kub_merge_appears_in_search() {
+        let results = search_special("kub").unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].name, "kub-merge");
+        assert_eq!(results[0].category, Category::Special);
+    }
+
+    #[test]
+    fn kub_merge_has_no_input_spec() {
+        let results = search_special("kub-merge").unwrap();
+        assert!(results[0].input_spec.is_none());
+    }
+
+    #[test]
+    fn kub_merge_exec_uses_kitty_terminal_in_cowork() {
+        let results = search_special("kub-merge").unwrap();
+        assert_eq!(results.len(), 1);
+        assert!(
+            results[0].exec.starts_with("kitty sh -c"),
+            "kub-merge should launch in terminal"
+        );
+        assert!(
+            results[0].exec.contains("cd ~/cowork"),
+            "kub-merge should run from ~/cowork"
+        );
+        assert!(
+            results[0].exec.contains("read -r _"),
+            "kub-merge terminal should wait before closing"
         );
     }
 }

@@ -21,6 +21,12 @@ if [[ ! -f "$BUILT" ]]; then
     exit 1
 fi
 
+# Track whether GUI app was running, so we can relaunch after install.
+APP_WAS_RUNNING=false
+if pgrep -x "$BINARY_NAME" >/dev/null 2>&1; then
+    APP_WAS_RUNNING=true
+fi
+
 # Check if daemon was running (to restart it after install)
 DAEMON_WAS_RUNNING=false
 if "$BUILT" daemon status >/dev/null 2>&1; then
@@ -47,6 +53,12 @@ fi
 info "Installing to ${INSTALL_PATH} (requires sudo)..."
 sudo cp "$BUILT" "$INSTALL_PATH"
 sudo chmod 755 "$INSTALL_PATH"
+
+# Relaunch GUI if it was running before install.
+if [[ "$APP_WAS_RUNNING" == "true" ]]; then
+    info "Relaunching ${BINARY_NAME}..."
+    nohup "$INSTALL_PATH" >/dev/null 2>&1 &
+fi
 
 # Restart daemon if it was running before
 RESTART_FAILED=false
