@@ -14,6 +14,16 @@ pub struct InputSpec {
     pub template: String,
 }
 
+/// How the output of a launched command should be presented.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum OutputMode {
+    /// Launch in an external terminal emulator (default behavior).
+    Terminal,
+    /// Stream output into a native Burrow secondary window.
+    Window,
+}
+
 /// The category of a search result, determining how it's displayed and handled.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
@@ -40,6 +50,8 @@ pub struct SearchResult {
     pub exec: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub input_spec: Option<InputSpec>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub output_mode: Option<OutputMode>,
 }
 
 /// Determines which provider should handle a given query.
@@ -102,6 +114,7 @@ fn build_chat_results(q: &str) -> Vec<SearchResult> {
             category: Category::Info,
             exec: "".into(),
             input_spec: None,
+            output_mode: None,
         }]
     } else {
         vec![SearchResult {
@@ -112,6 +125,7 @@ fn build_chat_results(q: &str) -> Vec<SearchResult> {
             category: Category::Chat,
             exec: "".into(),
             input_spec: None,
+            output_mode: None,
         }]
     }
 }
@@ -372,6 +386,7 @@ mod tests {
             category: Category::Math,
             exec: "".into(),
             input_spec: None,
+            output_mode: None,
         };
 
         let json = serde_json::to_string(&result).unwrap();
@@ -386,9 +401,16 @@ mod tests {
             "input_spec should be omitted when None, got: {}",
             json
         );
+        // output_mode should be omitted when None (skip_serializing_if)
+        assert!(
+            !json.contains("output_mode"),
+            "output_mode should be omitted when None, got: {}",
+            json
+        );
 
         let parsed: SearchResult = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed.category, Category::Math);
+        assert_eq!(parsed.output_mode, None);
     }
 
     #[test]
@@ -406,6 +428,7 @@ mod tests {
                 placeholder: "Enter value".into(),
                 template: "command --arg \"{}\"".into(),
             }),
+            output_mode: None,
         };
 
         let json = serde_json::to_string(&result).unwrap();
@@ -425,5 +448,74 @@ mod tests {
         let spec = parsed.input_spec.unwrap();
         assert_eq!(spec.placeholder, "Enter value");
         assert_eq!(spec.template, "command --arg \"{}\"");
+    }
+
+    // --- OutputMode serialization ---
+
+    #[test]
+    fn output_mode_serializes_to_lowercase() {
+        use serde_json;
+
+        assert_eq!(
+            serde_json::to_string(&OutputMode::Terminal).unwrap(),
+            "\"terminal\""
+        );
+        assert_eq!(
+            serde_json::to_string(&OutputMode::Window).unwrap(),
+            "\"window\""
+        );
+    }
+
+    #[test]
+    fn output_mode_deserializes_from_lowercase() {
+        use serde_json;
+
+        assert_eq!(
+            serde_json::from_str::<OutputMode>("\"terminal\"").unwrap(),
+            OutputMode::Terminal
+        );
+        assert_eq!(
+            serde_json::from_str::<OutputMode>("\"window\"").unwrap(),
+            OutputMode::Window
+        );
+    }
+
+    #[test]
+    fn search_result_with_output_mode_roundtrip() {
+        use serde_json;
+
+        let result = SearchResult {
+            id: "test".into(),
+            name: "Test".into(),
+            description: "".into(),
+            icon: "".into(),
+            category: Category::Special,
+            exec: "cmd".into(),
+            input_spec: None,
+            output_mode: Some(OutputMode::Window),
+        };
+
+        let json = serde_json::to_string(&result).unwrap();
+        assert!(
+            json.contains("\"output_mode\":\"window\""),
+            "output_mode should serialize as \"window\", got: {}",
+            json
+        );
+
+        let parsed: SearchResult = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.output_mode, Some(OutputMode::Window));
+    }
+
+    #[test]
+    fn search_result_without_output_mode_defaults_to_none() {
+        use serde_json;
+
+        // JSON without output_mode field should deserialize to None
+        let json = r#"{"id":"t","name":"T","description":"","icon":"","category":"app","exec":""}"#;
+        let parsed: SearchResult = serde_json::from_str(json).unwrap();
+        assert_eq!(
+            parsed.output_mode, None,
+            "missing output_mode should default to None"
+        );
     }
 }

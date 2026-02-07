@@ -3,6 +3,7 @@ use std::sync::Arc;
 use crate::commands::history::DbState;
 use crate::commands::vectors::VectorDbState;
 use crate::indexer::IndexerState;
+use crate::output_buffers::OutputBufferState;
 
 /// Application context that decouples backend logic from `tauri::AppHandle`.
 /// Used by the test-server binary (no Tauri runtime) and by Tauri commands via thin wrappers.
@@ -10,6 +11,7 @@ pub struct AppContext {
     pub(crate) db: Arc<DbState>,
     pub(crate) vector_db: Arc<VectorDbState>,
     pub(crate) indexer: Arc<IndexerState>,
+    pub(crate) output_buffers: Arc<OutputBufferState>,
     /// Optional Tauri app handle for window operations (hide, emit events).
     /// `None` in test-server / CLI mode — window ops become no-ops.
     app_handle: Option<tauri::AppHandle>,
@@ -23,6 +25,7 @@ impl AppContext {
             db: Arc::new(db),
             vector_db: Arc::new(vector_db),
             indexer: Arc::new(indexer),
+            output_buffers: Arc::new(OutputBufferState::new()),
             app_handle: None,
         }
     }
@@ -33,11 +36,13 @@ impl AppContext {
         db: Arc<DbState>,
         vector_db: Arc<VectorDbState>,
         indexer: Arc<IndexerState>,
+        output_buffers: Arc<OutputBufferState>,
     ) -> Self {
         Self {
             db,
             vector_db,
             indexer,
+            output_buffers,
             app_handle: None,
         }
     }
@@ -107,13 +112,20 @@ mod tests {
         let db = Arc::new(DbState::new(Connection::open_in_memory().unwrap()));
         let vector_db = Arc::new(VectorDbState::new(Connection::open_in_memory().unwrap()));
         let indexer = Arc::new(IndexerState::new());
+        let output_buffers = Arc::new(OutputBufferState::new());
 
-        let ctx = AppContext::from_arcs(db.clone(), vector_db.clone(), indexer.clone());
+        let ctx = AppContext::from_arcs(
+            db.clone(),
+            vector_db.clone(),
+            indexer.clone(),
+            output_buffers.clone(),
+        );
 
         // Arc::ptr_eq proves they share the same allocation
         assert!(Arc::ptr_eq(&ctx.db, &db));
         assert!(Arc::ptr_eq(&ctx.vector_db, &vector_db));
         assert!(Arc::ptr_eq(&ctx.indexer, &indexer));
+        assert!(Arc::ptr_eq(&ctx.output_buffers, &output_buffers));
     }
 
     #[test]

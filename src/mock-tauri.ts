@@ -8,17 +8,15 @@ const DEV_API = "http://127.0.0.1:3001/api";
 // Tauri registers _cmd-suffixed handlers to avoid collisions with core functions.
 // Commands without a _cmd suffix (hide_window, launch_app) pass through via ?? fallback.
 // SYNC: keep in sync with generate_handler![] in src-tauri/src/lib.rs
-type TauriMappedCmd = "search" | "health_check" | "chat_ask" | "record_launch" | "execute_action";
+type TauriMappedCmd = "search" | "health_check" | "chat_ask" | "record_launch" | "execute_action" | "get_output";
 const TAURI_CMD: Record<TauriMappedCmd, `${TauriMappedCmd}_cmd`> = {
   search: "search_cmd",
   health_check: "health_check_cmd",
   chat_ask: "chat_ask_cmd",
   record_launch: "record_launch_cmd",
   execute_action: "execute_action_cmd",
+  get_output: "get_output_cmd",
 };
-
-// Type for Tauri event callbacks
-type EventCallback<T> = (event: { payload: T }) => void;
 
 export async function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
   // Tauri injects __TAURI_INTERNALS__ into its webview at startup.
@@ -63,22 +61,11 @@ export async function invoke<T>(cmd: string, args?: Record<string, unknown>): Pr
 /**
  * Listen for Tauri events.
  * In browser mode, this is a no-op since the HTTP bridge doesn't support push events.
- * In Tauri webview mode, delegates to the real event API via __TAURI_INTERNALS__.
+ * Output windows use polling via invoke("get_output") instead of events.
  */
 export async function listen<T>(
-  event: string,
-  handler: EventCallback<T>,
+  _event: string,
+  _handler: (event: { payload: T }) => void,
 ): Promise<() => void> {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const tauriInternals = (window as any).__TAURI_INTERNALS__;
-  if (tauriInternals?.listen) {
-    return tauriInternals.listen(event, handler);
-  }
-
-  // In browser mode, events can't be pushed from the backend.
-  console.warn(
-    `[mock-tauri] listen("${event}") called in browser mode. ` +
-    `Event-based features (like vault load notifications) won't work outside Tauri.`,
-  );
   return () => {};
 }

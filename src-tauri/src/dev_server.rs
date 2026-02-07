@@ -111,6 +111,20 @@ async fn load_vault() -> Result<Json<String>, (StatusCode, String)> {
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))
 }
 
+async fn get_output(
+    State(ctx): State<AppState>,
+    Json(body): Json<GetOutputBody>,
+) -> Json<crate::output_buffers::OutputSnapshot> {
+    Json(ctx.output_buffers.get_since(&body.label, body.since_index))
+}
+
+#[derive(Deserialize)]
+struct GetOutputBody {
+    label: String,
+    #[serde(default)]
+    since_index: usize,
+}
+
 async fn hide_window_noop() -> Result<Json<()>, (StatusCode, String)> {
     tracing::trace!("hide_window_noop called (no-op in HTTP bridge)");
     Ok(Json(()))
@@ -125,6 +139,7 @@ pub fn build_router(ctx: Arc<AppContext>) -> Router {
         .route("/api/chat_ask", post(chat_ask))
         .route("/api/health_check", post(health_check))
         .route("/api/execute_action", post(execute_action))
+        .route("/api/get_output", post(get_output))
         .route("/api/hide_window", post(hide_window_noop))
         .route("/api/load_vault", post(load_vault))
         .layer(
@@ -149,6 +164,7 @@ pub fn start(app: tauri::AppHandle) {
             managed_ctx.db.clone(),
             managed_ctx.vector_db.clone(),
             managed_ctx.indexer.clone(),
+            managed_ctx.output_buffers.clone(),
         )
         .with_app_handle(app),
     );

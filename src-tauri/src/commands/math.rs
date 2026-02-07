@@ -33,6 +33,7 @@ pub fn try_calculate(input: &str) -> Option<SearchResult> {
                 category: Category::Math,
                 exec: "".into(),
                 input_spec: None,
+                output_mode: None,
             })
         }
         Err(_) => None,

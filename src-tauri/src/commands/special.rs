@@ -1,4 +1,4 @@
-use crate::router::{Category, InputSpec, SearchResult};
+use crate::router::{Category, InputSpec, OutputMode, SearchResult};
 
 struct SpecialCommand {
     name: &'static str,
@@ -7,6 +7,8 @@ struct SpecialCommand {
     exec_command: &'static str,
     /// Optional: (placeholder, template) for secondary input mode
     input_spec: Option<(&'static str, &'static str)>,
+    /// How output is displayed. None = fire-and-forget (default).
+    output_mode: Option<OutputMode>,
 }
 
 const COMMANDS: &[SpecialCommand] = &[
@@ -17,18 +19,25 @@ const COMMANDS: &[SpecialCommand] = &[
         exec_command: "kitty sh -c 'cd ~/cowork && claude /init-cowork'",
         input_spec: Some((
             "Enter topic or press Enter to skip",
-            // {} is replaced with single-quoted escaped input by resolve_exec()
-            // Adjacent single-quoted strings concatenate: '/init-cowork ' + 'topic' = one arg
-            // This ensures claude receives "/init-cowork topic" as a single argument
             "kitty sh -c \"cd ~/cowork && claude '/init-cowork '{}\"",
         )),
+        output_mode: None,
     },
     SpecialCommand {
         name: "kub-merge",
-        description: "Run kub-merge in ~/cowork terminal",
+        description: "Run kub-merge in output window",
         icon: "",
-        exec_command: "kitty sh -c 'cd ~/cowork && claude -p \"/kub-merge\"; printf \"\\nPress Enter to close...\"; read -r _'",
+        exec_command: "cd ~/cowork && claude -p \"/kub-merge\"",
         input_spec: None,
+        output_mode: Some(OutputMode::Window),
+    },
+    SpecialCommand {
+        name: "test-output",
+        description: "Test output window with streaming lines",
+        icon: "",
+        exec_command: "for i in $(seq 1 20); do echo \"[stdout] Line $i: $(date +%H:%M:%S)\"; sleep 0.3; done; echo 'Stream complete.'",
+        input_spec: None,
+        output_mode: Some(OutputMode::Window),
     },
 ];
 
@@ -44,6 +53,7 @@ fn command_to_result(cmd: &SpecialCommand) -> SearchResult {
             placeholder: placeholder.to_string(),
             template: template.to_string(),
         }),
+        output_mode: cmd.output_mode,
     }
 }
 
@@ -188,20 +198,58 @@ mod tests {
     }
 
     #[test]
-    fn kub_merge_exec_uses_kitty_terminal_in_cowork() {
+    fn kub_merge_exec_runs_claude_in_cowork() {
         let results = search_special("kub-merge").unwrap();
         assert_eq!(results.len(), 1);
         assert!(
-            results[0].exec.starts_with("kitty sh -c"),
-            "kub-merge should launch in terminal"
-        );
-        assert!(
             results[0].exec.contains("cd ~/cowork"),
-            "kub-merge should run from ~/cowork"
+            "kub-merge should run from ~/cowork, got: {}",
+            results[0].exec
         );
         assert!(
-            results[0].exec.contains("read -r _"),
-            "kub-merge terminal should wait before closing"
+            results[0].exec.contains("claude"),
+            "kub-merge should invoke claude, got: {}",
+            results[0].exec
+        );
+    }
+
+    #[test]
+    fn kub_merge_has_window_output_mode() {
+        let results = search_special("kub-merge").unwrap();
+        assert_eq!(
+            results[0].output_mode,
+            Some(OutputMode::Window),
+            "kub-merge should use Window output mode"
+        );
+    }
+
+    #[test]
+    fn cowork_has_no_output_mode() {
+        let results = search_special("cowork").unwrap();
+        assert_eq!(
+            results[0].output_mode, None,
+            "cowork should use default output mode (None)"
+        );
+    }
+
+    #[test]
+    fn test_output_has_window_output_mode() {
+        let results = search_special("test-output").unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].name, "test-output");
+        assert_eq!(
+            results[0].output_mode,
+            Some(OutputMode::Window),
+            "test-output should use Window output mode"
+        );
+    }
+
+    #[test]
+    fn test_output_search_match() {
+        let results = search_special("test").unwrap();
+        assert!(
+            results.iter().any(|r| r.name == "test-output"),
+            "searching 'test' should find test-output"
         );
     }
 

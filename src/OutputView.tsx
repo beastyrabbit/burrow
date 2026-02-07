@@ -1,0 +1,122 @@
+import { useState, useEffect, useRef } from "react";
+import { invoke } from "@tauri-apps/api/core";
+import "./OutputView.css";
+
+interface BufferedLine {
+  stream: "stdout" | "stderr";
+  text: string;
+}
+
+interface OutputSnapshot {
+  lines: BufferedLine[];
+  done: boolean;
+  exit_code: number | null;
+  total: number;
+}
+
+interface OutputViewProps {
+  label: string;
+  title: string;
+}
+
+const MAX_LINES = 10_000;
+const POLL_INTERVAL_MS = 150;
+
+function OutputView({ label, title }: OutputViewProps) {
+  const [lines, setLines] = useState<BufferedLine[]>([]);
+  const [done, setDone] = useState(false);
+  const [exitCode, setExitCode] = useState<number | null>(null);
+  const outputRef = useRef<HTMLPreElement>(null);
+  const autoScrollRef = useRef(true);
+  const sinceIndexRef = useRef(0);
+
+  // Track whether user has scrolled up (disable auto-scroll)
+  useEffect(() => {
+    const el = outputRef.current;
+    if (!el) return;
+    const onScroll = () => {
+      const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+      autoScrollRef.current = atBottom;
+    };
+    el.addEventListener("scroll", onScroll);
+    return () => el.removeEventListener("scroll", onScroll);
+  }, []);
+
+  // Auto-scroll to bottom when new lines arrive
+  useEffect(() => {
+    if (autoScrollRef.current && outputRef.current) {
+      outputRef.current.scrollTop = outputRef.current.scrollHeight;
+    }
+  }, [lines]);
+
+  // Poll for output
+  useEffect(() => {
+    let stopped = false;
+    const id = setInterval(async () => {
+      if (stopped) return;
+      try {
+        const snap = await invoke<OutputSnapshot>("get_output", {
+          label,
+          sinceIndex: sinceIndexRef.current,
+        });
+
+        if (snap.lines.length > 0) {
+          setLines((prev) => {
+            const next = [...prev, ...snap.lines];
+            return next.length > MAX_LINES ? next.slice(-MAX_LINES) : next;
+          });
+        }
+        sinceIndexRef.current = snap.total;
+
+        if (snap.done) {
+          setDone(true);
+          setExitCode(snap.exit_code);
+          stopped = true;
+          clearInterval(id);
+        }
+      } catch {
+        // Silently retry on next interval
+      }
+    }, POLL_INTERVAL_MS);
+
+    return () => {
+      stopped = true;
+      clearInterval(id);
+    };
+  }, [label]);
+
+  let statusClass: string;
+  let statusText: string;
+  if (!done) {
+    statusClass = "status-running";
+    statusText = "Running...";
+  } else if (exitCode === 0) {
+    statusClass = "status-success";
+    statusText = "Done";
+  } else {
+    statusClass = "status-error";
+    statusText = `Exit ${exitCode ?? "?"}`;
+  }
+
+  return (
+    <div className="output-view">
+      <div className="output-titlebar" data-tauri-drag-region>
+        <span className="output-title">{title}</span>
+        <span className={`output-status ${statusClass}`}>{statusText}</span>
+      </div>
+      <pre ref={outputRef} className="output-content">
+        {lines.map((line, i) => (
+          <span
+            key={i}
+            className={line.stream === "stderr" ? "line-stderr" : "line-stdout"}
+          >
+            {line.text}
+            {"\n"}
+          </span>
+        ))}
+      </pre>
+    </div>
+  );
+}
+
+export default OutputView;
