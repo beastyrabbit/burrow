@@ -55,6 +55,14 @@ function OutputView({ label, title }: OutputViewProps): React.JSX.Element {
     }
   }, [lines]);
 
+  // Reset state when label changes (e.g. component reused for a different command)
+  useEffect(() => {
+    sinceIndexRef.current = 0;
+    setLines([]);
+    setDone(false);
+    setExitCode(null);
+  }, [label]);
+
   // Poll for output
   useEffect(() => {
     let stopped = false;

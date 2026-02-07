@@ -54,10 +54,23 @@ impl OutputBufferState {
         );
     }
 
-    /// Push a line of output into a buffer.
+    /// Remove a buffer, freeing its memory. Called when the output window is closed
+    /// after the command has finished.
+    pub fn remove(&self, label: &str) {
+        self.lock().remove(label);
+    }
+
+    /// Maximum number of lines per buffer. Oldest lines are dropped when exceeded.
+    const MAX_LINES: usize = 50_000;
+
+    /// Push a line of output into a buffer. Drops oldest lines if MAX_LINES exceeded.
     pub fn push_line(&self, label: &str, stream: Stream, text: String) {
         if let Some(buf) = self.lock().get_mut(label) {
             buf.lines.push(BufferedLine { stream, text });
+            if buf.lines.len() > Self::MAX_LINES {
+                let excess = buf.lines.len() - Self::MAX_LINES;
+                buf.lines.drain(..excess);
+            }
         }
     }
 
@@ -272,6 +285,47 @@ mod tests {
         assert!(snap3.lines.is_empty());
         assert!(snap3.done);
         assert_eq!(snap3.exit_code, Some(0));
+    }
+
+    #[test]
+    fn remove_frees_buffer() {
+        let state = OutputBufferState::new();
+        state.create("rm-me".into());
+        state.push_line("rm-me", Stream::Stdout, "line".into());
+
+        state.remove("rm-me");
+
+        let snap = state.get_since("rm-me", 0);
+        assert!(snap.lines.is_empty(), "buffer should be gone after remove");
+        assert_eq!(snap.total, 0);
+    }
+
+    #[test]
+    fn remove_unknown_label_is_noop() {
+        let state = OutputBufferState::new();
+        // Should not panic
+        state.remove("nonexistent");
+    }
+
+    #[test]
+    fn push_line_caps_at_max_lines() {
+        let state = OutputBufferState::new();
+        state.create("cap".into());
+
+        // Push MAX_LINES + 100 lines
+        let max = OutputBufferState::MAX_LINES;
+        for i in 0..max + 100 {
+            state.push_line("cap", Stream::Stdout, format!("line {i}"));
+        }
+
+        let snap = state.get_since("cap", 0);
+        assert_eq!(
+            snap.lines.len(),
+            max,
+            "should be capped at MAX_LINES ({max})"
+        );
+        // First line should be line 100 (oldest 100 were dropped)
+        assert_eq!(snap.lines[0].text, "line 100");
     }
 
     #[test]

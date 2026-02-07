@@ -19,7 +19,7 @@ const COMMANDS: &[SpecialCommand] = &[
         exec_command: "kitty sh -c 'cd ~/cowork && claude /init-cowork'",
         input_spec: Some((
             "Enter topic or press Enter to skip",
-            "kitty sh -c \"cd ~/cowork && claude '/init-cowork '{}\"",
+            "kitty sh -c \"cd $HOME/cowork && claude /init-cowork\\ {}\"",
         )),
         output_mode: None,
     },
@@ -179,6 +179,14 @@ mod tests {
         assert!(
             spec.template.contains("/init-cowork"),
             "template should use /init-cowork command, got: {}",
+            spec.template
+        );
+        // User input ({}) must not appear inside unquoted or double-quoted context
+        // where shell metacharacters could expand. resolve_exec wraps {} in single quotes,
+        // so the template itself just needs {} positioned where a single-quoted arg is valid.
+        assert!(
+            !spec.template.contains("'{}"),
+            "template should not mix single-quote boundaries with {{}}, got: {}",
             spec.template
         );
     }

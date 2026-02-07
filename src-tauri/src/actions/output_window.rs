@@ -4,6 +4,10 @@ use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, AsyncRead, BufReader};
 use tokio::process::Command;
 
+/// Delay before removing buffer after command finishes, giving the frontend
+/// time to poll the final snapshot.
+const BUFFER_CLEANUP_DELAY: std::time::Duration = std::time::Duration::from_secs(30);
+
 /// Spawn a task that reads lines from an async reader and pushes them into the output buffer.
 fn spawn_line_reader<R: AsyncRead + Unpin + Send + 'static>(
     reader: R,
@@ -66,11 +70,18 @@ pub async fn run_in_output_window(
     let stdout_task = spawn_line_reader(stdout, Stream::Stdout, buffers.clone(), label.clone());
     let stderr_task = spawn_line_reader(stderr, Stream::Stderr, buffers.clone(), label.clone());
 
-    register_window_close_handler(app, &label, child.id());
+    // Shared flag so the close handler won't signal a PID after the process has exited
+    // (preventing accidental signal to a reused PID).
+    let exited = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    register_window_close_handler(app, &label, child.id(), exited.clone());
 
     // Drive readers and process exit concurrently so a hung pipe doesn't block set_done.
     let (stdout_result, stderr_result, wait_result) =
         tokio::join!(stdout_task, stderr_task, child.wait());
+
+    // Mark process as exited before any cleanup so the close handler won't signal.
+    exited.store(true, std::sync::atomic::Ordering::Release);
+
     if let Err(e) = stdout_result {
         tracing::error!(error = %e, "stdout reader task panicked");
     }
@@ -89,12 +100,28 @@ pub async fn run_in_output_window(
     buffers.set_done(&label, exit_code);
     tracing::info!(label = %label, ?exit_code, "output window command finished");
 
+    // Schedule buffer removal after a delay so the frontend can poll the final snapshot.
+    let cleanup_buffers = buffers.clone();
+    let cleanup_label = label.clone();
+    tokio::spawn(async move {
+        tokio::time::sleep(BUFFER_CLEANUP_DELAY).await;
+        cleanup_buffers.remove(&cleanup_label);
+        tracing::debug!(label = %cleanup_label, "output buffer removed after cleanup delay");
+    });
+
     Ok(())
 }
 
 /// Register a listener that sends SIGTERM to the child process when the window is closed.
+/// The `exited` flag is set by the caller after `child.wait()` returns, preventing
+/// SIGTERM delivery to a potentially reused PID.
 #[cfg(unix)]
-fn register_window_close_handler(app: &tauri::AppHandle, label: &str, child_pid: Option<u32>) {
+fn register_window_close_handler(
+    app: &tauri::AppHandle,
+    label: &str,
+    child_pid: Option<u32>,
+    exited: Arc<std::sync::atomic::AtomicBool>,
+) {
     use tauri::Manager;
 
     let Some(pid) = child_pid else {
@@ -115,16 +142,20 @@ fn register_window_close_handler(app: &tauri::AppHandle, label: &str, child_pid:
         return;
     };
 
-    // Use an Arc<AtomicBool> to track whether we've already signaled the process
-    let killed = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    // Track whether we've already sent SIGTERM to avoid double-signaling.
+    let signaled = Arc::new(std::sync::atomic::AtomicBool::new(false));
 
     window.on_window_event(move |event| {
         if let tauri::WindowEvent::Destroyed = event {
-            if !killed.swap(true, std::sync::atomic::Ordering::Relaxed) {
+            // Don't signal if the process has already exited (PID may have been reused).
+            if exited.load(std::sync::atomic::Ordering::Acquire) {
+                tracing::debug!(pid, "process already exited, skipping SIGTERM");
+                return;
+            }
+            if !signaled.swap(true, std::sync::atomic::Ordering::Relaxed) {
                 tracing::info!(pid, "output window closed, sending SIGTERM to child");
                 // SAFETY: pid_i32 is a valid i32 PID obtained from the child process.
-                // The process may have already exited, in which case kill() returns -1/ESRCH
-                // which we log but treat as non-fatal.
+                // We've verified via the `exited` flag that the process hasn't finished yet.
                 let ret = unsafe { libc::kill(pid_i32, libc::SIGTERM) };
                 if ret != 0 {
                     let errno = std::io::Error::last_os_error();
@@ -136,6 +167,11 @@ fn register_window_close_handler(app: &tauri::AppHandle, label: &str, child_pid:
 }
 
 #[cfg(not(unix))]
-fn register_window_close_handler(_app: &tauri::AppHandle, _label: &str, _child_pid: Option<u32>) {
+fn register_window_close_handler(
+    _app: &tauri::AppHandle,
+    _label: &str,
+    _child_pid: Option<u32>,
+    _exited: Arc<std::sync::atomic::AtomicBool>,
+) {
     tracing::warn!("window close handler is only supported on unix");
 }

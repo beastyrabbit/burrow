@@ -251,7 +251,10 @@ fn handle_launch(
                 });
                 Ok(())
             } else {
-                // test-server fallback: no app handle, fire-and-forget
+                tracing::warn!(
+                    name = %result.name,
+                    "OutputMode::Window requested but no AppHandle available; falling back to exec_shell"
+                );
                 utils::exec_shell(&cmd)
             }
         }
