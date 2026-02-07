@@ -118,6 +118,7 @@ fn search_vectors(
                 // with xdg_open via Command::arg() to prevent shell injection
                 exec: String::new(),
                 input_spec: None,
+                output_mode: None,
             }
         })
         .collect())
@@ -135,6 +136,7 @@ pub async fn search_by_content(query: &str, ctx: &AppContext) -> Result<Vec<Sear
             category: Category::Info,
             exec: "".into(),
             input_spec: None,
+            output_mode: None,
         }]);
     }
 

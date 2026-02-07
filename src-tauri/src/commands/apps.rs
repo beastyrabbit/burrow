@@ -186,6 +186,7 @@ fn entry_to_result(entry: &DesktopEntry, category: Category) -> SearchResult {
         category,
         exec: entry.exec.clone(),
         input_spec: None,
+        output_mode: None,
     }
 }
 

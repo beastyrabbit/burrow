@@ -505,6 +505,7 @@ pub async fn search_onepass(query: &str) -> Result<Vec<SearchResult>, String> {
             category: Category::Onepass,
             exec: "op-load-vault".into(),
             input_spec: None,
+            output_mode: None,
         }])
     }
 }

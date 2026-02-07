@@ -155,6 +155,28 @@ burrow models set chat_large  # Configure specific model type
 Model types: `embedding`, `chat`, `chat_large`
 Providers: `ollama`, `openrouter`
 
+## Window Management
+
+Burrow supports secondary output windows for streaming command output (e.g., kub-merge).
+
+- **OutputMode enum:** `SearchResult.output_mode` controls how a command's output is handled. `None` or `Terminal` = fire-and-forget, `Window` = open a native Burrow output window.
+- **Wayland limitation:** All Burrow windows share class `burrow`. Window differentiation uses Hyprland tags assigned by title pattern.
+- **Window titles:** Main launcher = `"Burrow"`, output windows = `"Burrow - <name>"`.
+- **Tags:** `burrow_main` (launcher, stay_focused), `burrow_output` (output windows, no stay_focused). Extensible for future window types.
+- **Required Hyprland rules:**
+  ```
+  windowrule = tag +burrow_main, match:class (burrow), match:title ^Burrow$
+  windowrule = tag +burrow_output, match:class (burrow), match:title ^Burrow -
+  windowrule = float true, match:tag burrow_main
+  windowrule = size 622 652, match:tag burrow_main
+  windowrule = stay_focused true, match:tag burrow_main
+  windowrule = center 1, match:tag burrow_main
+  windowrule = float true, match:tag burrow_output
+  windowrule = size 900 700, match:tag burrow_output
+  windowrule = center 1, match:tag burrow_output
+  ```
+- **Hyprland-only:** Window differentiation is developed and tested for Hyprland. Other compositors may need their own rules.
+
 ## Project Structure
 
 - `src-tauri/src/config.rs` — TOML config loading, env overrides, defaults, ModelsConfig
@@ -162,10 +184,13 @@ Providers: `ollama`, `openrouter`
 - `src-tauri/src/commands/` — Backend providers (apps, history, math, ssh, onepass, files, vectors, chat, health)
 - `src-tauri/src/chat.rs` — Provider-agnostic AI chat (Ollama/OpenRouter), RAG prompt building
 - `src-tauri/src/text_extract.rs` — Document text extraction (PDF, DOC via external LibreOffice, DOCX, XLSX, ODS, etc.)
-- `src-tauri/src/router.rs` — Input classification and dispatch
+- `src-tauri/src/router.rs` — Input classification and dispatch, `OutputMode` enum
+- `src-tauri/src/window_manager.rs` — Secondary window creation, output event emission
+- `src-tauri/src/actions/output_window.rs` — Run shell commands in output windows (stream stdout/stderr via events)
 - `src-tauri/src/dev_server.rs` — Axum HTTP bridge; `build_router()` shared between Tauri dev-server and standalone test-server binary
 - `src-tauri/src/bin/test_server.rs` — Standalone axum server for headless Playwright testing (no Tauri runtime, no GUI)
 - `src/App.tsx` — Main UI component
+- `src/OutputView.tsx` — Output window UI (streaming terminal output)
 - `src-tauri/src/icons.rs` — Freedesktop icon name → base64 data URI resolution
 - `src/category-icons.tsx` — Lucide SVG icons for non-app result categories
 - `src/mock-tauri.ts` — HTTP bridge client (forwards `invoke()` to axum server on :3001)
@@ -217,6 +242,9 @@ Providers: `ollama`, `openrouter`
 - File name search (`commands/files.rs`) now uses same directories as content indexer via `indexer::get_search_directories()`
 - CLI chat commands (`burrow chat`, `burrow chat-docs`) support `--small` flag to use smaller/faster model
 - `burrow models set` interactive selector fetches available models from Ollama (`/api/tags`) or OpenRouter (`/api/v1/models`)
+- Output windows: `SearchResult.output_mode = Some(OutputMode::Window)` streams command output in a native Burrow window instead of a terminal
+- Window label format: `output-{name}-{unix_ms}` ensures uniqueness for multiple output windows
+- Output window close handler sends SIGTERM to child process via `libc::kill`
 
 ## Reference Repos
 

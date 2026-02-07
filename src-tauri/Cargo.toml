@@ -22,7 +22,7 @@ rusqlite = { version = "0.38", features = ["bundled"] }
 dirs = "6"
 freedesktop_entry_parser = "2"
 glob = "0.3"
-tokio = { version = "1", features = ["rt-multi-thread", "process"] }
+tokio = { version = "1", features = ["rt-multi-thread", "process", "io-util"] }
 toml = "0.9"
 reqwest = { version = "0.13", features = ["blocking", "json"] }
 walkdir = "2"

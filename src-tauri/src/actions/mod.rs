@@ -1,6 +1,7 @@
 pub mod dry_run;
 pub mod handlers;
 pub mod modifier;
+pub mod output_window;
 pub mod utils;
 
 use crate::context::AppContext;
@@ -46,6 +47,7 @@ mod tests {
             category: Category::Info,
             exec: "".into(),
             input_spec: None,
+            output_mode: None,
         };
         assert!(handlers::is_valid_category(result.category));
     }
@@ -60,6 +62,7 @@ mod tests {
             category: Category::Math,
             exec: "".into(),
             input_spec: None,
+            output_mode: None,
         };
         assert!(handlers::is_valid_category(result.category));
     }

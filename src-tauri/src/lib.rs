@@ -10,9 +10,11 @@ pub mod icons;
 pub mod indexer;
 pub mod logging;
 pub mod ollama;
+pub mod output_buffers;
 pub mod process_timeout;
 pub mod router;
 pub(crate) mod text_extract;
+pub mod window_manager;
 
 use commands::{apps, history, vectors};
 use context::AppContext;
@@ -73,15 +75,17 @@ pub fn run() {
             let db = Arc::new(history::DbState::new(history::open_history_db()?));
             let vector_db = Arc::new(vectors::VectorDbState::new(vectors::open_vector_db()?));
             let indexer_state = Arc::new(indexer::IndexerState::new());
+            let output_buffers = Arc::new(output_buffers::OutputBufferState::new());
 
             // Manage individual states for Tauri commands and background indexer
             app.manage(db.clone());
             app.manage(vector_db.clone());
             app.manage(indexer_state.clone());
+            app.manage(output_buffers.clone());
             indexer::start_background_indexer(app.handle().clone());
 
             // Build AppContext sharing the same Arc references — no duplicate connections
-            let ctx = AppContext::from_arcs(db, vector_db, indexer_state)
+            let ctx = AppContext::from_arcs(db, vector_db, indexer_state, output_buffers)
                 .with_app_handle(app.handle().clone());
             app.manage(ctx);
 
@@ -112,6 +116,7 @@ pub fn run() {
             commands::chat::chat_ask_cmd,
             commands::health::health_check_cmd,
             actions::execute_action_cmd,
+            output_buffers::get_output_cmd,
             hide_window,
         ])
         .run(tauri::generate_context!())

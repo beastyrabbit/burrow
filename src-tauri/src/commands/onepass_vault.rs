@@ -193,6 +193,7 @@ pub fn search_to_results(query: &str) -> Vec<SearchResult> {
             category: Category::Onepass,
             exec: format!("op-vault-item:{}", m.id),
             input_spec: None,
+            output_mode: None,
         })
         .collect()
 }
