@@ -68,8 +68,9 @@ pub async fn run_in_output_window(
 
     register_window_close_handler(app, &label, child.id());
 
-    // Wait for both stream readers to finish, logging panics
-    let (stdout_result, stderr_result) = tokio::join!(stdout_task, stderr_task);
+    // Drive readers and process exit concurrently so a hung pipe doesn't block set_done.
+    let (stdout_result, stderr_result, wait_result) =
+        tokio::join!(stdout_task, stderr_task, child.wait());
     if let Err(e) = stdout_result {
         tracing::error!(error = %e, "stdout reader task panicked");
     }
@@ -77,8 +78,7 @@ pub async fn run_in_output_window(
         tracing::error!(error = %e, "stderr reader task panicked");
     }
 
-    // Wait for the process to exit and get the exit code
-    let exit_code = match child.wait().await {
+    let exit_code = match wait_result {
         Ok(status) => status.code(),
         Err(e) => {
             tracing::warn!(error = %e, "failed to wait for child process");

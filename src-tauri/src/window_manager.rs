@@ -9,14 +9,28 @@ pub enum Stream {
     Stderr,
 }
 
+/// Sanitize a name for use in Tauri window labels (alphanumeric, dash, underscore only).
+fn sanitize_label(name: &str) -> String {
+    name.chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '-'
+            }
+        })
+        .collect()
+}
+
 /// Generate a unique window label for an output window.
-/// Format: `output-{name}-{unix_ms}` for practical uniqueness.
+/// Format: `output-{sanitized_name}-{unix_ms}` for practical uniqueness.
 pub fn make_output_label(name: &str) -> String {
+    let safe = sanitize_label(name);
     let ms = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_millis();
-    format!("output-{name}-{ms}")
+    format!("output-{safe}-{ms}")
 }
 
 /// Spawn a new output window using the Tauri WebviewWindow API.
@@ -83,6 +97,23 @@ mod tests {
     #[test]
     fn urlencoded_passes_simple_text() {
         assert_eq!(urlencoded("kub-merge"), "kub-merge");
+    }
+
+    #[test]
+    fn sanitize_label_replaces_special_chars() {
+        assert_eq!(sanitize_label("kub-merge"), "kub-merge");
+        assert_eq!(sanitize_label("hello world"), "hello-world");
+        assert_eq!(sanitize_label("a/b?c#d"), "a-b-c-d");
+        assert_eq!(sanitize_label("test_name"), "test_name");
+    }
+
+    #[test]
+    fn make_output_label_sanitizes_name() {
+        let label = make_output_label("has spaces/slashes");
+        assert!(
+            label.starts_with("output-has-spaces-slashes-"),
+            "label should sanitize special chars, got: {label}"
+        );
     }
 
     #[test]
