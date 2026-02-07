@@ -29,8 +29,8 @@ fn spawn_line_reader<R: AsyncRead + Unpin + Send + 'static>(
 /// Run a shell command in a new output window, streaming stdout/stderr into a shared buffer
 /// that the frontend polls via `get_output`.
 ///
-/// 1. Creates a buffer in `OutputBufferState` for this window label.
-/// 2. Spawns a new Tauri window via `window_manager::spawn_output_window`.
+/// 1. Spawns a new Tauri window via `window_manager::spawn_output_window`.
+/// 2. Creates a buffer in `OutputBufferState` for this window label.
 /// 3. Spawns the command as a child process with piped stdout/stderr.
 /// 4. Reads stdout/stderr line-by-line, pushing into the buffer.
 /// 5. On process exit, marks the buffer as done with the exit code.
@@ -102,7 +102,7 @@ fn register_window_close_handler(app: &tauri::AppHandle, label: &str, child_pid:
         return;
     };
 
-    let Some(pid_i32) = i32::try_from(pid).ok() else {
+    let Ok(pid_i32) = i32::try_from(pid) else {
         tracing::error!(
             pid,
             "child PID exceeds i32::MAX, cannot register close handler"

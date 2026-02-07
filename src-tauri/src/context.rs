@@ -12,7 +12,7 @@ pub struct AppContext {
     pub(crate) vector_db: Arc<VectorDbState>,
     pub(crate) indexer: Arc<IndexerState>,
     pub(crate) output_buffers: Arc<OutputBufferState>,
-    /// Optional Tauri app handle for window operations (hide, emit events).
+    /// Optional Tauri app handle for window operations (hide, spawn output windows).
     /// `None` in test-server / CLI mode — window ops become no-ops.
     app_handle: Option<tauri::AppHandle>,
 }

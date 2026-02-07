@@ -10,7 +10,7 @@ pub enum Stream {
 }
 
 /// Generate a unique window label for an output window.
-/// Format: `output-{name}-{unix_ms}` to guarantee uniqueness.
+/// Format: `output-{name}-{unix_ms}` for practical uniqueness.
 pub fn make_output_label(name: &str) -> String {
     let ms = SystemTime::now()
         .duration_since(UNIX_EPOCH)

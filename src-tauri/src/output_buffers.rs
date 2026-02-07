@@ -5,11 +5,12 @@ use std::sync::Mutex;
 
 /// Shared state for output window buffers. Each running command writes lines here;
 /// the frontend polls via `get_output` to retrieve new lines.
+#[derive(Default)]
 pub struct OutputBufferState(Mutex<HashMap<String, OutputBuffer>>);
 
 struct OutputBuffer {
     lines: Vec<BufferedLine>,
-    /// `None` while running, `Some(exit_code)` when done.
+    /// `None` while running, `Some(Some(code))` on normal exit, `Some(None)` if killed by signal.
     done: Option<Option<i32>>,
 }
 
@@ -33,15 +34,9 @@ pub struct OutputSnapshot {
     pub total: usize,
 }
 
-impl Default for OutputBufferState {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl OutputBufferState {
     pub fn new() -> Self {
-        Self(Mutex::new(HashMap::new()))
+        Self::default()
     }
 
     fn lock(&self) -> std::sync::MutexGuard<'_, HashMap<String, OutputBuffer>> {

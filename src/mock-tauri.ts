@@ -60,8 +60,8 @@ export async function invoke<T>(cmd: string, args?: Record<string, unknown>): Pr
 
 /**
  * Listen for Tauri events.
- * In browser mode, this is a no-op since the HTTP bridge doesn't support push events.
- * Output windows use polling via invoke("get_output") instead of events.
+ * Always a no-op — the HTTP bridge doesn't support push events.
+ * Output windows use polling via invoke("get_output") instead.
  */
 export async function listen<T>(
   _event: string,
