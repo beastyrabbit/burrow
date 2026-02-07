@@ -16,10 +16,10 @@ const COMMANDS: &[SpecialCommand] = &[
         name: "cowork",
         description: "Open kitty in ~/cowork and run Claude Code",
         icon: "",
-        exec_command: "kitty sh -c 'cd ~/cowork && claude /init-cowork'",
+        exec_command: "kitty --directory ~/cowork claude /init-cowork",
         input_spec: Some((
             "Enter topic or press Enter to skip",
-            "kitty sh -c \"cd $HOME/cowork && claude /init-cowork\\ {}\"",
+            "kitty --directory ~/cowork claude /init-cowork\\ {}",
         )),
         output_mode: None,
     },
@@ -115,7 +115,7 @@ mod tests {
     fn result_has_exec_command() {
         let results = search_special("cowork").unwrap();
         assert!(results[0].exec.contains("kitty"));
-        assert!(results[0].exec.contains("cowork"));
+        assert!(results[0].exec.contains("--directory"));
     }
 
     #[test]
@@ -187,6 +187,13 @@ mod tests {
         assert!(
             !spec.template.contains("'{}"),
             "template should not mix single-quote boundaries with {{}}, got: {}",
+            spec.template
+        );
+        // Template must not use sh -c with double quotes around {},
+        // as resolve_exec wraps {} in single quotes which would be expanded inside "..."
+        assert!(
+            !spec.template.contains("\"{}"),
+            "template must not place {{}} inside double quotes, got: {}",
             spec.template
         );
     }

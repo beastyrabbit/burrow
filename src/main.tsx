@@ -6,9 +6,13 @@ import OutputView from "./OutputView";
 function Router() {
   const params = new URLSearchParams(window.location.search);
   if (params.get("view") === "output") {
+    const label = params.get("label");
+    if (!label) {
+      return <div style={{ color: "#f44", padding: 24 }}>Error: missing &quot;label&quot; parameter</div>;
+    }
     return (
       <OutputView
-        label={params.get("label") ?? ""}
+        label={label}
         title={params.get("title") ?? "Output"}
       />
     );

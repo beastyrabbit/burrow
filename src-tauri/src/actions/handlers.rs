@@ -251,11 +251,7 @@ fn handle_launch(
                 });
                 Ok(())
             } else {
-                tracing::warn!(
-                    name = %result.name,
-                    "OutputMode::Window requested but no AppHandle available; falling back to exec_shell"
-                );
-                utils::exec_shell(&cmd)
+                Err("OutputMode::Window requires a Tauri AppHandle (not available in test-server mode)".to_string())
             }
         }
         _ => utils::exec_shell(&cmd),
