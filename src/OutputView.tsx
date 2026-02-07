@@ -22,7 +22,13 @@ interface OutputViewProps {
 const MAX_LINES = 10_000;
 const POLL_INTERVAL_MS = 150;
 
-function OutputView({ label, title }: OutputViewProps) {
+function getStatus(done: boolean, exitCode: number | null): { className: string; text: string } {
+  if (!done) return { className: "status-running", text: "Running..." };
+  if (exitCode === 0) return { className: "status-success", text: "Done" };
+  return { className: "status-error", text: `Exit ${exitCode ?? "?"}` };
+}
+
+function OutputView({ label, title }: OutputViewProps): React.JSX.Element {
   const [lines, setLines] = useState<BufferedLine[]>([]);
   const [done, setDone] = useState(false);
   const [exitCode, setExitCode] = useState<number | null>(null);
@@ -85,24 +91,13 @@ function OutputView({ label, title }: OutputViewProps) {
     };
   }, [label]);
 
-  let statusClass: string;
-  let statusText: string;
-  if (!done) {
-    statusClass = "status-running";
-    statusText = "Running...";
-  } else if (exitCode === 0) {
-    statusClass = "status-success";
-    statusText = "Done";
-  } else {
-    statusClass = "status-error";
-    statusText = `Exit ${exitCode ?? "?"}`;
-  }
+  const status = getStatus(done, exitCode);
 
   return (
     <div className="output-view">
       <div className="output-titlebar" data-tauri-drag-region>
         <span className="output-title">{title}</span>
-        <span className={`output-status ${statusClass}`}>{statusText}</span>
+        <span className={`output-status ${status.className}`}>{status.text}</span>
       </div>
       <pre ref={outputRef} className="output-content">
         {lines.map((line, i) => (

@@ -21,7 +21,7 @@ pub struct BufferedLine {
 }
 
 /// Snapshot returned to the frontend from a `get_output` poll.
-#[derive(Clone, Serialize, Debug, PartialEq)]
+#[derive(Clone, Default, Serialize, Debug, PartialEq)]
 pub struct OutputSnapshot {
     /// New lines since the requested offset.
     pub lines: Vec<BufferedLine>,
@@ -44,10 +44,13 @@ impl OutputBufferState {
         Self(Mutex::new(HashMap::new()))
     }
 
+    fn lock(&self) -> std::sync::MutexGuard<'_, HashMap<String, OutputBuffer>> {
+        self.0.lock().expect("output buffer lock poisoned")
+    }
+
     /// Create a new buffer for a window label.
     pub fn create(&self, label: String) {
-        let mut map = self.0.lock().expect("output buffer lock poisoned");
-        map.insert(
+        self.lock().insert(
             label,
             OutputBuffer {
                 lines: Vec::new(),
@@ -58,25 +61,23 @@ impl OutputBufferState {
 
     /// Push a line of output into a buffer.
     pub fn push_line(&self, label: &str, stream: Stream, text: String) {
-        let mut map = self.0.lock().expect("output buffer lock poisoned");
-        if let Some(buf) = map.get_mut(label) {
+        if let Some(buf) = self.lock().get_mut(label) {
             buf.lines.push(BufferedLine { stream, text });
         }
     }
 
     /// Mark a buffer as done with an optional exit code.
     pub fn set_done(&self, label: &str, exit_code: Option<i32>) {
-        let mut map = self.0.lock().expect("output buffer lock poisoned");
-        if let Some(buf) = map.get_mut(label) {
+        if let Some(buf) = self.lock().get_mut(label) {
             buf.done = Some(exit_code);
         }
     }
 
     /// Get lines since `since_index`. Returns empty snapshot for unknown labels.
     pub fn get_since(&self, label: &str, since_index: usize) -> OutputSnapshot {
-        let map = self.0.lock().expect("output buffer lock poisoned");
-        match map.get(label) {
-            Some(buf) => {
+        self.lock()
+            .get(label)
+            .map_or(OutputSnapshot::default(), |buf| {
                 let total = buf.lines.len();
                 let start = since_index.min(total);
                 let (done, exit_code) = match buf.done {
@@ -89,14 +90,7 @@ impl OutputBufferState {
                     exit_code,
                     total,
                 }
-            }
-            None => OutputSnapshot {
-                lines: Vec::new(),
-                done: false,
-                exit_code: None,
-                total: 0,
-            },
-        }
+            })
     }
 }
 

@@ -15,10 +15,8 @@ fn spawn_line_reader<R: AsyncRead + Unpin + Send + 'static>(
         let mut lines = BufReader::new(reader).lines();
         loop {
             match lines.next_line().await {
-                Ok(Some(line)) => {
-                    buffers.push_line(&label, stream, line);
-                }
-                Ok(None) => break, // EOF
+                Ok(Some(line)) => buffers.push_line(&label, stream, line),
+                Ok(None) => break,
                 Err(e) => {
                     tracing::warn!(error = %e, ?stream, label = %label, "error reading output stream");
                     break;
