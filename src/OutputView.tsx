@@ -21,6 +21,7 @@ interface OutputViewProps {
 
 const MAX_LINES = 10_000;
 const POLL_INTERVAL_MS = 150;
+const MAX_CONSECUTIVE_ERRORS = 20;
 
 function getStatus(done: boolean, exitCode: number | null): { className: string; text: string } {
   if (!done) return { className: "status-running", text: "Running..." };
@@ -32,9 +33,11 @@ function OutputView({ label, title }: OutputViewProps): React.JSX.Element {
   const [lines, setLines] = useState<BufferedLine[]>([]);
   const [done, setDone] = useState(false);
   const [exitCode, setExitCode] = useState<number | null>(null);
+  const [pollError, setPollError] = useState<string | null>(null);
   const outputRef = useRef<HTMLPreElement>(null);
   const autoScrollRef = useRef(true);
   const sinceIndexRef = useRef(0);
+  const errorCountRef = useRef(0);
 
   // Track whether user has scrolled up (disable auto-scroll)
   useEffect(() => {
@@ -58,9 +61,11 @@ function OutputView({ label, title }: OutputViewProps): React.JSX.Element {
   // Reset state when label changes (e.g. component reused for a different command)
   useEffect(() => {
     sinceIndexRef.current = 0;
+    errorCountRef.current = 0;
     setLines([]);
     setDone(false);
     setExitCode(null);
+    setPollError(null);
   }, [label]);
 
   // Poll for output
@@ -82,14 +87,22 @@ function OutputView({ label, title }: OutputViewProps): React.JSX.Element {
         }
         sinceIndexRef.current = snap.total;
 
+        errorCountRef.current = 0;
+
         if (snap.done) {
           setDone(true);
           setExitCode(snap.exit_code);
           stopped = true;
           clearInterval(id);
         }
-      } catch {
-        // Silently retry on next interval
+      } catch (err) {
+        errorCountRef.current += 1;
+        if (errorCountRef.current >= MAX_CONSECUTIVE_ERRORS) {
+          console.error(`[OutputView] ${errorCountRef.current} consecutive poll failures, giving up:`, err);
+          setPollError(`Connection lost (${errorCountRef.current} failures)`);
+          stopped = true;
+          clearInterval(id);
+        }
       }
     }, POLL_INTERVAL_MS);
 
@@ -99,7 +112,9 @@ function OutputView({ label, title }: OutputViewProps): React.JSX.Element {
     };
   }, [label]);
 
-  const status = getStatus(done, exitCode);
+  const status = pollError
+    ? { className: "status-error", text: pollError }
+    : getStatus(done, exitCode);
 
   return (
     <div className="output-view">

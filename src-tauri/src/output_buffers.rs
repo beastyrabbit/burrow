@@ -63,11 +63,16 @@ impl OutputBufferState {
     /// Maximum number of lines per buffer. Oldest lines are dropped when exceeded.
     const MAX_LINES: usize = 50_000;
 
-    /// Push a line of output into a buffer. Drops oldest lines if MAX_LINES exceeded.
+    /// Drain threshold — only compact when this many lines over MAX_LINES to amortize
+    /// the O(n) shift cost of `Vec::drain`.
+    const DRAIN_THRESHOLD: usize = 5_000;
+
+    /// Push a line of output into a buffer. Drops oldest lines in batches when
+    /// MAX_LINES + DRAIN_THRESHOLD is exceeded, amortizing the O(n) drain cost.
     pub fn push_line(&self, label: &str, stream: Stream, text: String) {
         if let Some(buf) = self.lock().get_mut(label) {
             buf.lines.push(BufferedLine { stream, text });
-            if buf.lines.len() > Self::MAX_LINES {
+            if buf.lines.len() > Self::MAX_LINES + Self::DRAIN_THRESHOLD {
                 let excess = buf.lines.len() - Self::MAX_LINES;
                 buf.lines.drain(..excess);
             }
@@ -308,13 +313,16 @@ mod tests {
     }
 
     #[test]
-    fn push_line_caps_at_max_lines() {
+    fn push_line_caps_with_amortized_drain() {
         let state = OutputBufferState::new();
         state.create("cap".into());
 
-        // Push MAX_LINES + 100 lines
         let max = OutputBufferState::MAX_LINES;
-        for i in 0..max + 100 {
+        let threshold = OutputBufferState::DRAIN_THRESHOLD;
+
+        // Push MAX_LINES + DRAIN_THRESHOLD + 1 to trigger drain
+        let total = max + threshold + 1;
+        for i in 0..total {
             state.push_line("cap", Stream::Stdout, format!("line {i}"));
         }
 
@@ -322,10 +330,30 @@ mod tests {
         assert_eq!(
             snap.lines.len(),
             max,
-            "should be capped at MAX_LINES ({max})"
+            "should drain back to MAX_LINES ({max})"
         );
-        // First line should be line 100 (oldest 100 were dropped)
-        assert_eq!(snap.lines[0].text, "line 100");
+        // Oldest lines (0..threshold+1) were dropped
+        let first_kept = threshold + 1;
+        assert_eq!(snap.lines[0].text, format!("line {first_kept}"));
+    }
+
+    #[test]
+    fn push_line_under_threshold_does_not_drain() {
+        let state = OutputBufferState::new();
+        state.create("no-drain".into());
+
+        let max = OutputBufferState::MAX_LINES;
+        // Push MAX_LINES + 100 (under threshold) — no drain should happen
+        for i in 0..max + 100 {
+            state.push_line("no-drain", Stream::Stdout, format!("line {i}"));
+        }
+
+        let snap = state.get_since("no-drain", 0);
+        assert_eq!(
+            snap.lines.len(),
+            max + 100,
+            "should not drain when under threshold"
+        );
     }
 
     #[test]

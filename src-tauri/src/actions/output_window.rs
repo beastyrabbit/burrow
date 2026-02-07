@@ -58,6 +58,11 @@ pub async fn run_in_output_window(
         .spawn()
         .map_err(|e| format!("failed to spawn command: {e}"))?;
 
+    // Register close handler immediately after spawn so there's no window where
+    // the user could close the window and leave the child running orphaned.
+    let exited = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    register_window_close_handler(app, &label, child.id(), exited.clone());
+
     let stdout = child
         .stdout
         .take()
@@ -69,11 +74,6 @@ pub async fn run_in_output_window(
 
     let stdout_task = spawn_line_reader(stdout, Stream::Stdout, buffers.clone(), label.clone());
     let stderr_task = spawn_line_reader(stderr, Stream::Stderr, buffers.clone(), label.clone());
-
-    // Shared flag so the close handler won't signal a PID after the process has exited
-    // (preventing accidental signal to a reused PID).
-    let exited = Arc::new(std::sync::atomic::AtomicBool::new(false));
-    register_window_close_handler(app, &label, child.id(), exited.clone());
 
     // Drive readers and process exit concurrently so a hung pipe doesn't block set_done.
     let (stdout_result, stderr_result, wait_result) =
