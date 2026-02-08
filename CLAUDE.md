@@ -99,7 +99,7 @@
 
 | Command | Purpose |
 |---------|---------|
-| `cd src-tauri && cargo test` | Run all Rust unit tests (450+ tests) |
+| `cd src-tauri && cargo test` | Run all Rust unit tests (500+ tests) |
 | `npx playwright test` | Run all e2e tests (starts test-server + Vite dev server if needed) |
 | `pnpm dev` | Start Vite dev server on :1420 (needs HTTP bridge on :3001) |
 | `pnpm tauri dev` | Start full Tauri app (real backend) |
@@ -185,8 +185,10 @@ Burrow supports secondary output windows for streaming command output (e.g., kub
 - `src-tauri/src/chat.rs` — Provider-agnostic AI chat (Ollama/OpenRouter), RAG prompt building
 - `src-tauri/src/text_extract.rs` — Document text extraction (PDF, DOC via external LibreOffice, DOCX, XLSX, ODS, etc.)
 - `src-tauri/src/router.rs` — Input classification and dispatch, `OutputMode` enum
-- `src-tauri/src/window_manager.rs` — Secondary window creation, output event emission
-- `src-tauri/src/actions/output_window.rs` — Run shell commands in output windows (stream stdout/stderr via events)
+- `src-tauri/src/context.rs` — `AppContext` struct decoupling backend logic from `tauri::AppHandle`
+- `src-tauri/src/output_buffers.rs` — Shared output buffer state for streaming command output to frontend
+- `src-tauri/src/window_manager.rs` — Secondary window creation, label sanitization
+- `src-tauri/src/actions/output_window.rs` — Run shell commands in output windows (stream stdout/stderr via shared buffer, oneshot kill channel)
 - `src-tauri/src/dev_server.rs` — Axum HTTP bridge; `build_router()` shared between Tauri dev-server and standalone test-server binary
 - `src-tauri/src/bin/test_server.rs` — Standalone axum server for headless Playwright testing (no Tauri runtime, no GUI)
 - `src/App.tsx` — Main UI component
@@ -244,7 +246,7 @@ Burrow supports secondary output windows for streaming command output (e.g., kub
 - `burrow models set` interactive selector fetches available models from Ollama (`/api/tags`) or OpenRouter (`/api/v1/models`)
 - Output windows: `SearchResult.output_mode = Some(OutputMode::Window)` streams command output in a native Burrow window instead of a terminal
 - Window label format: `output-{name}-{unix_ms}` ensures uniqueness for multiple output windows
-- Output window close handler sends SIGTERM to child process via `libc::kill`
+- Output window close handler uses `tokio::oneshot` channel to signal child termination (no PID reuse risk)
 
 ## Reference Repos
 
