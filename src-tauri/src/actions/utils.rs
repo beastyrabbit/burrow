@@ -9,6 +9,7 @@ pub fn exec_shell(cmd: &str) -> Result<(), String> {
     Command::new("sh")
         .arg("-c")
         .arg(cmd)
+        .current_dir(dirs::home_dir().unwrap_or_else(|| std::path::PathBuf::from("/")))
         .spawn()
         .map_err(|e| format!("Failed to exec: {e}"))?;
     Ok(())
