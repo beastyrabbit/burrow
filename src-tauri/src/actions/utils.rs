@@ -70,6 +70,7 @@ pub fn exec_ssh(host: &str, user: Option<&str>) -> Result<(), String> {
     }
     let terminal = get_terminal_cmd();
     let mut cmd = Command::new(&terminal);
+    cmd.current_dir(dirs::home_dir().unwrap_or_else(|| std::path::PathBuf::from("/")));
     cmd.arg("ssh");
     cmd.arg("--"); // Prevent option injection (e.g., host starting with "-")
     if let Some(u) = user {
