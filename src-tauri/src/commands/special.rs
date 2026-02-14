@@ -16,10 +16,10 @@ const COMMANDS: &[SpecialCommand] = &[
         name: "cowork",
         description: "Open kitty in ~/cowork and run Claude Code",
         icon: "",
-        exec_command: "kitty --directory ~/cowork claude /init-cowork",
+        exec_command: "kitty --directory ~/cowork claude --dangerously-skip-permissions /init-cowork",
         input_spec: Some((
             "Enter topic or press Enter to skip",
-            "kitty --directory ~/cowork claude /init-cowork\\ {}",
+            "kitty --directory ~/cowork claude --dangerously-skip-permissions /init-cowork\\ {}",
         )),
         output_mode: None,
     },
