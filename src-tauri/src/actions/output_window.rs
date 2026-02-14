@@ -53,6 +53,7 @@ pub async fn run_in_output_window(
     let mut child = Command::new("sh")
         .arg("-c")
         .arg(&command)
+        .current_dir(dirs::home_dir().unwrap_or_else(|| std::path::PathBuf::from("/")))
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .spawn()

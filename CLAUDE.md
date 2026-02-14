@@ -50,6 +50,10 @@
 - If a new provider is added, add tests for: empty query, matching query, no-match query, edge cases
 - Playwright e2e tests start `test-server` (headless axum backend on :3001) + `pnpm dev` (Vite on :1420) automatically via `playwright.config.ts` webServer config
 
+## Ports
+
+Vite dev server on 1420, HMR on 1421, test server (axum HTTP bridge) on 3001 (registered in `/home/beasty/projects/.ports`).
+
 ## Configuration
 
 - **Config file:** `~/.config/burrow/config.toml` (TOML format, auto-created with defaults on first run)
