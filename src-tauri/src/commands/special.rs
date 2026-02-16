@@ -14,12 +14,12 @@ struct SpecialCommand {
 const COMMANDS: &[SpecialCommand] = &[
     SpecialCommand {
         name: "cowork",
-        description: "Open kitty in ~/cowork and run Claude Code",
+        description: "Open kitty in ~/cowork and run Codex",
         icon: "",
-        exec_command: "kitty --directory ~/cowork claude --dangerously-skip-permissions /init-cowork",
+        exec_command: "kitty --directory ~/cowork codex --dangerously-bypass-approvals-and-sandbox 'Use $init-cowork and orient to this workspace.'",
         input_spec: Some((
             "Enter topic or press Enter to skip",
-            "kitty --directory ~/cowork claude --dangerously-skip-permissions /init-cowork\\ {}",
+            "kitty --directory ~/cowork codex --dangerously-bypass-approvals-and-sandbox 'Use $init-cowork for topic:'\\ {}",
         )),
         output_mode: None,
     },
@@ -27,7 +27,7 @@ const COMMANDS: &[SpecialCommand] = &[
         name: "kub-merge",
         description: "Run kub-merge in output window",
         icon: "",
-        exec_command: "cd ~/cowork && claude -p \"/kub-merge\"",
+        exec_command: "cd ~/cowork && codex exec --dangerously-bypass-approvals-and-sandbox 'Use $kub-merge'",
         input_spec: None,
         output_mode: Some(OutputMode::Window),
     },
@@ -173,12 +173,12 @@ mod tests {
     }
 
     #[test]
-    fn input_spec_template_uses_init_cowork() {
+    fn input_spec_template_uses_init_cowork_skill_prompt() {
         let results = search_special("cowork").unwrap();
         let spec = results[0].input_spec.as_ref().unwrap();
         assert!(
-            spec.template.contains("/init-cowork"),
-            "template should use /init-cowork command, got: {}",
+            spec.template.contains("$init-cowork"),
+            "template should use $init-cowork skill prompt, got: {}",
             spec.template
         );
         // User input ({}) must not appear inside unquoted or double-quoted context
@@ -213,7 +213,7 @@ mod tests {
     }
 
     #[test]
-    fn kub_merge_exec_runs_claude_in_cowork() {
+    fn kub_merge_exec_runs_codex_in_cowork() {
         let results = search_special("kub-merge").unwrap();
         assert_eq!(results.len(), 1);
         assert!(
@@ -222,8 +222,8 @@ mod tests {
             results[0].exec
         );
         assert!(
-            results[0].exec.contains("claude"),
-            "kub-merge should invoke claude, got: {}",
+            results[0].exec.contains("codex exec"),
+            "kub-merge should invoke codex exec, got: {}",
             results[0].exec
         );
     }
@@ -272,7 +272,7 @@ mod tests {
     fn resolve_special_by_id_returns_canonical_command() {
         let result = resolve_special_by_id("special-cowork").expect("special-cowork should exist");
         assert_eq!(result.id, "special-cowork");
-        assert!(result.exec.contains("claude"));
+        assert!(result.exec.contains("codex"));
     }
 
     #[test]

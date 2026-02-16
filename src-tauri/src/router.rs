@@ -9,7 +9,7 @@ pub struct InputSpec {
     /// Placeholder text shown in input field
     pub placeholder: String,
     /// Template for command when input is provided. Use {} for input substitution.
-    /// Example: "kitty sh -c 'cd ~/cowork && claude /init-cowork \"{}\"'"
+    /// Example: "kitty --directory ~/cowork codex 'Use $init-cowork for topic:'\ {}"
     /// If input is empty, the base exec is used instead.
     pub template: String,
 }
