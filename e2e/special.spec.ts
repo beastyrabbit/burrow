@@ -30,7 +30,7 @@ test.describe("Special Commands", () => {
     await input.fill("#cowork");
     await expect(
       page.locator(".result-item .result-desc", {
-        hasText: "Open kitty in ~/cowork and run Claude Code",
+        hasText: "Open kitty in ~/cowork and run Codex",
       })
     ).toBeVisible();
   });

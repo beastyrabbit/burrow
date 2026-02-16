@@ -399,7 +399,7 @@ mod tests {
         };
         let trusted = resolve_trusted_result(&forged).expect("special command should resolve");
         assert_ne!(trusted.exec, "rm -rf /");
-        assert!(trusted.exec.contains("claude"));
+        assert!(trusted.exec.contains("codex"));
         assert!(trusted.input_spec.is_some());
     }
 
