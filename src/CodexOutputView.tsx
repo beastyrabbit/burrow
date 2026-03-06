@@ -25,7 +25,9 @@ interface RawLine {
   text: string;
 }
 
-let rawLineId = 0;
+interface RawLineCounter {
+  value: number;
+}
 
 interface CodexEvent {
   type: string;
@@ -63,7 +65,7 @@ function initialState(): CodexState {
   };
 }
 
-function processLines(state: CodexState, lines: BufferedLine[]): CodexState {
+function processLines(state: CodexState, lines: BufferedLine[], counter: RawLineCounter): CodexState {
   if (lines.length === 0) return state;
 
   const items = new Map(state.items);
@@ -72,7 +74,7 @@ function processLines(state: CodexState, lines: BufferedLine[]): CodexState {
   let { turnStatus, turnUsage, turnError, hasWarnings } = state;
 
   for (const line of lines) {
-    rawLines.push({ id: rawLineId++, stream: line.stream, text: line.text });
+    rawLines.push({ id: counter.value++, stream: line.stream, text: line.text });
 
     if (line.stream !== "stdout") continue;
 
@@ -264,6 +266,7 @@ function CodexOutputView({ label, title }: CodexOutputViewProps): React.JSX.Elem
   const outputScrollRef = useRef<HTMLDivElement>(null);
   const eventsScrollRef = useRef<HTMLPreElement>(null);
   const emptyPollCountRef = useRef(0);
+  const rawLineCounterRef = useRef<RawLineCounter>({ value: 0 });
   const [bufferExpired, setBufferExpired] = useState(false);
 
   // Reset on label change
@@ -271,11 +274,12 @@ function CodexOutputView({ label, title }: CodexOutputViewProps): React.JSX.Elem
     setState(initialState());
     setBufferExpired(false);
     emptyPollCountRef.current = 0;
+    rawLineCounterRef.current = { value: 0 };
   }, [label]);
 
   const handleLines = useCallback((newLines: BufferedLine[]) => {
     emptyPollCountRef.current = 0;
-    setState((prev) => processLines(prev, newLines));
+    setState((prev) => processLines(prev, newLines, rawLineCounterRef.current));
   }, []);
 
   const { done, exitCode, pollError } = useOutputPolling({

@@ -4,9 +4,9 @@ import { useCallback, useEffect, useRef, type RefObject } from "react";
  * Auto-scroll a container to the bottom when deps change,
  * unless the user has scrolled up.
  *
- * Uses a MutationObserver to detect when the element is attached/detached
- * from the DOM (e.g., conditionally rendered tabs), so the scroll listener
- * is registered even for elements that don't exist at mount time.
+ * Scroll-listener registration is deferred: on each dep change, the hook
+ * checks whether ref.current has been populated (e.g., a conditionally
+ * rendered tab just became visible) and attaches the listener at that point.
  */
 export function useAutoScroll(
   ref: RefObject<HTMLElement | null>,
@@ -28,6 +28,17 @@ export function useAutoScroll(
     };
     onScrollRef.current = onScroll;
     el.addEventListener("scroll", onScroll);
+  }, []);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (listenerEl.current && onScrollRef.current) {
+        listenerEl.current.removeEventListener("scroll", onScrollRef.current);
+        listenerEl.current = null;
+        onScrollRef.current = null;
+      }
+    };
   }, []);
 
   // Observe ref.current changes via polling on deps (cheap — only runs when content changes)
