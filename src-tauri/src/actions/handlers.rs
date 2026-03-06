@@ -33,6 +33,7 @@ fn resolve_trusted_result(result: &SearchResult) -> Result<SearchResult, String>
             trusted.exec = exec;
             trusted.input_spec = None;
             trusted.output_mode = None;
+            trusted.output_format = None;
             Ok(trusted)
         }
         Category::Special => special::resolve_special_by_id(&result.id)

@@ -81,7 +81,8 @@
   background: rgba(122, 162, 247, 0.12);
 }
 
-.status-failed {
+.status-failed,
+.status-error {
   color: #f7768e;
   background: rgba(247, 118, 142, 0.15);
 }
@@ -89,11 +90,6 @@
 .status-warnings {
   color: #e0af68;
   background: rgba(224, 175, 104, 0.15);
-}
-
-.status-error {
-  color: #f7768e;
-  background: rgba(247, 118, 142, 0.15);
 }
 
 @keyframes codex-pulse {

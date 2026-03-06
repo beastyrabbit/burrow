@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useOutputPolling, type BufferedLine } from "./useOutputPolling";
+import { useAutoScroll } from "./useAutoScroll";
 import "./OutputView.css";
 
 interface OutputViewProps {
@@ -18,7 +19,6 @@ function getStatus(done: boolean, exitCode: number | null): { className: string;
 function OutputView({ label, title }: OutputViewProps): React.JSX.Element {
   const [lines, setLines] = useState<BufferedLine[]>([]);
   const outputRef = useRef<HTMLPreElement>(null);
-  const autoScrollRef = useRef(true);
 
   // Reset lines when label changes
   useEffect(() => {
@@ -37,24 +37,7 @@ function OutputView({ label, title }: OutputViewProps): React.JSX.Element {
     onLines: handleLines,
   });
 
-  // Track whether user has scrolled up (disable auto-scroll)
-  useEffect(() => {
-    const el = outputRef.current;
-    if (!el) return;
-    const onScroll = () => {
-      const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
-      autoScrollRef.current = atBottom;
-    };
-    el.addEventListener("scroll", onScroll);
-    return () => el.removeEventListener("scroll", onScroll);
-  }, []);
-
-  // Auto-scroll to bottom when new lines arrive
-  useEffect(() => {
-    if (autoScrollRef.current && outputRef.current) {
-      outputRef.current.scrollTop = outputRef.current.scrollHeight;
-    }
-  }, [lines]);
+  useAutoScroll(outputRef, [lines]);
 
   const status = pollError
     ? { className: "status-error", text: pollError }

@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { useOutputPolling, type BufferedLine } from "./useOutputPolling";
+import { useAutoScroll } from "./useAutoScroll";
 import "./CodexOutputView.css";
 
 // --- Types ---
@@ -21,7 +22,7 @@ interface CodexItem {
 }
 
 interface RawLine {
-  stream: string;
+  stream: "stdout" | "stderr";
   text: string;
 }
 
@@ -55,7 +56,8 @@ function initialState(): CodexState {
 }
 
 function processLines(state: CodexState, lines: BufferedLine[]): CodexState {
-  // Clone mutable parts
+  if (lines.length === 0) return state;
+
   const items = new Map(state.items);
   const itemOrder = [...state.itemOrder];
   const rawLines = [...state.rawLines];
@@ -79,6 +81,8 @@ function processLines(state: CodexState, lines: BufferedLine[]): CodexState {
 
     if (eventType === "turn.started") {
       turnStatus = "running";
+      turnError = null;
+      turnUsage = null;
     } else if (eventType === "turn.completed") {
       turnStatus = "completed";
       if (event.usage) {
@@ -101,7 +105,7 @@ function processLines(state: CodexState, lines: BufferedLine[]): CodexState {
         };
         items.set(item.id, merged);
 
-        if (!itemOrder.includes(item.id)) {
+        if (!existing) {
           itemOrder.push(item.id);
         }
 
@@ -133,13 +137,7 @@ function getCodexStatus(
   if (state.hasWarnings && state.turnStatus === "completed") {
     return { className: "status-warnings", text: "Completed with warnings" };
   }
-  if (state.turnStatus === "completed") {
-    return { className: "status-completed", text: "Completed" };
-  }
-  if (state.turnStatus === "running" || !processDone) {
-    return { className: "status-running", text: "Running..." };
-  }
-  if (processDone && state.turnStatus === "idle") {
+  if (state.turnStatus === "completed" || (processDone && state.turnStatus === "idle")) {
     return { className: "status-completed", text: "Completed" };
   }
   return { className: "status-running", text: "Running..." };
@@ -150,26 +148,38 @@ const EXPIRED_POLL_THRESHOLD = 10;
 
 // --- Sub-components ---
 
+function cardStatusClass(isRunning: boolean, exitCode: number | null): string {
+  if (isRunning) return "running";
+  if (exitCode === 0) return "exit-ok";
+  if (exitCode !== null) return "exit-fail";
+  return "";
+}
+
+function ExitBadge({ isRunning, exitCode }: { isRunning: boolean; exitCode: number | null }) {
+  if (isRunning) {
+    return <span className="codex-card-exit pending">running</span>;
+  }
+  if (exitCode !== null) {
+    return (
+      <span className={`codex-card-exit ${exitCode === 0 ? "ok" : "fail"}`}>
+        exit {exitCode}
+      </span>
+    );
+  }
+  return null;
+}
+
 function CommandCard({ item }: { item: CodexItem }) {
   const [expanded, setExpanded] = useState(false);
   const hasOutput = item.aggregated_output && item.aggregated_output.length > 0;
   const isRunning = item.status === "in_progress";
-  const exitOk = item.exit_code === 0;
-  const exitFail = item.exit_code !== null && item.exit_code !== undefined && item.exit_code !== 0;
-
-  const cardClass = `codex-card ${isRunning ? "running" : exitOk ? "exit-ok" : exitFail ? "exit-fail" : ""}`;
+  const exitCode = item.exit_code ?? null;
 
   return (
-    <div className={cardClass}>
+    <div className={`codex-card ${cardStatusClass(isRunning, exitCode)}`}>
       <div className="codex-card-header" onClick={() => hasOutput && setExpanded(!expanded)}>
         <span className="codex-card-command">{item.command ?? "command"}</span>
-        {isRunning ? (
-          <span className="codex-card-exit pending">running</span>
-        ) : item.exit_code !== null && item.exit_code !== undefined ? (
-          <span className={`codex-card-exit ${exitOk ? "ok" : "fail"}`}>
-            exit {item.exit_code}
-          </span>
-        ) : null}
+        <ExitBadge isRunning={isRunning} exitCode={exitCode} />
       </div>
       {expanded && hasOutput && (
         <div className="codex-card-output">{item.aggregated_output}</div>
@@ -180,6 +190,11 @@ function CommandCard({ item }: { item: CodexItem }) {
 
 function AgentMessage({ item, defaultExpanded }: { item: CodexItem; defaultExpanded: boolean }) {
   const [collapsed, setCollapsed] = useState(!defaultExpanded);
+
+  // Collapse previously-expanded messages when a newer message becomes the last
+  useEffect(() => {
+    if (!defaultExpanded) setCollapsed(true);
+  }, [defaultExpanded]);
 
   return (
     <div className={`codex-agent-message ${collapsed ? "collapsed" : ""}`}>
@@ -201,8 +216,6 @@ function CodexOutputView({ label, title }: CodexOutputViewProps): React.JSX.Elem
   const [activeTab, setActiveTab] = useState<"output" | "events">("output");
   const outputScrollRef = useRef<HTMLDivElement>(null);
   const eventsScrollRef = useRef<HTMLPreElement>(null);
-  const autoScrollOutputRef = useRef(true);
-  const autoScrollEventsRef = useRef(true);
   const emptyPollCountRef = useRef(0);
   const [bufferExpired, setBufferExpired] = useState(false);
 
@@ -227,49 +240,16 @@ function CodexOutputView({ label, title }: CodexOutputViewProps): React.JSX.Elem
   useEffect(() => {
     if (done || pollError) return;
     const id = setInterval(() => {
-      if (state.rawLines.length === 0) {
-        emptyPollCountRef.current++;
-        if (emptyPollCountRef.current >= EXPIRED_POLL_THRESHOLD) {
-          setBufferExpired(true);
-        }
+      emptyPollCountRef.current++;
+      if (emptyPollCountRef.current >= EXPIRED_POLL_THRESHOLD) {
+        setBufferExpired(true);
       }
     }, 200);
     return () => clearInterval(id);
-  }, [done, pollError, state.rawLines.length]);
+  }, [done, pollError]);
 
-  // Auto-scroll for output tab
-  useEffect(() => {
-    const el = outputScrollRef.current;
-    if (!el) return;
-    const onScroll = () => {
-      autoScrollOutputRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
-    };
-    el.addEventListener("scroll", onScroll);
-    return () => el.removeEventListener("scroll", onScroll);
-  }, []);
-
-  useEffect(() => {
-    if (autoScrollOutputRef.current && outputScrollRef.current) {
-      outputScrollRef.current.scrollTop = outputScrollRef.current.scrollHeight;
-    }
-  }, [state.itemOrder.length, state.items]);
-
-  // Auto-scroll for events tab
-  useEffect(() => {
-    const el = eventsScrollRef.current;
-    if (!el) return;
-    const onScroll = () => {
-      autoScrollEventsRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
-    };
-    el.addEventListener("scroll", onScroll);
-    return () => el.removeEventListener("scroll", onScroll);
-  }, []);
-
-  useEffect(() => {
-    if (autoScrollEventsRef.current && eventsScrollRef.current) {
-      eventsScrollRef.current.scrollTop = eventsScrollRef.current.scrollHeight;
-    }
-  }, [state.rawLines.length]);
+  useAutoScroll(outputScrollRef, [state.itemOrder.length, state.items]);
+  useAutoScroll(eventsScrollRef, [state.rawLines.length]);
 
   // Find last agent_message id for default-expand logic
   const agentMessageIds = state.itemOrder.filter(
