@@ -107,6 +107,7 @@ pub fn filter_hosts(hosts: Vec<SshHost>, query: &str) -> Vec<SearchResult> {
                 exec: h.name.clone(),
                 input_spec: None,
                 output_mode: None,
+                output_format: None,
             }
         })
         .collect()

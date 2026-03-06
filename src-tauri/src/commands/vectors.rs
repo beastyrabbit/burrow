@@ -119,6 +119,7 @@ fn search_vectors(
                 exec: String::new(),
                 input_spec: None,
                 output_mode: None,
+                output_format: None,
             }
         })
         .collect())
@@ -137,6 +138,7 @@ pub async fn search_by_content(query: &str, ctx: &AppContext) -> Result<Vec<Sear
             exec: "".into(),
             input_spec: None,
             output_mode: None,
+            output_format: None,
         }]);
     }
 

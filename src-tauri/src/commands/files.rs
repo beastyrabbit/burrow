@@ -27,6 +27,7 @@ fn match_files_in_dirs(dirs: &[PathBuf], query: &str, limit: usize) -> Vec<Searc
                         exec: String::new(),
                         input_spec: None,
                         output_mode: None,
+                        output_format: None,
                     });
                 }
                 if results.len() >= limit {

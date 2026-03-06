@@ -35,16 +35,23 @@ pub fn make_output_label(name: &str) -> String {
 
 /// Spawn a new output window using the Tauri WebviewWindow API.
 /// Returns the window label on success.
-pub fn spawn_output_window(app: &tauri::AppHandle, name: &str) -> Result<String, String> {
+pub fn spawn_output_window(
+    app: &tauri::AppHandle,
+    name: &str,
+    format: Option<&str>,
+) -> Result<String, String> {
     use tauri::WebviewUrl;
 
     let label = make_output_label(name);
     let title = format!("Burrow - {name}");
-    let url = format!(
+    let mut url = format!(
         "index.html?view=output&label={}&title={}",
         urlencoded(&label),
         urlencoded(name),
     );
+    if let Some(fmt) = format {
+        url.push_str(&format!("&format={}", urlencoded(fmt)));
+    }
 
     tauri::WebviewWindowBuilder::new(app, &label, WebviewUrl::App(url.into()))
         .title(&title)

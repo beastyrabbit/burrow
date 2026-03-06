@@ -9,6 +9,8 @@ struct SpecialCommand {
     input_spec: Option<(&'static str, &'static str)>,
     /// How output is displayed. None = fire-and-forget (default).
     output_mode: Option<OutputMode>,
+    /// Optional output format hint (e.g. "codex_json") passed to the output window.
+    output_format: Option<&'static str>,
 }
 
 const COMMANDS: &[SpecialCommand] = &[
@@ -22,14 +24,16 @@ const COMMANDS: &[SpecialCommand] = &[
             "kitty --directory ~/cowork codex --dangerously-bypass-approvals-and-sandbox 'Use $init-cowork for topic:'\\ {}",
         )),
         output_mode: None,
+        output_format: None,
     },
     SpecialCommand {
         name: "kub-merge",
         description: "Run kub-merge in output window",
         icon: "",
-        exec_command: "cd ~/cowork && codex exec --dangerously-bypass-approvals-and-sandbox 'Use $kub-merge'",
+        exec_command: "cd ~/cowork && codex exec --json --dangerously-bypass-approvals-and-sandbox 'Use $kub-merge'",
         input_spec: None,
         output_mode: Some(OutputMode::Window),
+        output_format: Some("codex_json"),
     },
     SpecialCommand {
         name: "test-output",
@@ -38,6 +42,7 @@ const COMMANDS: &[SpecialCommand] = &[
         exec_command: "for i in $(seq 1 20); do echo \"[stdout] Line $i: $(date +%H:%M:%S)\"; sleep 0.3; done; echo 'Stream complete.'",
         input_spec: None,
         output_mode: Some(OutputMode::Window),
+        output_format: None,
     },
 ];
 
@@ -54,6 +59,7 @@ fn command_to_result(cmd: &SpecialCommand) -> SearchResult {
             template: template.to_string(),
         }),
         output_mode: cmd.output_mode,
+        output_format: cmd.output_format.map(|s| s.to_string()),
     }
 }
 

@@ -83,6 +83,7 @@ pub fn query_frecent(conn: &Connection) -> Result<Vec<SearchResult>, rusqlite::E
                 category: Category::History,
                 input_spec: None,
                 output_mode: None,
+                output_format: None,
             })
         })?
         .filter_map(|r| match r {
