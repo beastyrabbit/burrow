@@ -3,6 +3,10 @@ import { useOutputPolling, type BufferedLine } from "./useOutputPolling";
 import { useAutoScroll } from "./useAutoScroll";
 import "./OutputView.css";
 
+interface StableLine extends BufferedLine {
+  id: number;
+}
+
 interface OutputViewProps {
   label: string;
   title: string;
@@ -17,17 +21,20 @@ function getStatus(done: boolean, exitCode: number | null): { className: string;
 }
 
 function OutputView({ label, title }: OutputViewProps): React.JSX.Element {
-  const [lines, setLines] = useState<BufferedLine[]>([]);
+  const [lines, setLines] = useState<StableLine[]>([]);
   const outputRef = useRef<HTMLPreElement>(null);
+  const lineCounterRef = useRef(0);
 
   // Reset lines when label changes
   useEffect(() => {
     setLines([]);
+    lineCounterRef.current = 0;
   }, [label]);
 
   const handleLines = useCallback((newLines: BufferedLine[]) => {
     setLines((prev) => {
-      const next = [...prev, ...newLines];
+      const stamped = newLines.map((l) => ({ ...l, id: lineCounterRef.current++ }));
+      const next = [...prev, ...stamped];
       return next.length > MAX_LINES ? next.slice(-MAX_LINES) : next;
     });
   }, []);
@@ -50,9 +57,9 @@ function OutputView({ label, title }: OutputViewProps): React.JSX.Element {
         <span className={`output-status ${status.className}`}>{status.text}</span>
       </div>
       <pre ref={outputRef} className="output-content">
-        {lines.map((line, i) => (
+        {lines.map((line) => (
           <span
-            key={i}
+            key={line.id}
             className={line.stream === "stderr" ? "line-stderr" : "line-stdout"}
           >
             {line.text}

@@ -226,19 +226,22 @@ function AgentMessage({ item, defaultExpanded }: { item: CodexItem; defaultExpan
         <ReactMarkdown
           remarkPlugins={[remarkGfm]}
           components={{
-            a: ({ href, children }) => (
-              <a
-                href={href}
-                onClick={(e) => {
-                  e.preventDefault();
-                  if (href && /^https?:\/\//i.test(href)) {
-                    window.open(href, "_blank", "noopener,noreferrer");
-                  }
-                }}
-              >
-                {children}
-              </a>
-            ),
+            a: ({ href, children }) => {
+              const safeHref = href && /^https?:\/\//i.test(href) ? href : "#";
+              return (
+                <a
+                  href={safeHref}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    if (href && /^https?:\/\//i.test(href)) {
+                      window.open(href, "_blank", "noopener,noreferrer");
+                    }
+                  }}
+                >
+                  {children}
+                </a>
+              );
+            },
           }}
         >
           {item.text ?? ""}
