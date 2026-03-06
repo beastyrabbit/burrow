@@ -30,6 +30,8 @@ const COMMANDS: &[SpecialCommand] = &[
         name: "kub-merge",
         description: "Run kub-merge in output window",
         icon: "",
+        // Safety: --dangerously-bypass-approvals-and-sandbox is intentional —
+        // kub-merge is a trusted internal workflow running in an output window.
         exec_command: "cd ~/cowork && codex exec --json --dangerously-bypass-approvals-and-sandbox 'Use $kub-merge'",
         input_spec: None,
         output_mode: Some(OutputMode::Window),

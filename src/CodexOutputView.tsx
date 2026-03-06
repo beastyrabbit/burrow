@@ -69,7 +69,7 @@ function processLines(state: CodexState, lines: BufferedLine[], counter: RawLine
   if (lines.length === 0) return state;
 
   const items = new Map(state.items);
-  const itemOrder = [...state.itemOrder];
+  let itemOrder = state.itemOrder;
   const rawLines = [...state.rawLines];
   let { turnStatus, turnUsage, turnError, hasWarnings } = state;
 
@@ -117,6 +117,7 @@ function processLines(state: CodexState, lines: BufferedLine[], counter: RawLine
         items.set(item.id, merged);
 
         if (!existing) {
+          if (itemOrder === state.itemOrder) itemOrder = [...state.itemOrder];
           itemOrder.push(item.id);
         }
 
