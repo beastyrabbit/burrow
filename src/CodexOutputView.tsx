@@ -20,9 +20,12 @@ interface CodexItem {
 }
 
 interface RawLine {
+  id: number;
   stream: "stdout" | "stderr";
   text: string;
 }
+
+let rawLineId = 0;
 
 interface CodexEvent {
   type: string;
@@ -69,7 +72,7 @@ function processLines(state: CodexState, lines: BufferedLine[]): CodexState {
   let { turnStatus, turnUsage, turnError, hasWarnings } = state;
 
   for (const line of lines) {
-    rawLines.push({ stream: line.stream, text: line.text });
+    rawLines.push({ id: rawLineId++, stream: line.stream, text: line.text });
 
     if (line.stream !== "stdout") continue;
 
@@ -149,6 +152,9 @@ function getCodexStatus(
   if (state.turnStatus === "completed" || (processDone && state.turnStatus === "idle")) {
     return { className: "status-completed", text: "Completed" };
   }
+  if (processDone) {
+    return { className: "status-completed", text: "Completed" };
+  }
   return { className: "status-running", text: "Running..." };
 }
 
@@ -185,7 +191,7 @@ function CommandCard({ item }: { item: CodexItem }) {
   const exitCode = item.exit_code ?? null;
 
   return (
-    <div className={`codex-card ${cardStatusClass(isRunning, exitCode)}`}>
+    <div className={`codex-card ${cardStatusClass(isRunning, exitCode)}${hasOutput ? " has-output" : ""}`}>
       <div className="codex-card-header" style={hasOutput ? undefined : { cursor: "default" }} onClick={() => hasOutput && setExpanded(!expanded)}>
         <span className="codex-card-command">{item.command ?? "command"}</span>
         <ExitBadge isRunning={isRunning} exitCode={exitCode} />
@@ -380,9 +386,9 @@ function CodexOutputView({ label, title }: CodexOutputViewProps): React.JSX.Elem
 
       {activeTab === "events" && (
         <pre className="codex-tab-content codex-events" ref={eventsScrollRef}>
-          {state.rawLines.map((line, i) => (
+          {state.rawLines.map((line) => (
             <span
-              key={i}
+              key={line.id}
               className={line.stream === "stderr" ? "event-stderr" : "event-stdout"}
             >
               {line.text}

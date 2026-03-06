@@ -14,13 +14,19 @@ export function useAutoScroll(
 ): void {
   const autoScroll = useRef(true);
   const listenerEl = useRef<HTMLElement | null>(null);
+  const onScrollRef = useRef<(() => void) | null>(null);
 
   const attach = useCallback((el: HTMLElement) => {
     if (listenerEl.current === el) return;
+    // Remove old listener before attaching new one
+    if (listenerEl.current && onScrollRef.current) {
+      listenerEl.current.removeEventListener("scroll", onScrollRef.current);
+    }
     listenerEl.current = el;
     const onScroll = () => {
       autoScroll.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
     };
+    onScrollRef.current = onScroll;
     el.addEventListener("scroll", onScroll);
   }, []);
 

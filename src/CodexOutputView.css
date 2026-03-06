@@ -127,7 +127,7 @@
   user-select: none;
 }
 
-.codex-card-header:hover {
+.codex-card.has-output .codex-card-header:hover {
   background: rgba(122, 162, 247, 0.06);
 }
 
