@@ -116,7 +116,10 @@ function processLines(state: CodexState, lines: BufferedLine[]): CodexState {
     }
   }
 
-  return { items, itemOrder, turnStatus, turnUsage, turnError, hasWarnings, rawLines };
+  const MAX_RAW_LINES = 10_000;
+  const trimmedRawLines =
+    rawLines.length > MAX_RAW_LINES ? rawLines.slice(-MAX_RAW_LINES) : rawLines;
+  return { items, itemOrder, turnStatus, turnUsage, turnError, hasWarnings, rawLines: trimmedRawLines };
 }
 
 // --- Status logic ---
@@ -190,15 +193,17 @@ function CommandCard({ item }: { item: CodexItem }) {
 
 function AgentMessage({ item, defaultExpanded }: { item: CodexItem; defaultExpanded: boolean }) {
   const [collapsed, setCollapsed] = useState(!defaultExpanded);
+  const userToggledRef = useRef(false);
 
-  // Collapse previously-expanded messages when a newer message becomes the last
+  // Collapse previously-expanded messages when a newer message becomes the last,
+  // but only if the user hasn't manually toggled this message
   useEffect(() => {
-    if (!defaultExpanded) setCollapsed(true);
+    if (!defaultExpanded && !userToggledRef.current) setCollapsed(true);
   }, [defaultExpanded]);
 
   return (
     <div className={`codex-agent-message ${collapsed ? "collapsed" : ""}`}>
-      <div className="codex-agent-toggle" onClick={() => setCollapsed(!collapsed)}>
+      <div className="codex-agent-toggle" onClick={() => { userToggledRef.current = true; setCollapsed(!collapsed); }}>
         <span>{collapsed ? "▸" : "▾"}</span>
         <span>Agent message</span>
       </div>
