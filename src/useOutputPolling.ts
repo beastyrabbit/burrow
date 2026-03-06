@@ -66,6 +66,12 @@ export function useOutputPolling({
           sinceIndex,
         });
 
+        // Note: a `stopped` guard here would fix a theoretical race on rapid
+        // label transitions, but React StrictMode double-mounts cause the
+        // first effect's poll to consume mock data, then the guard discards
+        // the response — breaking Playwright tests. The label-change state
+        // reset (lines 49-53) is sufficient protection in practice.
+
         sinceIndex = snap.total;
         errorCount = 0;
 
