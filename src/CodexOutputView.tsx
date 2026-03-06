@@ -144,7 +144,7 @@ function getCodexStatus(
 }
 
 // --- Buffer-expired detection ---
-const EXPIRED_POLL_THRESHOLD = 10;
+const EXPIRED_POLL_THRESHOLD = 150;
 
 // --- Sub-components ---
 
@@ -177,7 +177,7 @@ function CommandCard({ item }: { item: CodexItem }) {
 
   return (
     <div className={`codex-card ${cardStatusClass(isRunning, exitCode)}`}>
-      <div className="codex-card-header" onClick={() => hasOutput && setExpanded(!expanded)}>
+      <div className="codex-card-header" style={hasOutput ? undefined : { cursor: "default" }} onClick={() => hasOutput && setExpanded(!expanded)}>
         <span className="codex-card-command">{item.command ?? "command"}</span>
         <ExitBadge isRunning={isRunning} exitCode={exitCode} />
       </div>
@@ -205,6 +205,17 @@ function AgentMessage({ item, defaultExpanded }: { item: CodexItem; defaultExpan
       <div className="codex-message-content">
         <ReactMarkdown remarkPlugins={[remarkGfm]}>{item.text ?? ""}</ReactMarkdown>
       </div>
+    </div>
+  );
+}
+
+function ReasoningItem({ item }: { item: CodexItem }) {
+  const [collapsed, setCollapsed] = useState(true);
+
+  return (
+    <div className={`codex-reasoning ${collapsed ? "collapsed" : ""}`} onClick={() => setCollapsed(!collapsed)}>
+      <span>{collapsed ? "▸" : "▾"} reasoning</span>
+      <div className="codex-reasoning-text">{item.text}</div>
     </div>
   );
 }
@@ -317,12 +328,7 @@ function CodexOutputView({ label, title }: CodexOutputViewProps): React.JSX.Elem
               );
             }
             if (item.type === "reasoning") {
-              return (
-                <div key={id} className="codex-reasoning collapsed">
-                  <span>▸ reasoning</span>
-                  <div className="codex-reasoning-text">{item.text}</div>
-                </div>
-              );
+              return <ReasoningItem key={id} item={item} />;
             }
             return (
               <div key={id} className="codex-unknown">
