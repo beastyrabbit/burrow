@@ -296,7 +296,10 @@ function CodexOutputView({ label, title }: CodexOutputViewProps): React.JSX.Elem
 
   // Buffer-expired detection: if no data arrives after many polls
   useEffect(() => {
-    if (done || pollError) return;
+    if (done || pollError) {
+      setBufferExpired(false);
+      return;
+    }
     const id = setInterval(() => {
       emptyPollCountRef.current++;
       if (emptyPollCountRef.current >= EXPIRED_POLL_THRESHOLD) {
