@@ -222,7 +222,9 @@ function AgentMessage({ item, defaultExpanded }: { item: CodexItem; defaultExpan
                 href={href}
                 onClick={(e) => {
                   e.preventDefault();
-                  if (href) window.open(href, "_blank", "noopener,noreferrer");
+                  if (href && /^https?:\/\//i.test(href)) {
+                    window.open(href, "_blank", "noopener,noreferrer");
+                  }
                 }}
               >
                 {children}
