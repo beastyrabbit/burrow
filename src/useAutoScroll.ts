@@ -18,7 +18,8 @@ export function useAutoScroll(
     };
     el.addEventListener("scroll", onScroll);
     return () => el.removeEventListener("scroll", onScroll);
-  }, [ref]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [...deps, ref]);
 
   useEffect(() => {
     if (autoScroll.current && ref.current) {

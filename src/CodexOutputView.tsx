@@ -17,13 +17,18 @@ interface CodexItem {
   exit_code?: number | null;
   // agent_message fields
   text?: string;
-  // raw JSON for unknown types
-  raw?: string;
 }
 
 interface RawLine {
   stream: "stdout" | "stderr";
   text: string;
+}
+
+interface CodexEvent {
+  type: string;
+  item?: CodexItem;
+  usage?: { input_tokens: number; output_tokens: number; cached_input_tokens?: number };
+  error?: { message?: string };
 }
 
 interface CodexState {
@@ -68,16 +73,17 @@ function processLines(state: CodexState, lines: BufferedLine[]): CodexState {
 
     if (line.stream !== "stdout") continue;
 
-    let event: any;
+    let parsed: unknown;
     try {
-      event = JSON.parse(line.text);
+      parsed = JSON.parse(line.text);
     } catch {
       continue;
     }
 
-    if (!event || typeof event.type !== "string") continue;
+    if (!parsed || typeof parsed !== "object" || !("type" in parsed) || typeof (parsed as CodexEvent).type !== "string") continue;
 
-    const eventType: string = event.type;
+    const event = parsed as CodexEvent;
+    const eventType = event.type;
 
     if (eventType === "turn.started") {
       turnStatus = "running";
@@ -354,7 +360,7 @@ function CodexOutputView({ label, title }: CodexOutputViewProps): React.JSX.Elem
             }
             return (
               <div key={id} className="codex-unknown">
-                {item.raw ?? JSON.stringify(item)}
+                {JSON.stringify(item)}
               </div>
             );
           })}
