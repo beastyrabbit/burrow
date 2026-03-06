@@ -1,7 +1,14 @@
 import { test, expect } from "@playwright/test";
 
+interface MockResponse {
+  lines: { stream: "stdout" | "stderr"; text: string }[];
+  done: boolean;
+  exit_code: number | null;
+  total: number;
+}
+
 // Helper to build mock get_output responses for page.route()
-function mockGetOutput(page: import("@playwright/test").Page, responses: any[]) {
+function mockGetOutput(page: import("@playwright/test").Page, responses: MockResponse[]) {
   let pollIndex = 0;
   return page.route("**/api/get_output", async (route) => {
     const resp =

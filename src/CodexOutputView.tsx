@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { useOutputPolling, type BufferedLine } from "./useOutputPolling";
@@ -197,7 +197,10 @@ function CommandCard({ item }: { item: CodexItem }) {
     <div className={`codex-card ${cardStatusClass(isRunning, exitCode)}${hasOutput ? " has-output" : ""}`}>
       <div className="codex-card-header" style={hasOutput ? undefined : { cursor: "default" }} onClick={() => hasOutput && setExpanded(!expanded)}>
         <span className="codex-card-command">{item.command ?? "command"}</span>
-        <ExitBadge isRunning={isRunning} exitCode={exitCode} />
+        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          {hasOutput && <span style={{ color: "#565f89", fontSize: 11 }}>{expanded ? "▾" : "▸"}</span>}
+          <ExitBadge isRunning={isRunning} exitCode={exitCode} />
+        </div>
       </div>
       {expanded && hasOutput && (
         <div className="codex-card-output">{item.aggregated_output}</div>
@@ -307,8 +310,9 @@ function CodexOutputView({ label, title }: CodexOutputViewProps): React.JSX.Elem
   useAutoScroll(eventsScrollRef, [state.rawLines.length]);
 
   // Find last agent_message id for default-expand logic
-  const agentMessageIds = state.itemOrder.filter(
-    (id) => state.items.get(id)?.type === "agent_message"
+  const agentMessageIds = useMemo(
+    () => state.itemOrder.filter((id) => state.items.get(id)?.type === "agent_message"),
+    [state.itemOrder, state.items],
   );
   const lastAgentMessageId = agentMessageIds[agentMessageIds.length - 1] ?? null;
 
@@ -321,6 +325,7 @@ function CodexOutputView({ label, title }: CodexOutputViewProps): React.JSX.Elem
       <div className="codex-output">
         <div className="output-titlebar" data-tauri-drag-region>
           <span className="output-title">{title}</span>
+          <span className={`output-status ${status.className}`}>{status.text}</span>
         </div>
         <div className="codex-expired">Output expired or unavailable</div>
       </div>
