@@ -208,7 +208,24 @@ function AgentMessage({ item, defaultExpanded }: { item: CodexItem; defaultExpan
         <span>Agent message</span>
       </div>
       <div className="codex-message-content">
-        <ReactMarkdown remarkPlugins={[remarkGfm]}>{item.text ?? ""}</ReactMarkdown>
+        <ReactMarkdown
+          remarkPlugins={[remarkGfm]}
+          components={{
+            a: ({ href, children }) => (
+              <a
+                href={href}
+                onClick={(e) => {
+                  e.preventDefault();
+                  if (href) window.open(href, "_blank", "noopener,noreferrer");
+                }}
+              >
+                {children}
+              </a>
+            ),
+          }}
+        >
+          {item.text ?? ""}
+        </ReactMarkdown>
       </div>
     </div>
   );
