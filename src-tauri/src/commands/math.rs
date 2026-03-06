@@ -34,6 +34,7 @@ pub fn try_calculate(input: &str) -> Option<SearchResult> {
                 exec: "".into(),
                 input_spec: None,
                 output_mode: None,
+                output_format: None,
             })
         }
         Err(_) => None,

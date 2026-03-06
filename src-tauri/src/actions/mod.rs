@@ -48,6 +48,7 @@ mod tests {
             exec: "".into(),
             input_spec: None,
             output_mode: None,
+            output_format: None,
         };
         assert!(handlers::is_valid_category(result.category));
     }
@@ -63,6 +64,7 @@ mod tests {
             exec: "".into(),
             input_spec: None,
             output_mode: None,
+            output_format: None,
         };
         assert!(handlers::is_valid_category(result.category));
     }

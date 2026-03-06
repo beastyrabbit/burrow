@@ -44,8 +44,9 @@ pub async fn run_in_output_window(
     name: String,
     app: &tauri::AppHandle,
     buffers: Arc<OutputBufferState>,
+    format: Option<String>,
 ) -> Result<(), String> {
-    let label = crate::window_manager::spawn_output_window(app, &name)?;
+    let label = crate::window_manager::spawn_output_window(app, &name, format.as_deref())?;
 
     // Create the buffer before spawning the command so the frontend can start polling immediately.
     buffers.create(label.clone());

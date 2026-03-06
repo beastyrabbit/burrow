@@ -33,6 +33,7 @@ fn resolve_trusted_result(result: &SearchResult) -> Result<SearchResult, String>
             trusted.exec = exec;
             trusted.input_spec = None;
             trusted.output_mode = None;
+            trusted.output_format = None;
             Ok(trusted)
         }
         Category::Special => special::resolve_special_by_id(&result.id)
@@ -242,9 +243,10 @@ fn handle_launch(
             if let Some(app) = ctx.clone_app_handle() {
                 let title = result.name.clone();
                 let buffers = ctx.output_buffers.clone();
+                let format = result.output_format.clone();
                 tauri::async_runtime::spawn(async move {
                     if let Err(e) =
-                        output_window::run_in_output_window(cmd, title, &app, buffers).await
+                        output_window::run_in_output_window(cmd, title, &app, buffers, format).await
                     {
                         tracing::error!(error = %e, "output window execution failed");
                     }
@@ -338,6 +340,7 @@ mod tests {
             exec: "".into(),
             input_spec: None,
             output_mode: None,
+            output_format: None,
         };
         assert!(handle_math(&result, Modifier::None).is_ok());
     }
@@ -377,6 +380,7 @@ mod tests {
             exec: "rm -rf /".into(),
             input_spec: None,
             output_mode: None,
+            output_format: None,
         };
         let err = resolve_trusted_result(&forged).unwrap_err();
         assert!(err.contains("Unknown app id"));
@@ -396,6 +400,7 @@ mod tests {
                 template: "echo {}".into(),
             }),
             output_mode: None,
+            output_format: None,
         };
         let trusted = resolve_trusted_result(&forged).expect("special command should resolve");
         assert_ne!(trusted.exec, "rm -rf /");
@@ -417,6 +422,7 @@ mod tests {
                 template: "echo {}".into(),
             }),
             output_mode: None,
+            output_format: None,
         };
         let trusted = resolve_trusted_result(&forged).expect("onepass result should resolve");
         assert_eq!(trusted.exec, "op-vault-item:abc123");
@@ -504,6 +510,7 @@ mod tests {
             exec: "default-command".into(),
             input_spec: None,
             output_mode: None,
+            output_format: None,
         };
         assert_eq!(
             resolve_exec(&result, None),
@@ -531,6 +538,7 @@ mod tests {
                 template: "templated-command {}".into(),
             }),
             output_mode: None,
+            output_format: None,
         };
         assert_eq!(
             resolve_exec(&result, None),
@@ -558,6 +566,7 @@ mod tests {
                 template: "templated-command {}".into(),
             }),
             output_mode: None,
+            output_format: None,
         };
         // Input is wrapped in single quotes
         assert_eq!(
@@ -581,6 +590,7 @@ mod tests {
                 template: "echo {}".into(),
             }),
             output_mode: None,
+            output_format: None,
         };
         let output = resolve_exec(&result, Some("it's a test"));
         // Single quotes are escaped using '\'' technique inside single-quoted string
@@ -605,6 +615,7 @@ mod tests {
                 template: "echo {}".into(),
             }),
             output_mode: None,
+            output_format: None,
         };
         // All these dangerous chars are safe inside single quotes
         let output = resolve_exec(&result, Some("$HOME; rm -rf / | cat && whoami > /tmp/x"));
@@ -628,6 +639,7 @@ mod tests {
                 template: "echo {}".into(),
             }),
             output_mode: None,
+            output_format: None,
         };
         let output = resolve_exec(&result, Some("`whoami`"));
         // Backticks are safe inside single quotes
@@ -648,6 +660,7 @@ mod tests {
                 template: "echo {}".into(),
             }),
             output_mode: None,
+            output_format: None,
         };
         let output = resolve_exec(&result, Some("$(cat /etc/passwd)"));
         // $() is safe inside single quotes
@@ -668,6 +681,7 @@ mod tests {
                 template: "echo {}".into(),
             }),
             output_mode: None,
+            output_format: None,
         };
         let output = resolve_exec(&result, Some("say \"hello\""));
         // Double quotes are safe inside single quotes
@@ -688,6 +702,7 @@ mod tests {
                 template: "broken-template-no-placeholder".into(),
             }),
             output_mode: None,
+            output_format: None,
         };
         let output = resolve_exec(&result, Some("ignored-input"));
         assert_eq!(

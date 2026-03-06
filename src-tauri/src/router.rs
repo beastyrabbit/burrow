@@ -52,6 +52,8 @@ pub struct SearchResult {
     pub input_spec: Option<InputSpec>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub output_mode: Option<OutputMode>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub output_format: Option<String>,
 }
 
 /// Determines which provider should handle a given query.
@@ -115,6 +117,7 @@ fn build_chat_results(q: &str) -> Vec<SearchResult> {
             exec: "".into(),
             input_spec: None,
             output_mode: None,
+            output_format: None,
         }]
     } else {
         vec![SearchResult {
@@ -126,6 +129,7 @@ fn build_chat_results(q: &str) -> Vec<SearchResult> {
             exec: "".into(),
             input_spec: None,
             output_mode: None,
+            output_format: None,
         }]
     }
 }
@@ -387,6 +391,7 @@ mod tests {
             exec: "".into(),
             input_spec: None,
             output_mode: None,
+            output_format: None,
         };
 
         let json = serde_json::to_string(&result).unwrap();
@@ -429,6 +434,7 @@ mod tests {
                 template: "command --arg \"{}\"".into(),
             }),
             output_mode: None,
+            output_format: None,
         };
 
         let json = serde_json::to_string(&result).unwrap();
@@ -493,6 +499,7 @@ mod tests {
             exec: "cmd".into(),
             input_spec: None,
             output_mode: Some(OutputMode::Window),
+            output_format: None,
         };
 
         let json = serde_json::to_string(&result).unwrap();

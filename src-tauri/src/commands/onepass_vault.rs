@@ -194,6 +194,7 @@ pub fn search_to_results(query: &str) -> Vec<SearchResult> {
             exec: format!("op-vault-item:{}", m.id),
             input_spec: None,
             output_mode: None,
+            output_format: None,
         })
         .collect()
 }
