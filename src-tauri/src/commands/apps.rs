@@ -145,12 +145,15 @@ impl AppIndexState {
             return Ok(());
         }
 
-        let index = Arc::clone(self);
+        let index_weak = Arc::downgrade(self);
         let refresh_state = Arc::new(Mutex::new(WatcherRefreshState::default()));
         let refresh_state_for_callback = Arc::clone(&refresh_state);
 
         let mut watcher = match notify::recommended_watcher(
             move |result: notify::Result<notify::Event>| {
+                let Some(index) = index_weak.upgrade() else {
+                    return;
+                };
                 let event = match result {
                     Ok(event) => event,
                     Err(error) => {
@@ -224,6 +227,8 @@ impl AppIndexState {
 
         let mut watched = 0usize;
         for dir in &self.source_dirs {
+            // Note: only directories that exist at this point are watched.
+            // Directories created after startup require a manual #refresh to be scanned.
             if !dir.exists() {
                 tracing::info!(path = %dir.display(), "skipping missing application directory");
                 continue;
@@ -1128,5 +1133,25 @@ mod tests {
 
         assert!(error.contains("no application directories could be watched"));
         assert!(!index.watcher_started.load(Ordering::SeqCst));
+    }
+
+    #[test]
+    fn watcher_does_not_keep_app_index_alive_after_drop() {
+        let dir = tempdir().unwrap();
+        let index = Arc::new(AppIndexState::new_for_test(vec![dir.path().to_path_buf()]));
+        let weak_index = Arc::downgrade(&index);
+
+        index.start_watcher().expect("watcher should start");
+        drop(index);
+
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while weak_index.upgrade().is_some() && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(50));
+        }
+
+        assert!(
+            weak_index.upgrade().is_none(),
+            "watcher callback should not keep AppIndexState alive after drop"
+        );
     }
 }
