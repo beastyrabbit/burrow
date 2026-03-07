@@ -4,11 +4,14 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "dev": "node ./scripts/portless-dev.mjs",
+    "dev:raw": "vite",
+    "dev:url": "node ./scripts/portless-url.mjs",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "tauri": "tauri",
+    "tauri": "node ./scripts/tauri.mjs",
     "test": "playwright test",
+    "test:portless": "node --test scripts/portless.test.mjs",
     "test:rust": "cd src-tauri && cargo test",
     "prepare": "lefthook install",
     "install-app": "./scripts/install.sh"

@@ -1,6 +1,8 @@
 import { defineConfig } from "@playwright/test";
+import { resolvePortlessConfig } from "./scripts/portless-resolver.mjs";
 
 const e2eDataDir = `/tmp/burrow-e2e-${process.pid}`;
+const { frontendUrl } = resolvePortlessConfig();
 
 // Make available to global teardown
 process.env.BURROW_DATA_DIR = e2eDataDir;
@@ -11,7 +13,7 @@ export default defineConfig({
   retries: 0,
   globalTeardown: "./e2e/global-teardown.ts",
   use: {
-    baseURL: "http://localhost:1420",
+    baseURL: frontendUrl,
     headless: true,
   },
   webServer: [
@@ -25,7 +27,7 @@ export default defineConfig({
     },
     {
       command: "pnpm dev",
-      port: 1420,
+      url: frontendUrl,
       reuseExistingServer: true,
       timeout: 10000,
     },
