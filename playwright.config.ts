@@ -3,7 +3,8 @@ import { tmpdir } from "os";
 import { join } from "path";
 import { defineConfig } from "@playwright/test";
 
-const e2eRootMarker = join(tmpdir(), "burrow-e2e-root.txt");
+const e2eRootMarker = process.env.BURROW_E2E_ROOT_MARKER?.trim()
+  || join(tmpdir(), `burrow-e2e-root-${process.pid}.txt`);
 const existingRootDir = process.env.BURROW_E2E_ROOT_DIR?.trim()
   || (existsSync(e2eRootMarker) ? readFileSync(e2eRootMarker, "utf8").trim() : "");
 const e2eRootDir = existingRootDir || realpathSync(mkdtempSync(join(tmpdir(), "burrow-e2e-")));

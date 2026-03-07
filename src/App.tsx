@@ -422,7 +422,7 @@ function App() {
     }
 
     // Record launch for non-ephemeral categories
-    if (!["math", "info"].includes(item.category) && item.id !== "special-refresh") {
+    if (!["math", "info"].includes(item.category)) {
       try {
         await invoke("record_launch", {
           id: item.id,
