@@ -1,4 +1,33 @@
 import { test, expect } from "@playwright/test";
+import { mkdirSync, writeFileSync } from "fs";
+import { join } from "path";
+
+const e2eAppDir = process.env.BURROW_E2E_APP_DIR;
+const e2eLateAppDir = process.env.BURROW_E2E_LATE_APP_DIR;
+
+function writeDesktopEntryTo(dir: string | undefined, id: string, name: string, exec = id) {
+  if (!dir) {
+    throw new Error("Desktop fixture directory must be set for launcher tests");
+  }
+
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(
+    join(dir, `${id}.desktop`),
+    [
+      "[Desktop Entry]",
+      "Type=Application",
+      `Name=${name}`,
+      `Exec=${exec}`,
+      "Icon=",
+      "Comment=Launcher test fixture",
+      "",
+    ].join("\n"),
+  );
+}
+
+function writeDesktopEntry(id: string, name: string, exec = id) {
+  writeDesktopEntryTo(e2eAppDir, id, name, exec);
+}
 
 test.describe("Launcher UI", () => {
   test.beforeEach(async ({ page }) => {
@@ -316,6 +345,42 @@ test.describe("Launcher UI", () => {
     await expect(items.first()).toBeVisible({ timeout: 10000 });
     const count = await items.count();
     expect(count).toBeGreaterThan(10);
+  });
+
+  test("new application appears without restarting Burrow", async ({ page }) => {
+    const input = page.locator(".search-input");
+    const appId = "codex-live-refresh-app";
+    const appName = "Codex Live Refresh App";
+
+    await page.bringToFront();
+    await input.fill(appName);
+    await page.waitForTimeout(200);
+    await expect(page.locator(".result-item.empty")).toHaveText("No results");
+
+    writeDesktopEntry(appId, appName);
+    await expect(page.locator(".result-name").first()).toContainText(appName, {
+      timeout: 10000,
+    });
+  });
+
+  test("manual #refresh rescans immediately", async ({ page }) => {
+    const input = page.locator(".search-input");
+    const appId = "codex-manual-refresh-app";
+    const appName = "Codex Manual Refresh App";
+
+    await input.fill("#refresh");
+    await expect(page.locator(".result-item.selected .result-name")).toHaveText(
+      "refresh"
+    );
+
+    writeDesktopEntryTo(e2eLateAppDir, appId, appName);
+    await page.keyboard.press("Enter");
+
+    await expect(page.locator(".notification")).toContainText("Apps refreshed");
+
+    await input.fill(appName);
+    await page.waitForTimeout(200);
+    await expect(page.locator(".result-name").first()).toContainText(appName);
   });
 
   test("empty query shows history items first, then app items", async ({ page }) => {

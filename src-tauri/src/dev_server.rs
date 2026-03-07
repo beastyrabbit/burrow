@@ -91,6 +91,21 @@ async fn health_check(
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))
 }
 
+async fn app_cache_status(
+    State(ctx): State<AppState>,
+) -> Result<Json<apps::AppCacheStatus>, (StatusCode, String)> {
+    Ok(Json(ctx.apps.status()))
+}
+
+async fn refresh_app_cache(
+    State(ctx): State<AppState>,
+) -> Result<Json<apps::RefreshAppsResult>, (StatusCode, String)> {
+    ctx.apps
+        .refresh()
+        .map(Json)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))
+}
+
 async fn execute_action(
     State(ctx): State<AppState>,
     Json(body): Json<ExecuteActionBody>,
@@ -183,6 +198,8 @@ pub fn build_router(ctx: Arc<AppContext>) -> Router {
         .route("/api/launch_app", post(launch_app))
         .route("/api/chat_ask", post(chat_ask))
         .route("/api/health_check", post(health_check))
+        .route("/api/app_cache_status", post(app_cache_status))
+        .route("/api/refresh_app_cache", post(refresh_app_cache))
         .route("/api/execute_action", post(execute_action))
         .route("/api/get_output", post(get_output))
         .route("/api/hide_window", post(hide_window_noop))
@@ -209,6 +226,7 @@ pub fn start(app: tauri::AppHandle) {
             managed_ctx.vector_db.clone(),
             managed_ctx.indexer.clone(),
             managed_ctx.output_buffers.clone(),
+            managed_ctx.apps.clone(),
         )
         .with_app_handle(app),
     );

@@ -170,10 +170,10 @@ pub async fn search(query: String, ctx: &AppContext) -> Result<Vec<SearchResult>
             if let Some(result) = math::try_calculate(&query) {
                 Ok(vec![result])
             } else {
-                apps::search_apps(&query)
+                apps::search_apps(&query, ctx)
             }
         }
-        RouteKind::App => apps::search_apps(&query),
+        RouteKind::App => apps::search_apps(&query, ctx),
     }
 }
 

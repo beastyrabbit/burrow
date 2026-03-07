@@ -8,7 +8,15 @@ const DEV_API = "http://127.0.0.1:3001/api";
 // Tauri registers _cmd-suffixed handlers to avoid collisions with core functions.
 // Commands without a _cmd suffix (hide_window, launch_app) pass through via ?? fallback.
 // SYNC: keep in sync with generate_handler![] in src-tauri/src/lib.rs
-type TauriMappedCmd = "search" | "health_check" | "chat_ask" | "record_launch" | "execute_action" | "get_output";
+type TauriMappedCmd =
+  | "search"
+  | "health_check"
+  | "chat_ask"
+  | "record_launch"
+  | "execute_action"
+  | "get_output"
+  | "app_cache_status"
+  | "refresh_app_cache";
 const TAURI_CMD: Record<TauriMappedCmd, `${TauriMappedCmd}_cmd`> = {
   search: "search_cmd",
   health_check: "health_check_cmd",
@@ -16,6 +24,8 @@ const TAURI_CMD: Record<TauriMappedCmd, `${TauriMappedCmd}_cmd`> = {
   record_launch: "record_launch_cmd",
   execute_action: "execute_action_cmd",
   get_output: "get_output_cmd",
+  app_cache_status: "app_cache_status_cmd",
+  refresh_app_cache: "refresh_app_cache_cmd",
 };
 
 export async function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {

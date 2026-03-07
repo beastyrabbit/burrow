@@ -42,6 +42,17 @@ interface HealthStatus {
   indexing: boolean;
 }
 
+interface AppCacheStatus {
+  revision: number;
+  app_count: number;
+}
+
+interface RefreshAppsResult {
+  changed: boolean;
+  revision: number;
+  app_count: number;
+}
+
 function healthStateFrom(status: HealthStatus): HealthState {
   if (!status.ollama || !status.vector_db) return "error";
   if (status.indexing) return "indexing";
@@ -77,11 +88,8 @@ function formatHealthNotification(status: HealthStatus): string {
 }
 
 function ResultIcon({ icon, category }: { icon: string; category: string }) {
-  const [broken, setBroken] = useState(false);
-  useEffect(() => {
-    setBroken(false);
-  }, [icon]);
-  if (!icon || broken) {
+  const [brokenIcon, setBrokenIcon] = useState<string | null>(null);
+  if (!icon || brokenIcon === icon) {
     return (
       <div className="result-icon-placeholder">
         <CategoryIcon category={category} />
@@ -93,7 +101,7 @@ function ResultIcon({ icon, category }: { icon: string; category: string }) {
       className="result-icon"
       src={icon}
       alt=""
-      onError={() => { console.warn(`[ResultIcon] failed to load icon for category="${category}"`); setBroken(true); }}
+      onError={() => { console.warn(`[ResultIcon] failed to load icon for category="${category}"`); setBrokenIcon(icon); }}
     />
   );
 }
@@ -118,6 +126,10 @@ function App() {
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLUListElement>(null);
   const queryRef = useRef(query);
+  const appCacheRevisionRef = useRef<number | null>(null);
+  const searchRequestIdRef = useRef(0);
+  const appCachePollInFlightRef = useRef(false);
+  const selectedResultIdRef = useRef<string | null>(null);
 
   // Mouse hover state machine to prevent accidental selection when window appears under cursor.
   // Phases: initial (waiting) -> tracking (measuring movement) -> enabled (hover active).
@@ -128,19 +140,34 @@ function App() {
     | { phase: "enabled" };
   const mouseStateRef = useRef<MouseHoverState>({ phase: "initial" });
 
-  const doSearch = useCallback(async (q: string) => {
+  const doSearch = useCallback(async (q: string, options?: { preserveSelection?: boolean }) => {
+    const requestId = ++searchRequestIdRef.current;
+    const selectedIdToPreserve = options?.preserveSelection ? selectedResultIdRef.current : null;
+
     try {
       const res = await invoke<SearchResult[]>("search", { query: q });
-      // Discard stale responses — query may have changed while we were waiting
-      if (queryRef.current !== q) return;
+      // Discard stale responses — query may have changed while we were waiting.
+      if (queryRef.current !== q || requestId !== searchRequestIdRef.current) return;
+
       setResults(res);
-      setSelectedIndex(0);
+      if (selectedIdToPreserve) {
+        const preservedIndex = res.findIndex((item) => item.id === selectedIdToPreserve);
+        setSelectedIndex(preservedIndex >= 0 ? preservedIndex : 0);
+      } else {
+        setSelectedIndex(0);
+      }
     } catch (e) {
       console.error("Search failed:", e);
-      if (queryRef.current === q) {
+      if (queryRef.current === q && requestId === searchRequestIdRef.current) {
         setResults([]);
       }
     }
+  }, []);
+
+  const showNotification = useCallback((message: string, timeout = 6000) => {
+    setNotification(message);
+    if (notificationTimer.current) clearTimeout(notificationTimer.current);
+    notificationTimer.current = setTimeout(() => setNotification(""), timeout);
   }, []);
 
   useEffect(() => {
@@ -171,14 +198,73 @@ function App() {
     queryRef.current = query;
   }, [query]);
 
+  useEffect(() => {
+    selectedResultIdRef.current = results[selectedIndex]?.id ?? null;
+  }, [results, selectedIndex]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const pageIsVisible = () => !document.hidden || navigator.webdriver;
+    appCacheRevisionRef.current = null;
+
+    const syncAppCacheStatus = async (refreshResults: boolean) => {
+      if (!pageIsVisible() || appCachePollInFlightRef.current) {
+        return;
+      }
+
+      appCachePollInFlightRef.current = true;
+      try {
+        const status = await invoke<AppCacheStatus>("app_cache_status");
+        if (cancelled) return;
+
+        const previousRevision = appCacheRevisionRef.current;
+        appCacheRevisionRef.current = status.revision;
+
+        if (
+          !secondaryMode.active &&
+          (
+            previousRevision === null ||
+            (refreshResults && previousRevision !== status.revision)
+          )
+        ) {
+          await doSearch(queryRef.current, { preserveSelection: refreshResults });
+        }
+      } catch (err) {
+        if (!cancelled) {
+          console.error("App cache status failed:", err);
+        }
+      } finally {
+        appCachePollInFlightRef.current = false;
+      }
+    };
+
+    void syncAppCacheStatus(false);
+    const interval = setInterval(() => {
+      if (pageIsVisible()) {
+        void syncAppCacheStatus(true);
+      }
+    }, 1000);
+
+    const onVisibilityChange = () => {
+      if (pageIsVisible()) {
+        void syncAppCacheStatus(true);
+      }
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
+  }, [doSearch, secondaryMode.active]);
+
   // Listen for vault-load-result events from 1Password load action
   useEffect(() => {
     const unlisten = listen<{ ok: boolean; message: string }>("vault-load-result", (event) => {
       const { ok, message } = event.payload;
       const prefix = ok ? "✓ " : "✗ ";
-      setNotification(prefix + message);
-      if (notificationTimer.current) clearTimeout(notificationTimer.current);
-      notificationTimer.current = setTimeout(() => setNotification(""), ok ? 4000 : 8000);
+      showNotification(prefix + message, ok ? 4000 : 8000);
       // Refresh search to show loaded items (use ref to get current query without re-subscribing)
       if (ok) {
         doSearch(queryRef.current);
@@ -187,7 +273,7 @@ function App() {
     return () => {
       unlisten.then((fn) => fn());
     };
-  }, [doSearch]);
+  }, [doSearch, showNotification]);
 
   // Clear input when window is hidden
   useEffect(() => {
@@ -318,6 +404,24 @@ function App() {
       return;
     }
 
+    if (item.id === "special-refresh") {
+      try {
+        const refreshed = await invoke<RefreshAppsResult>("refresh_app_cache");
+        appCacheRevisionRef.current = refreshed.revision;
+        showNotification(
+          refreshed.changed
+            ? `Apps refreshed (${refreshed.app_count} apps)`
+            : "App list already up to date"
+        );
+        await doSearch(queryRef.current);
+      } catch (err) {
+        console.error("Refresh apps failed:", err);
+        const errMsg = err instanceof Error ? err.message : String(err);
+        showNotification(`✗ Refresh failed: ${errMsg}`);
+      }
+      return;
+    }
+
     // Record launch for non-ephemeral categories
     if (!["math", "info"].includes(item.category)) {
       try {
@@ -343,11 +447,9 @@ function App() {
     } catch (err) {
       console.error("Execute action failed:", err);
       const errMsg = err instanceof Error ? err.message : String(err);
-      setNotification(`✗ Action failed: ${errMsg}`);
-      if (notificationTimer.current) clearTimeout(notificationTimer.current);
-      notificationTimer.current = setTimeout(() => setNotification(""), 6000);
+      showNotification(`✗ Action failed: ${errMsg}`);
     }
-  }, [results, selectedIndex, query, secondaryMode, secondaryInput]);
+  }, [results, selectedIndex, query, secondaryMode, secondaryInput, doSearch, showNotification]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -410,30 +512,36 @@ function App() {
           spellCheck={false}
         />
         {!secondaryMode.active && (
-          <span
+          <button
+            type="button"
             className={`health-indicator ${HEALTH_CLASS[health]}`}
             title={HEALTH_TITLE[health]}
+            aria-label="Show system health details"
             onClick={async () => {
               try {
                 const status = await invoke<HealthStatus>("health_check");
                 setHealth(healthStateFrom(status));
-                setNotification(formatHealthNotification(status));
+                showNotification(formatHealthNotification(status));
               } catch (err) {
                 setHealth("error");
                 const errMsg = err instanceof Error ? err.message : String(err);
-                setNotification(`Health check failed: ${errMsg}`);
-              } finally {
-                if (notificationTimer.current) clearTimeout(notificationTimer.current);
-                notificationTimer.current = setTimeout(() => setNotification(""), 6000);
+                showNotification(`Health check failed: ${errMsg}`);
               }
             }}
           >
             {HEALTH_ICON[health]}
-          </span>
+          </button>
         )}
       </div>
       {notification && (
-        <div className="notification">{notification}</div>
+        <div
+          className="notification"
+          role={/^(✗|Health check failed)/.test(notification) ? "alert" : "status"}
+          aria-live={/^(✗|Health check failed)/.test(notification) ? "assertive" : "polite"}
+          aria-atomic="true"
+        >
+          {notification}
+        </div>
       )}
       {chatLoading && (
         <div className="chat-answer chat-loading">Thinking...</div>
