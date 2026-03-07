@@ -233,7 +233,7 @@ pnpm dev:url
 PORTLESS=0 pnpm dev
 ```
 
-`pnpm dev` and `pnpm tauri dev` use worktree-aware Portless hostnames by default. The main checkout serves at `http://burrow.localhost:1355`; linked worktrees use `http://<branch>.burrow.localhost:1355`. If you enable Portless HTTPS globally with `PORTLESS_HTTPS=1`, Burrow follows that and uses `https://...` URLs instead.
+`pnpm dev` and `pnpm tauri dev` use worktree-aware Portless hostnames by default. The main checkout serves at `http://burrow.localhost:1355`; linked worktrees use `http://<branch>.burrow.localhost:1355`.
 
 ## Testing
 

@@ -6,10 +6,6 @@ export const BASE_APP_NAME = "burrow";
 export const DEFAULT_PORTLESS_PORT = "1355";
 export const FALLBACK_VITE_PORT = "1420";
 
-function isTruthyEnvValue(value) {
-  return value === "1" || value?.toLowerCase?.() === "true";
-}
-
 function readCommand(command, args, cwd) {
   return execFileSync(command, args, {
     cwd,
@@ -36,7 +32,7 @@ function realPathOrResolved(inputPath) {
 
 export function isPortlessEnabled(env = process.env) {
   const value = env.PORTLESS?.toLowerCase();
-  return value !== "0" && value !== "skip";
+  return value !== "0" && value !== "false" && value !== "skip";
 }
 
 export function normalizeWorktreeSlug(branchName) {
@@ -93,7 +89,7 @@ export function resolvePortlessConfig({ cwd = process.cwd(), env = process.env }
   const { branchName, isMainWorktree, repoRoot } = resolveWorktreeContext(cwd);
   const usePortless = isPortlessEnabled(env);
   const proxyPort = env.PORTLESS_PORT || DEFAULT_PORTLESS_PORT;
-  const protocol = usePortless && isTruthyEnvValue(env.PORTLESS_HTTPS) ? "https" : "http";
+  const protocol = "http";
   const appName = computeAppName({
     baseName: BASE_APP_NAME,
     isMainWorktree,

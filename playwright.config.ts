@@ -1,4 +1,8 @@
 import { defineConfig } from "@playwright/test";
+import {
+  buildFrontendWebServer,
+  buildPlaywrightUse,
+} from "./scripts/playwright-config.mjs";
 import { resolvePortlessConfig } from "./scripts/portless-resolver.mjs";
 
 const e2eDataDir = `/tmp/burrow-e2e-${process.pid}`;
@@ -12,10 +16,7 @@ export default defineConfig({
   timeout: 15000,
   retries: 0,
   globalTeardown: "./e2e/global-teardown.ts",
-  use: {
-    baseURL: frontendUrl,
-    headless: true,
-  },
+  use: buildPlaywrightUse(frontendUrl),
   webServer: [
     {
       command: "cargo run --bin test-server",
@@ -25,12 +26,7 @@ export default defineConfig({
       timeout: 120000, // First cold build may be slow; subsequent runs are instant
       env: { ...process.env, BURROW_DRY_RUN: "1", BURROW_DATA_DIR: e2eDataDir },
     },
-    {
-      command: "pnpm dev",
-      url: frontendUrl,
-      reuseExistingServer: true,
-      timeout: 10000,
-    },
+    buildFrontendWebServer(frontendUrl),
   ],
   projects: [
     {

@@ -52,7 +52,7 @@
 
 ## Ports
 
-User-facing dev URL is `http://<name>.localhost:1355` via Portless by default, or `https://<name>.localhost:1355` when `PORTLESS_HTTPS=1`. Raw Vite fallback is `http://localhost:1420` when `PORTLESS=0`. HMR uses 1421 in Tauri dev, and the test server / HTTP bridge stays on `127.0.0.1:3001` (registered in `/home/beasty/projects/.ports`).
+User-facing dev URL is `http://<name>.localhost:1355` via Portless. Raw Vite fallback is `http://localhost:1420` when `PORTLESS=0`. HMR uses 1421 in Tauri dev, and the test server / HTTP bridge stays on `127.0.0.1:3001` (registered in `/home/beasty/projects/.ports`).
 
 ## Configuration
 
@@ -229,7 +229,6 @@ Burrow supports secondary output windows for streaming command output (e.g., kub
 - Playwright tests run against real backend via HTTP bridge (test-server binary on :3001) — no more mock data to maintain in `mock-tauri.ts`
 - `pnpm dev` and `pnpm tauri dev` require `portless` on `PATH`; do not add it as a project dependency
 - Main checkout serves at `http://burrow.localhost:1355`; linked worktrees serve at `http://<branch>.burrow.localhost:1355`
-- `PORTLESS_HTTPS=1` switches the derived dev URL to `https://<name>.localhost:1355`
 - `PORTLESS=0 pnpm dev` bypasses Portless and falls back to raw Vite on `http://localhost:1420`
 - Pre-commit hooks run rustfmt — always run `cargo fmt` before staging, or stage after the first failed commit attempt
 - Health indicator is tri-state: green checkmark (healthy), blue pulsing ⟳ (indexing), red ! (error). Click shows details in notification bar.

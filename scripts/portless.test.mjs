@@ -4,7 +4,9 @@ import assert from "node:assert/strict";
 import {
   computeAppName,
   computeFrontendUrl,
+  isPortlessEnabled,
   normalizeWorktreeSlug,
+  resolvePortlessConfig,
 } from "./portless-resolver.mjs";
 
 test("main worktree keeps the base burrow app name", () => {
@@ -30,9 +32,16 @@ test("frontend url uses the portless localhost gateway", () => {
   assert.equal(computeFrontendUrl("add-portless-integration.burrow"), "http://add-portless-integration.burrow.localhost:1355");
 });
 
-test("frontend url supports portless https mode", () => {
-  assert.equal(
-    computeFrontendUrl("add-portless-integration.burrow", { protocol: "https" }),
-    "https://add-portless-integration.burrow.localhost:1355",
+test("PORTLESS_HTTPS does not change the http-only Portless dev URL", () => {
+  assert.match(
+    resolvePortlessConfig({
+      cwd: process.cwd(),
+      env: { ...process.env, PORTLESS_HTTPS: "1" },
+    }).frontendUrl,
+    /^http:\/\//,
   );
+});
+
+test("PORTLESS=false disables the Portless wrapper", () => {
+  assert.equal(isPortlessEnabled({ PORTLESS: "false" }), false);
 });

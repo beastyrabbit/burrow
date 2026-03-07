@@ -144,7 +144,7 @@ fn is_allowed_dev_origin(origin: &HeaderValue) -> bool {
         return false;
     };
 
-    if scheme != "http" && scheme != "https" {
+    if scheme != "http" {
         return false;
     };
 
@@ -165,6 +165,8 @@ fn is_allowed_dev_origin(origin: &HeaderValue) -> bool {
         && !host.starts_with('.')
         && host.split('.').all(|label| {
             !label.is_empty()
+                && !label.starts_with('-')
+                && !label.ends_with('-')
                 && label
                     .bytes()
                     .all(|b| b.is_ascii_alphanumeric() || b == b'-')
@@ -256,11 +258,11 @@ mod tests {
     }
 
     #[test]
-    fn allows_https_local_origins() {
-        assert!(is_allowed_dev_origin(&HeaderValue::from_static(
+    fn rejects_https_local_origins() {
+        assert!(!is_allowed_dev_origin(&HeaderValue::from_static(
             "https://burrow.localhost:1355",
         )));
-        assert!(is_allowed_dev_origin(&HeaderValue::from_static(
+        assert!(!is_allowed_dev_origin(&HeaderValue::from_static(
             "https://localhost:1420",
         )));
     }
@@ -269,6 +271,12 @@ mod tests {
     fn rejects_non_local_origins() {
         assert!(!is_allowed_dev_origin(&HeaderValue::from_static(
             "http://example.com:1355",
+        )));
+        assert!(!is_allowed_dev_origin(&HeaderValue::from_static(
+            "http://-foo.localhost:1355",
+        )));
+        assert!(!is_allowed_dev_origin(&HeaderValue::from_static(
+            "http://foo-.localhost:1355",
         )));
         assert!(!is_allowed_dev_origin(&HeaderValue::from_static(
             "ftp://burrow.localhost:1355",
