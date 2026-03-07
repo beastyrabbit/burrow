@@ -160,7 +160,7 @@ fn is_allowed_dev_origin(origin: &HeaderValue) -> bool {
         return false;
     };
 
-    port == "1355"
+    port.parse::<u16>().is_ok()
         && host.ends_with(".localhost")
         && !host.starts_with('.')
         && host.split('.').all(|label| {
@@ -249,6 +249,9 @@ mod tests {
         )));
         assert!(is_allowed_dev_origin(&HeaderValue::from_static(
             "http://add-portless-integration.burrow.localhost:1355",
+        )));
+        assert!(is_allowed_dev_origin(&HeaderValue::from_static(
+            "http://burrow.localhost:2468",
         )));
     }
 

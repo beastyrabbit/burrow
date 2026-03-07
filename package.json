@@ -11,7 +11,7 @@
     "preview": "vite preview",
     "tauri": "node ./scripts/tauri.mjs",
     "test": "playwright test",
-    "test:portless": "node --test scripts/portless.test.mjs",
+    "test:portless": "node --test scripts/*.test.mjs",
     "test:rust": "cd src-tauri && cargo test",
     "prepare": "lefthook install",
     "install-app": "./scripts/install.sh"

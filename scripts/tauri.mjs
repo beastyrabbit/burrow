@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 
 import { resolvePortlessConfig } from "./portless-resolver.mjs";
+import { buildTauriDevOverride, registerTempFileCleanup } from "./tauri-helpers.mjs";
 
 const args = process.argv.slice(2);
 const command = args[0];
@@ -38,15 +39,10 @@ if (command !== "dev") {
     os.tmpdir(),
     `burrow-tauri-dev-${process.pid}.json`,
   );
-  const overrideConfig = {
-    build: {
-      beforeDevCommand: `node "${path.join(config.repoRoot, "scripts/portless-dev.mjs")}"`,
-      devUrl: config.frontendUrl,
-    },
-  };
+  const overrideConfig = buildTauriDevOverride(config);
 
   fs.writeFileSync(overridePath, `${JSON.stringify(overrideConfig, null, 2)}\n`);
-  process.on("exit", () => fs.rmSync(overridePath, { force: true }));
+  registerTempFileCleanup(process, () => fs.rmSync(overridePath, { force: true }));
 
   spawnTauri(["dev", "--config", overridePath, ...commandArgs]);
 }
