@@ -1,6 +1,10 @@
 import { spawn } from "node:child_process";
 
-import { ensurePortlessAvailable, resolvePortlessConfig } from "./portless-resolver.mjs";
+import {
+  ensurePortlessAvailable,
+  FALLBACK_VITE_PORT,
+  resolvePortlessConfig,
+} from "./portless-resolver.mjs";
 
 const config = resolvePortlessConfig();
 const viteArgs = process.argv.slice(2);
@@ -13,7 +17,7 @@ const command = config.usePortless ? "portless" : "vite";
 const args = config.usePortless ? [config.appName, "vite", ...viteArgs] : viteArgs;
 
 if (!config.usePortless) {
-  console.error(`Portless disabled; using http://localhost:1420`);
+  console.error(`Portless disabled; using http://localhost:${FALLBACK_VITE_PORT}`);
 }
 
 const child = spawn(command, args, {
