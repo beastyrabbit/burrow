@@ -135,6 +135,8 @@ async fn hide_window_noop() -> Result<Json<()>, (StatusCode, String)> {
     Ok(Json(()))
 }
 
+/// Allow only Burrow's HTTP-only local dev origins. If Portless HTTPS is ever
+/// introduced, this predicate must be widened alongside the frontend URL logic.
 fn is_allowed_dev_origin(origin: &HeaderValue) -> bool {
     let Ok(origin) = origin.to_str() else {
         return false;
