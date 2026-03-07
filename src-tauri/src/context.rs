@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use crate::commands::apps::AppIndexState;
 use crate::commands::history::DbState;
 use crate::commands::vectors::VectorDbState;
 use crate::indexer::IndexerState;
@@ -12,6 +13,7 @@ pub struct AppContext {
     pub(crate) vector_db: Arc<VectorDbState>,
     pub(crate) indexer: Arc<IndexerState>,
     pub(crate) output_buffers: Arc<OutputBufferState>,
+    pub(crate) apps: Arc<AppIndexState>,
     /// Optional Tauri app handle for window operations (hide, spawn output windows).
     /// `None` in test-server / CLI mode — window ops become no-ops.
     app_handle: Option<tauri::AppHandle>,
@@ -26,6 +28,7 @@ impl AppContext {
             vector_db: Arc::new(vector_db),
             indexer: Arc::new(indexer),
             output_buffers: Arc::new(OutputBufferState::new()),
+            apps: Arc::new(AppIndexState::new()),
             app_handle: None,
         }
     }
@@ -37,12 +40,14 @@ impl AppContext {
         vector_db: Arc<VectorDbState>,
         indexer: Arc<IndexerState>,
         output_buffers: Arc<OutputBufferState>,
+        apps: Arc<AppIndexState>,
     ) -> Self {
         Self {
             db,
             vector_db,
             indexer,
             output_buffers,
+            apps,
             app_handle: None,
         }
     }
@@ -67,6 +72,10 @@ impl AppContext {
             vectors::open_vector_db().map_err(|e| format!("failed to open vector DB: {e}"))?,
         );
         Ok(Self::new(db, vector_db, IndexerState::new()))
+    }
+
+    pub fn start_app_watcher(&self) -> Result<(), String> {
+        self.apps.start_watcher()
     }
 
     /// Hide the main window if a Tauri AppHandle is available.
@@ -113,12 +122,14 @@ mod tests {
         let vector_db = Arc::new(VectorDbState::new(Connection::open_in_memory().unwrap()));
         let indexer = Arc::new(IndexerState::new());
         let output_buffers = Arc::new(OutputBufferState::new());
+        let apps = Arc::new(AppIndexState::new());
 
         let ctx = AppContext::from_arcs(
             db.clone(),
             vector_db.clone(),
             indexer.clone(),
             output_buffers.clone(),
+            apps.clone(),
         );
 
         // Arc::ptr_eq proves they share the same allocation
@@ -126,6 +137,7 @@ mod tests {
         assert!(Arc::ptr_eq(&ctx.vector_db, &vector_db));
         assert!(Arc::ptr_eq(&ctx.indexer, &indexer));
         assert!(Arc::ptr_eq(&ctx.output_buffers, &output_buffers));
+        assert!(Arc::ptr_eq(&ctx.apps, &apps));
     }
 
     #[test]

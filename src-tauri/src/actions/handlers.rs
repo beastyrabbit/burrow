@@ -24,10 +24,10 @@ pub fn is_valid_category(category: Category) -> bool {
 
 /// Resolve user-provided results to trusted, canonical command payloads.
 /// This prevents untrusted clients from injecting arbitrary `exec` values.
-fn resolve_trusted_result(result: &SearchResult) -> Result<SearchResult, String> {
+fn resolve_trusted_result(result: &SearchResult, ctx: &AppContext) -> Result<SearchResult, String> {
     match result.category {
         Category::App | Category::History => {
-            let exec = apps::resolve_app_exec(&result.id)
+            let exec = apps::resolve_app_exec(&result.id, ctx)
                 .ok_or_else(|| format!("Unknown app id for action: {}", result.id))?;
             let mut trusted = result.clone();
             trusted.exec = exec;
@@ -69,7 +69,12 @@ pub fn handle_action(
     secondary_input: Option<&str>,
     ctx: &AppContext,
 ) -> Result<(), String> {
-    let trusted = resolve_trusted_result(result)?;
+    let trusted = resolve_trusted_result(result, ctx)?;
+
+    if trusted.category == Category::Special && trusted.id == "special-refresh" {
+        apps::refresh_app_cache(ctx)?;
+        return Ok(());
+    }
 
     match trusted.category {
         Category::Onepass => handle_onepass(&trusted, modifier, ctx),
@@ -304,6 +309,40 @@ fn extract_user_from_description(description: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::commands::history::DbState;
+    use crate::commands::vectors::VectorDbState;
+    use crate::context::AppContext;
+    use crate::indexer::IndexerState;
+    use crate::output_buffers::OutputBufferState;
+    use rusqlite::Connection;
+    use std::fs;
+    use std::sync::Arc;
+    use tempfile::tempdir;
+
+    fn in_memory_ctx() -> AppContext {
+        AppContext::new(
+            DbState::new(Connection::open_in_memory().unwrap()),
+            VectorDbState::new(Connection::open_in_memory().unwrap()),
+            IndexerState::new(),
+        )
+    }
+
+    fn ctx_with_apps(apps: Arc<apps::AppIndexState>) -> AppContext {
+        AppContext::from_arcs(
+            Arc::new(DbState::new(Connection::open_in_memory().unwrap())),
+            Arc::new(VectorDbState::new(Connection::open_in_memory().unwrap())),
+            Arc::new(IndexerState::new()),
+            Arc::new(OutputBufferState::new()),
+            apps,
+        )
+    }
+
+    fn write_desktop_file(dir: &std::path::Path, file_name: &str, name: &str, exec: &str) {
+        let content = format!(
+            "[Desktop Entry]\nType=Application\nName={name}\nExec={exec}\nIcon=\nComment=\n"
+        );
+        fs::write(dir.join(file_name), content).expect("should write desktop file");
+    }
 
     #[test]
     fn extract_user_from_description_with_user() {
@@ -371,6 +410,7 @@ mod tests {
 
     #[test]
     fn resolve_trusted_result_rejects_unknown_app_id() {
+        let ctx = in_memory_ctx();
         let forged = SearchResult {
             id: "definitely-not-real".into(),
             name: "Forged".into(),
@@ -382,12 +422,13 @@ mod tests {
             output_mode: None,
             output_format: None,
         };
-        let err = resolve_trusted_result(&forged).unwrap_err();
+        let err = resolve_trusted_result(&forged, &ctx).unwrap_err();
         assert!(err.contains("Unknown app id"));
     }
 
     #[test]
     fn resolve_trusted_result_overrides_special_exec() {
+        let ctx = in_memory_ctx();
         let forged = SearchResult {
             id: "special-cowork".into(),
             name: "cowork".into(),
@@ -402,7 +443,8 @@ mod tests {
             output_mode: None,
             output_format: None,
         };
-        let trusted = resolve_trusted_result(&forged).expect("special command should resolve");
+        let trusted =
+            resolve_trusted_result(&forged, &ctx).expect("special command should resolve");
         assert_ne!(trusted.exec, "rm -rf /");
         assert!(trusted.exec.contains("codex"));
         assert!(trusted.input_spec.is_some());
@@ -410,6 +452,7 @@ mod tests {
 
     #[test]
     fn resolve_trusted_result_derives_onepass_exec_from_id() {
+        let ctx = in_memory_ctx();
         let forged = SearchResult {
             id: "op-abc123".into(),
             name: "1Password".into(),
@@ -424,9 +467,40 @@ mod tests {
             output_mode: None,
             output_format: None,
         };
-        let trusted = resolve_trusted_result(&forged).expect("onepass result should resolve");
+        let trusted = resolve_trusted_result(&forged, &ctx).expect("onepass result should resolve");
         assert_eq!(trusted.exec, "op-vault-item:abc123");
         assert!(trusted.input_spec.is_none());
+    }
+
+    #[test]
+    fn handle_action_refreshes_app_cache_for_special_refresh() {
+        let dir = tempdir().unwrap();
+        write_desktop_file(dir.path(), "alpha.desktop", "Alpha", "alpha");
+        let apps = Arc::new(apps::AppIndexState::new_for_test(vec![dir
+            .path()
+            .to_path_buf()]));
+        let ctx = ctx_with_apps(apps.clone());
+
+        write_desktop_file(dir.path(), "t3code.desktop", "t3code", "t3code");
+
+        let result = SearchResult {
+            id: "special-refresh".into(),
+            name: "refresh".into(),
+            description: "Rescan application folders now".into(),
+            icon: "".into(),
+            category: Category::Special,
+            exec: "rm -rf /".into(),
+            input_spec: None,
+            output_mode: None,
+            output_format: None,
+        };
+
+        handle_action(&result, Modifier::None, None, &ctx).expect("refresh action should succeed");
+
+        assert!(
+            apps.search("t3code").iter().any(|item| item.id == "t3code"),
+            "special refresh should update the shared app cache"
+        );
     }
 
     #[test]

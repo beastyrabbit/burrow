@@ -69,13 +69,12 @@ pub fn run() {
             }
         }))
         .setup(|app| {
-            apps::init_app_cache();
-
             // Create shared state instances once — used by both Tauri managed state and AppContext.
             let db = Arc::new(history::DbState::new(history::open_history_db()?));
             let vector_db = Arc::new(vectors::VectorDbState::new(vectors::open_vector_db()?));
             let indexer_state = Arc::new(indexer::IndexerState::new());
             let output_buffers = Arc::new(output_buffers::OutputBufferState::new());
+            let apps_state = Arc::new(apps::AppIndexState::new());
 
             // Manage individual states for Tauri commands and background indexer
             app.manage(db.clone());
@@ -85,8 +84,11 @@ pub fn run() {
             indexer::start_background_indexer(app.handle().clone());
 
             // Build AppContext sharing the same Arc references — no duplicate connections
-            let ctx = AppContext::from_arcs(db, vector_db, indexer_state, output_buffers)
+            let ctx = AppContext::from_arcs(db, vector_db, indexer_state, output_buffers, apps_state)
                 .with_app_handle(app.handle().clone());
+            if let Err(error) = ctx.start_app_watcher() {
+                tracing::warn!(error = %error, "application watcher unavailable; continuing without auto-refresh");
+            }
             app.manage(ctx);
 
             #[cfg(debug_assertions)]
@@ -113,6 +115,8 @@ pub fn run() {
             router::search_cmd,
             history::record_launch_cmd,
             apps::launch_app,
+            apps::app_cache_status_cmd,
+            apps::refresh_app_cache_cmd,
             commands::chat::chat_ask_cmd,
             commands::health::health_check_cmd,
             actions::execute_action_cmd,

@@ -1,13 +1,21 @@
+use crate::context::AppContext;
 use crate::icons;
 use crate::router::{Category, SearchResult};
 use freedesktop_entry_parser::parse_entry;
+use notify::{self, RecommendedWatcher, RecursiveMode, Watcher};
 use nucleo::pattern::{CaseMatching, Normalization, Pattern};
 use nucleo::Matcher;
+use serde::{Deserialize, Serialize};
+use std::path::Path;
 use std::path::PathBuf;
 use std::process::Command;
-use std::sync::OnceLock;
+use std::sync::{
+    atomic::{AtomicBool, AtomicU64, Ordering},
+    Arc, Mutex, RwLock,
+};
+use std::time::Duration;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 struct DesktopEntry {
     id: String,
     name: String,
@@ -17,10 +25,244 @@ struct DesktopEntry {
     no_display: bool,
 }
 
-static APP_CACHE: OnceLock<Vec<DesktopEntry>> = OnceLock::new();
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AppCacheStatus {
+    pub revision: u64,
+    pub app_count: usize,
+}
 
-pub fn init_app_cache() {
-    APP_CACHE.get_or_init(load_desktop_entries);
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct RefreshAppsResult {
+    pub changed: bool,
+    pub revision: u64,
+    pub app_count: usize,
+}
+
+pub struct AppIndexState {
+    entries: RwLock<Vec<DesktopEntry>>,
+    revision: AtomicU64,
+    watcher_started: AtomicBool,
+    watcher: Mutex<Option<RecommendedWatcher>>,
+    source_dirs: Vec<PathBuf>,
+}
+
+#[derive(Default)]
+struct WatcherRefreshState {
+    scheduled: bool,
+    dirty: bool,
+}
+
+impl Default for AppIndexState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl AppIndexState {
+    pub fn new() -> Self {
+        Self::new_with_dirs(desktop_dirs())
+    }
+
+    fn new_with_dirs(dirs: Vec<PathBuf>) -> Self {
+        let source_dirs = dedupe_dirs(dirs);
+        let entries = load_desktop_entries_from_dirs(&source_dirs);
+        Self {
+            entries: RwLock::new(entries),
+            revision: AtomicU64::new(1),
+            watcher_started: AtomicBool::new(false),
+            watcher: Mutex::new(None),
+            source_dirs,
+        }
+    }
+
+    fn snapshot(&self) -> Vec<DesktopEntry> {
+        self.entries
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone()
+    }
+
+    pub fn status(&self) -> AppCacheStatus {
+        let entries = self
+            .entries
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        AppCacheStatus {
+            revision: self.revision.load(Ordering::SeqCst),
+            app_count: entries.len(),
+        }
+    }
+
+    pub fn refresh(&self) -> Result<RefreshAppsResult, String> {
+        self.refresh_from_dirs(&self.source_dirs)
+    }
+
+    fn refresh_from_dirs(&self, dirs: &[PathBuf]) -> Result<RefreshAppsResult, String> {
+        let next_entries = load_desktop_entries_from_dirs(dirs);
+        let mut entries = self
+            .entries
+            .write()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if *entries == next_entries {
+            return Ok(RefreshAppsResult {
+                changed: false,
+                revision: self.revision.load(Ordering::SeqCst),
+                app_count: entries.len(),
+            });
+        }
+
+        *entries = next_entries;
+        let revision = self.revision.fetch_add(1, Ordering::SeqCst) + 1;
+        Ok(RefreshAppsResult {
+            changed: true,
+            revision,
+            app_count: entries.len(),
+        })
+    }
+
+    pub fn search(&self, query: &str) -> Vec<SearchResult> {
+        let entries = self.snapshot();
+        fuzzy_search(&entries, query)
+    }
+
+    pub fn resolve_exec(&self, id: &str) -> Option<String> {
+        let entries = self
+            .entries
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        entries
+            .iter()
+            .find(|entry| entry.id == id)
+            .map(|entry| entry.exec.clone())
+    }
+
+    pub fn start_watcher(self: &Arc<Self>) -> Result<(), String> {
+        if self
+            .watcher_started
+            .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+            .is_err()
+        {
+            return Ok(());
+        }
+
+        let index = Arc::clone(self);
+        let refresh_state = Arc::new(Mutex::new(WatcherRefreshState::default()));
+        let refresh_state_for_callback = Arc::clone(&refresh_state);
+
+        let mut watcher = match notify::recommended_watcher(
+            move |result: notify::Result<notify::Event>| {
+                let event = match result {
+                    Ok(event) => event,
+                    Err(error) => {
+                        tracing::warn!(error = %error, "application directory watch event failed");
+                        return;
+                    }
+                };
+
+                if !event.paths.iter().any(|path| is_relevant_app_fs_path(path)) {
+                    return;
+                }
+
+                let should_spawn = {
+                    let mut state = refresh_state_for_callback
+                        .lock()
+                        .unwrap_or_else(|poisoned| poisoned.into_inner());
+                    state.dirty = true;
+                    if state.scheduled {
+                        false
+                    } else {
+                        state.scheduled = true;
+                        true
+                    }
+                };
+
+                if !should_spawn {
+                    return;
+                }
+
+                let index = Arc::clone(&index);
+                let refresh_state = Arc::clone(&refresh_state_for_callback);
+                std::thread::spawn(move || loop {
+                    std::thread::sleep(Duration::from_millis(300));
+
+                    {
+                        let mut state = refresh_state
+                            .lock()
+                            .unwrap_or_else(|poisoned| poisoned.into_inner());
+                        state.dirty = false;
+                    }
+
+                    if let Err(error) = index.refresh() {
+                        tracing::warn!(error = %error, "application cache refresh failed after watch event");
+                    }
+
+                    let should_continue = {
+                        let mut state = refresh_state
+                            .lock()
+                            .unwrap_or_else(|poisoned| poisoned.into_inner());
+                        if state.dirty {
+                            state.dirty = false;
+                            true
+                        } else {
+                            state.scheduled = false;
+                            false
+                        }
+                    };
+
+                    if !should_continue {
+                        break;
+                    }
+                });
+            },
+        ) {
+            Ok(watcher) => watcher,
+            Err(error) => {
+                self.watcher_started.store(false, Ordering::SeqCst);
+                return Err(error.to_string());
+            }
+        };
+
+        let mut watched = 0usize;
+        for dir in &self.source_dirs {
+            if !dir.exists() {
+                tracing::info!(path = %dir.display(), "skipping missing application directory");
+                continue;
+            }
+            match watcher.watch(dir, RecursiveMode::NonRecursive) {
+                Ok(()) => watched += 1,
+                Err(error) => {
+                    tracing::warn!(path = %dir.display(), error = %error, "failed to watch application directory");
+                }
+            }
+        }
+
+        if watched == 0 {
+            self.watcher_started.store(false, Ordering::SeqCst);
+            return Err("no application directories could be watched".to_string());
+        }
+
+        tracing::info!(
+            watched_dirs = watched,
+            "application directory watcher started"
+        );
+
+        *self
+            .watcher
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(watcher);
+        Ok(())
+    }
+
+    #[cfg(test)]
+    pub(crate) fn new_for_test(dirs: Vec<PathBuf>) -> Self {
+        Self::new_with_dirs(dirs)
+    }
+
+    #[cfg(test)]
+    fn refresh_from_dirs_for_test(&self) -> RefreshAppsResult {
+        self.refresh()
+            .expect("refresh_from_dirs_for_test should not fail")
+    }
 }
 
 fn desktop_dirs() -> Vec<PathBuf> {
@@ -53,10 +295,15 @@ fn desktop_dirs() -> Vec<PathBuf> {
     dirs
 }
 
+#[cfg(test)]
 fn load_desktop_entries() -> Vec<DesktopEntry> {
+    load_desktop_entries_from_dirs(&desktop_dirs())
+}
+
+fn load_desktop_entries_from_dirs(dirs: &[PathBuf]) -> Vec<DesktopEntry> {
     let mut entries = Vec::new();
     let mut seen_ids = std::collections::HashSet::new();
-    for dir in desktop_dirs() {
+    for dir in dirs {
         let pattern = dir.join("*.desktop");
         if let Ok(paths) = glob::glob(pattern.to_str().unwrap_or("")) {
             for path in paths.flatten() {
@@ -68,7 +315,22 @@ fn load_desktop_entries() -> Vec<DesktopEntry> {
             }
         }
     }
+    entries.sort_by(|a, b| a.id.cmp(&b.id));
     entries
+}
+
+fn dedupe_dirs(dirs: Vec<PathBuf>) -> Vec<PathBuf> {
+    let mut seen = std::collections::HashSet::new();
+    dirs.into_iter()
+        .filter(|dir| seen.insert(dir.clone()))
+        .collect()
+}
+
+fn is_relevant_app_fs_path(path: &Path) -> bool {
+    path.extension()
+        .and_then(|ext| ext.to_str())
+        .map(|ext| ext.eq_ignore_ascii_case("desktop"))
+        .unwrap_or(false)
 }
 
 fn parse_desktop_file(path: &PathBuf) -> Option<DesktopEntry> {
@@ -226,10 +488,8 @@ fn sort_apps_by_frecency(
 
 /// Returns all apps sorted by frecency (history first, then alphabetical).
 /// Uses AppContext (Tauri-free).
-pub fn get_all_apps_with_frecency(
-    ctx: &crate::context::AppContext,
-) -> Result<Vec<SearchResult>, String> {
-    let apps = APP_CACHE.get().ok_or("App cache not initialized")?;
+pub fn get_all_apps_with_frecency(ctx: &AppContext) -> Result<Vec<SearchResult>, String> {
+    let apps = ctx.apps.snapshot();
     let scores = match super::history::get_frecency_scores(ctx) {
         Ok(s) => s,
         Err(e) => {
@@ -237,21 +497,34 @@ pub fn get_all_apps_with_frecency(
             std::collections::HashMap::new()
         }
     };
-    Ok(sort_apps_by_frecency(apps, &scores))
+    Ok(sort_apps_by_frecency(&apps, &scores))
 }
 
-pub fn search_apps(query: &str) -> Result<Vec<SearchResult>, String> {
-    let apps = APP_CACHE.get().ok_or("App cache not initialized")?;
-    Ok(fuzzy_search(apps, query))
+pub fn search_apps(query: &str, ctx: &AppContext) -> Result<Vec<SearchResult>, String> {
+    Ok(ctx.apps.search(query))
 }
 
 /// Resolve a canonical app exec command by app ID from cache.
-pub fn resolve_app_exec(id: &str) -> Option<String> {
-    APP_CACHE
-        .get()?
-        .iter()
-        .find(|entry| entry.id == id)
-        .map(|entry| entry.exec.clone())
+pub fn resolve_app_exec(id: &str, ctx: &AppContext) -> Option<String> {
+    ctx.apps.resolve_exec(id)
+}
+
+pub fn refresh_app_cache(ctx: &AppContext) -> Result<RefreshAppsResult, String> {
+    ctx.apps.refresh()
+}
+
+#[tauri::command]
+pub fn app_cache_status_cmd(app: tauri::AppHandle) -> Result<AppCacheStatus, String> {
+    use tauri::Manager;
+    let ctx = app.state::<AppContext>();
+    Ok(ctx.apps.status())
+}
+
+#[tauri::command]
+pub fn refresh_app_cache_cmd(app: tauri::AppHandle) -> Result<RefreshAppsResult, String> {
+    use tauri::Manager;
+    let ctx = app.state::<AppContext>();
+    refresh_app_cache(&ctx)
 }
 
 fn parse_exec_command(exec: &str) -> Result<Vec<String>, String> {
@@ -279,6 +552,10 @@ pub fn launch_app(exec: String) -> Result<(), String> {
 mod tests {
     use super::*;
     use base64::Engine;
+    use std::fs;
+    use std::sync::Arc;
+    use std::time::{Duration, Instant};
+    use tempfile::tempdir;
 
     fn make_entry(id: &str, name: &str, exec: &str) -> DesktopEntry {
         DesktopEntry {
@@ -661,5 +938,195 @@ mod tests {
                 r.id
             );
         }
+    }
+
+    fn write_desktop_file(dir: &std::path::Path, file_name: &str, name: &str, exec: &str) {
+        let content = format!(
+            "[Desktop Entry]\nType=Application\nName={name}\nExec={exec}\nIcon=\nComment=\n"
+        );
+        fs::write(dir.join(file_name), content).expect("should write desktop file");
+    }
+
+    #[test]
+    fn refresh_adds_new_desktop_entry() {
+        let dir = tempdir().unwrap();
+        write_desktop_file(dir.path(), "alpha.desktop", "Alpha", "alpha");
+        let index = AppIndexState::new_for_test(vec![dir.path().to_path_buf()]);
+
+        write_desktop_file(dir.path(), "t3code.desktop", "t3code", "t3code");
+        let refreshed = index.refresh_from_dirs_for_test();
+
+        assert!(refreshed.changed);
+        assert_eq!(refreshed.revision, 2);
+        let results = index.search("t3code");
+        assert!(results.iter().any(|result| result.id == "t3code"));
+    }
+
+    #[test]
+    fn refresh_removes_deleted_desktop_entry() {
+        let dir = tempdir().unwrap();
+        write_desktop_file(dir.path(), "alpha.desktop", "Alpha", "alpha");
+        let index = AppIndexState::new_for_test(vec![dir.path().to_path_buf()]);
+
+        fs::remove_file(dir.path().join("alpha.desktop")).unwrap();
+        let refreshed = index.refresh_from_dirs_for_test();
+
+        assert!(refreshed.changed);
+        assert!(index.search("alpha").is_empty());
+    }
+
+    #[test]
+    fn refresh_updates_exec_for_existing_id() {
+        let dir = tempdir().unwrap();
+        write_desktop_file(dir.path(), "alpha.desktop", "Alpha", "alpha --old");
+        let index = AppIndexState::new_for_test(vec![dir.path().to_path_buf()]);
+
+        write_desktop_file(dir.path(), "alpha.desktop", "Alpha", "alpha --new");
+        let refreshed = index.refresh_from_dirs_for_test();
+
+        assert!(refreshed.changed);
+        assert_eq!(index.resolve_exec("alpha").as_deref(), Some("alpha --new"));
+    }
+
+    #[test]
+    fn refresh_no_change_keeps_revision() {
+        let dir = tempdir().unwrap();
+        write_desktop_file(dir.path(), "alpha.desktop", "Alpha", "alpha");
+        let index = AppIndexState::new_for_test(vec![dir.path().to_path_buf()]);
+
+        let status_before = index.status();
+        let refreshed = index.refresh_from_dirs_for_test();
+        let status_after = index.status();
+
+        assert!(!refreshed.changed);
+        assert_eq!(refreshed.revision, status_before.revision);
+        assert_eq!(status_after.revision, status_before.revision);
+    }
+
+    #[test]
+    fn status_reports_revision_and_count() {
+        let dir = tempdir().unwrap();
+        write_desktop_file(dir.path(), "alpha.desktop", "Alpha", "alpha");
+        write_desktop_file(dir.path(), "beta.desktop", "Beta", "beta");
+        let index = AppIndexState::new_for_test(vec![dir.path().to_path_buf()]);
+
+        let status = index.status();
+        assert_eq!(status.revision, 1);
+        assert_eq!(status.app_count, 2);
+    }
+
+    #[test]
+    fn relevant_fs_event_accepts_desktop_files() {
+        assert!(is_relevant_app_fs_path(std::path::Path::new(
+            "/tmp/applications/t3code.desktop"
+        )));
+    }
+
+    #[test]
+    fn relevant_fs_event_ignores_non_desktop_files() {
+        assert!(!is_relevant_app_fs_path(std::path::Path::new(
+            "/tmp/applications/icon.png"
+        )));
+    }
+
+    #[test]
+    fn watcher_refreshes_after_desktop_file_created() {
+        let dir = tempdir().unwrap();
+        let index = Arc::new(AppIndexState::new_for_test(vec![dir.path().to_path_buf()]));
+        index.start_watcher().expect("watcher should start");
+
+        write_desktop_file(dir.path(), "watched.desktop", "Watched App", "watched-app");
+
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            let status = index.status();
+            if status.revision > 1
+                && index
+                    .search("Watched App")
+                    .iter()
+                    .any(|result| result.id == "watched")
+            {
+                break;
+            }
+
+            assert!(
+                Instant::now() < deadline,
+                "watcher did not refresh cache after desktop file creation"
+            );
+            std::thread::sleep(Duration::from_millis(100));
+        }
+    }
+
+    #[test]
+    fn watcher_refreshes_after_desktop_file_updated() {
+        let dir = tempdir().unwrap();
+        write_desktop_file(
+            dir.path(),
+            "watched.desktop",
+            "Watched App",
+            "watched-app --old",
+        );
+
+        let index = Arc::new(AppIndexState::new_for_test(vec![dir.path().to_path_buf()]));
+        index.start_watcher().expect("watcher should start");
+
+        write_desktop_file(
+            dir.path(),
+            "watched.desktop",
+            "Watched App",
+            "watched-app --new",
+        );
+
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            if index.resolve_exec("watched").as_deref() == Some("watched-app --new") {
+                break;
+            }
+
+            assert!(
+                Instant::now() < deadline,
+                "watcher did not refresh cache after desktop file update"
+            );
+            std::thread::sleep(Duration::from_millis(100));
+        }
+    }
+
+    #[test]
+    fn watcher_refreshes_after_desktop_file_deleted() {
+        let dir = tempdir().unwrap();
+        write_desktop_file(dir.path(), "watched.desktop", "Watched App", "watched-app");
+
+        let index = Arc::new(AppIndexState::new_for_test(vec![dir.path().to_path_buf()]));
+        index.start_watcher().expect("watcher should start");
+
+        fs::remove_file(dir.path().join("watched.desktop")).unwrap();
+
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            let status = index.status();
+            if status.revision > 1 && index.search("Watched App").is_empty() {
+                break;
+            }
+
+            assert!(
+                Instant::now() < deadline,
+                "watcher did not refresh cache after desktop file deletion"
+            );
+            std::thread::sleep(Duration::from_millis(100));
+        }
+    }
+
+    #[test]
+    fn watcher_start_fails_when_no_directories_can_be_watched() {
+        let dir = tempdir().unwrap();
+        let missing_dir = dir.path().join("missing-applications");
+        let index = Arc::new(AppIndexState::new_for_test(vec![missing_dir]));
+
+        let error = index
+            .start_watcher()
+            .expect_err("watcher should fail when all source directories are missing");
+
+        assert!(error.contains("no application directories could be watched"));
+        assert!(!index.watcher_started.load(Ordering::SeqCst));
     }
 }
