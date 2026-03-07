@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="Burrow icon">
+  <title>Burrow</title>
+  <g fill="none" stroke-linecap="round" stroke-width="18">
+    <circle
+      cx="80"
+      cy="42"
+      r="33"
+      stroke="#F6C338"
+      stroke-dasharray="156 60"
+      transform="rotate(-32 80 42)"
+    />
+    <circle
+      cx="48"
+      cy="86"
+      r="33"
+      stroke="#2DC2D6"
+      stroke-dasharray="156 60"
+      transform="rotate(148 48 86)"
+    />
+  </g>
+  <circle cx="80" cy="42" r="10" fill="#F6C338" />
+  <circle cx="48" cy="86" r="10" fill="#2DC2D6" />
+</svg>
