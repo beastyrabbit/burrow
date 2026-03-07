@@ -2,6 +2,11 @@ import { existsSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } fr
 import { tmpdir } from "os";
 import { join } from "path";
 import { defineConfig } from "@playwright/test";
+import {
+  buildFrontendWebServer,
+  buildPlaywrightUse,
+} from "./scripts/playwright-config.mjs";
+import { resolvePortlessConfig } from "./scripts/portless-resolver.mjs";
 
 const e2eRootMarker = process.env.BURROW_E2E_ROOT_MARKER?.trim()
   || join(tmpdir(), `burrow-e2e-root-${process.pid}.txt`);
@@ -18,6 +23,7 @@ const e2eXdgLate = join(e2eRootDir, "xdg-late");
 const e2eApplicationsDir = join(e2eXdgHome, "applications");
 const e2eLateApplicationsDir = join(e2eXdgLate, "applications");
 const e2eXdgDataDirs = [e2eXdgShared, e2eXdgLate].join(":");
+const { frontendUrl } = resolvePortlessConfig();
 
 // Make available to global teardown
 process.env.BURROW_E2E_ROOT_DIR = e2eRootDir;
@@ -34,10 +40,7 @@ export default defineConfig({
   retries: 0,
   workers: 1,
   globalTeardown: "./e2e/global-teardown.ts",
-  use: {
-    baseURL: "http://localhost:1420",
-    headless: true,
-  },
+  use: buildPlaywrightUse(frontendUrl),
   webServer: [
     {
       command: "cargo run --bin test-server",
@@ -56,12 +59,7 @@ export default defineConfig({
         XDG_DATA_DIRS: e2eXdgDataDirs,
       },
     },
-    {
-      command: "pnpm dev",
-      port: 1420,
-      reuseExistingServer: true,
-      timeout: 10000,
-    },
+    buildFrontendWebServer(frontendUrl),
   ],
   projects: [
     {

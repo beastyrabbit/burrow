@@ -10,10 +10,11 @@ Desktop app and local command launcher using a Rust backend and Vite frontend.
 ## Tooling
 - Rust unit tests: `cd src-tauri && cargo test`
 - UI tests: `npx playwright test`
-- `pnpm dev`, `pnpm tauri dev`, `pnpm build`
+- `pnpm dev`, `pnpm dev:url`, `pnpm tauri dev`, `pnpm build`
 
 ## Ports
-- Vite dev server: `1420`
-- Vite HMR: `1421`
-- HTTP bridge/test server: `3001`
+- User-facing dev URL: `http://<name>.localhost:1355` via Portless
+- Raw Vite fallback: `http://localhost:1420` with `PORTLESS=0 pnpm dev`
+- Vite HMR: `1421` in Tauri dev
+- HTTP bridge/test server: `127.0.0.1:3001`
 - Registered in `/home/beasty/projects/.ports`

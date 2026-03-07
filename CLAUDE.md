@@ -39,7 +39,7 @@
    All tests must pass. If the Vite dev server isn't running, Playwright will start it automatically via `playwright.config.ts` webServer config.
 
 3. **Visual verification with Playwright MCP:**
-   - Navigate to `http://localhost:1420`
+   - Navigate to the current Portless dev URL from `pnpm dev:url`
    - Test the actual feature you changed (type in search, verify results, test keyboard nav)
    - Page loads alone are NOT sufficient — interact with the UI
 
@@ -48,11 +48,11 @@
 - Add Rust unit tests for any new backend logic (commands, parsing, search)
 - Add Playwright e2e tests for any new UI behavior
 - If a new provider is added, add tests for: empty query, matching query, no-match query, edge cases
-- Playwright e2e tests start `test-server` (headless axum backend on :3001) + `pnpm dev` (Vite on :1420) automatically via `playwright.config.ts` webServer config
+- Playwright e2e tests start `test-server` (headless axum backend on `127.0.0.1:3001`) + `pnpm dev` (Portless-backed Vite) automatically via `playwright.config.ts` webServer config
 
 ## Ports
 
-Vite dev server on 1420, HMR on 1421, test server (axum HTTP bridge) on 3001 (registered in `/home/beasty/projects/.ports`).
+User-facing dev URL is `http://<name>.localhost:1355` via Portless. Raw Vite fallback is `http://localhost:1420` when `PORTLESS=0`. HMR uses 1421 in Tauri dev, and the test server / HTTP bridge stays on `127.0.0.1:3001` (registered in `/home/beasty/projects/.ports`).
 
 ## Configuration
 
@@ -95,7 +95,7 @@ Vite dev server on 1420, HMR on 1421, test server (axum HTTP bridge) on 3001 (re
 
 - **Stack:** Tauri v2 + React + TypeScript frontend, Rust backend
 - **HTTP bridge:** `src-tauri/src/dev_server.rs` exposes all commands as `POST /api/{cmd}` endpoints via axum on `127.0.0.1:3001`. The `dev_server` module is always compiled; `start()` is called only in debug builds. The standalone `test-server` binary reuses `build_router()` for headless Playwright testing.
-- **Frontend bridge client:** `src/mock-tauri.ts` — Vite aliases `@tauri-apps/api/core` to this file outside Tauri. It forwards `invoke()` calls to the HTTP bridge via `fetch()`. Playwright tests run against the real backend through this bridge.
+- **Frontend bridge client:** `src/mock-tauri.ts` — Vite aliases `@tauri-apps/api/core` to this file outside Tauri. It forwards `invoke()` calls to the HTTP bridge via `fetch()`. Playwright tests run against the real backend through this bridge, even when the frontend is served from a Portless `.localhost` URL.
 - **Routing:** Prefix-based input dispatch in `src-tauri/src/router.rs`
 - **Vector search:** SQLite brute-force cosine similarity (no HNSW needed at <100k vectors). Embeddings via Ollama HTTP API, stored as BLOBs in `~/.local/share/burrow/vectors.db`
 
@@ -104,9 +104,10 @@ Vite dev server on 1420, HMR on 1421, test server (axum HTTP bridge) on 3001 (re
 | Command | Purpose |
 |---------|---------|
 | `cd src-tauri && cargo test` | Run all Rust unit tests (500+ tests) |
-| `npx playwright test` | Run all e2e tests (starts test-server + Vite dev server if needed) |
-| `pnpm dev` | Start Vite dev server on :1420 (needs HTTP bridge on :3001) |
-| `pnpm tauri dev` | Start full Tauri app (real backend) |
+| `npx playwright test` | Run all e2e tests (starts test-server + Portless-backed frontend if needed) |
+| `pnpm dev` | Start the frontend at the current Portless URL (`pnpm dev:url`) |
+| `pnpm dev:url` | Print the current worktree-aware Portless URL |
+| `pnpm tauri dev` | Start the full Tauri app using the current Portless URL |
 | `pnpm build` | Build frontend for production |
 
 ## CLI Commands
@@ -200,6 +201,9 @@ Burrow supports secondary output windows for streaming command output (e.g., kub
 - `src-tauri/src/icons.rs` — Freedesktop icon name → base64 data URI resolution
 - `src/category-icons.tsx` — Lucide SVG icons for non-app result categories
 - `src/mock-tauri.ts` — HTTP bridge client (forwards `invoke()` to axum server on :3001)
+- `scripts/portless-resolver.mjs` — Shared Portless app-name and URL resolver for dev scripts and Playwright
+- `scripts/portless-dev.mjs` — Frontend dev wrapper (`pnpm dev`)
+- `scripts/tauri.mjs` — Tauri CLI wrapper that injects the runtime `devUrl`
 - `e2e/` — Playwright e2e tests
 - `e2e/icons.spec.ts` — Icon rendering e2e tests
 - `playwright.config.ts` — Playwright configuration
@@ -223,6 +227,9 @@ Burrow supports secondary output windows for streaming command output (e.g., kub
 - When adding a new Tauri command: add route in `dev_server.rs` with request body struct, add to `generate_handler![]` in `lib.rs`
 - `dev_server.rs` endpoints mirror Tauri command signatures — each gets a Deserialize body struct and calls the same function
 - Playwright tests run against real backend via HTTP bridge (test-server binary on :3001) — no more mock data to maintain in `mock-tauri.ts`
+- `pnpm dev` and `pnpm tauri dev` require `portless` on `PATH`; do not add it as a project dependency
+- Main checkout serves at `http://burrow.localhost:1355`; linked worktrees serve at `http://<branch>.burrow.localhost:1355`
+- `PORTLESS=0 pnpm dev` bypasses Portless and falls back to raw Vite on `http://localhost:1420`
 - Pre-commit hooks run rustfmt — always run `cargo fmt` before staging, or stage after the first failed commit attempt
 - Health indicator is tri-state: green checkmark (healthy), blue pulsing ⟳ (indexing), red ! (error). Click shows details in notification bar.
 - Settings and admin tasks (reindex, config, stats, health, etc.) belong in the CLI only. The GUI is exclusively for day-to-day use: launching apps, searching files, SSH, chat.
@@ -233,7 +240,6 @@ Burrow supports secondary output windows for streaming command output (e.g., kub
 - Icons use base64 data URIs (`data:image/png;base64,...`) — NOT Tauri asset protocol. Asset protocol scope/CSP is unreliable; data URIs work everywhere.
 - Desktop entry dedup: `load_desktop_entries()` uses `HashSet<id>` to prevent duplicates from overlapping dirs (XDG_DATA_DIRS, flatpak, snap)
 - `cargo build` may silently skip recompilation after Edit tool changes — use `touch <file> && cargo build` to force recompile
-- `pnpm tauri dev` requires port 1420 free — kill stale processes with `lsof -ti:1420 | xargs kill -9` before restart
 - `tauri.conf.json` changes require full `tauri dev` restart (not just HMR)
 - Known pre-existing bug: `pdf-extract` crate panics on some PDFs (`unwrap()` on `None` at lib.rs:1383`) — can crash the Tauri process
 - Flatpak/Snap app dirs are already in `XDG_DATA_DIRS` on this system — adding them again in `desktop_dirs()` causes duplicates without dedup

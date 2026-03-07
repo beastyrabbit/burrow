@@ -1,4 +1,9 @@
-use axum::{extract::State, http::StatusCode, routing::post, Json, Router};
+use axum::{
+    extract::State,
+    http::{HeaderValue, StatusCode},
+    routing::post,
+    Json, Router,
+};
 use serde::Deserialize;
 use std::sync::Arc;
 use tower_http::cors::{AllowOrigin, CorsLayer};
@@ -145,6 +150,46 @@ async fn hide_window_noop() -> Result<Json<()>, (StatusCode, String)> {
     Ok(Json(()))
 }
 
+/// Allow only Burrow's HTTP-only local dev origins. If Portless HTTPS is ever
+/// introduced, this predicate must be widened alongside the frontend URL logic.
+fn is_allowed_dev_origin(origin: &HeaderValue) -> bool {
+    let Ok(origin) = origin.to_str() else {
+        return false;
+    };
+
+    let Some((scheme, host_and_port)) = origin.split_once("://") else {
+        return false;
+    };
+
+    if scheme != "http" {
+        return false;
+    };
+
+    if let Some(port) = host_and_port.strip_prefix("localhost:") {
+        return port.parse::<u16>().is_ok();
+    }
+
+    if let Some(port) = host_and_port.strip_prefix("127.0.0.1:") {
+        return port.parse::<u16>().is_ok();
+    }
+
+    let Some((host, port)) = host_and_port.rsplit_once(':') else {
+        return false;
+    };
+
+    port.parse::<u16>().is_ok()
+        && host.ends_with(".localhost")
+        && !host.starts_with('.')
+        && host.split('.').all(|label| {
+            !label.is_empty()
+                && !label.starts_with('-')
+                && !label.ends_with('-')
+                && label
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b == b'-')
+        })
+}
+
 /// Build the axum router with all API endpoints. Shared between dev_server and test-server.
 pub fn build_router(ctx: Arc<AppContext>) -> Router {
     Router::new()
@@ -162,8 +207,7 @@ pub fn build_router(ctx: Arc<AppContext>) -> Router {
         .layer(
             CorsLayer::new()
                 .allow_origin(AllowOrigin::predicate(|origin, _| {
-                    origin.as_bytes().starts_with(b"http://localhost:")
-                        || origin.as_bytes().starts_with(b"http://127.0.0.1:")
+                    is_allowed_dev_origin(origin)
                 }))
                 .allow_methods([axum::http::Method::POST])
                 .allow_headers([axum::http::header::CONTENT_TYPE]),
@@ -203,4 +247,66 @@ pub fn start(app: tauri::AppHandle) {
             tracing::error!(error = %e, "dev-server exited with error");
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_allowed_dev_origin;
+    use axum::http::HeaderValue;
+
+    #[test]
+    fn allows_current_localhost_origins() {
+        assert!(is_allowed_dev_origin(&HeaderValue::from_static(
+            "http://localhost:1420",
+        )));
+        assert!(is_allowed_dev_origin(&HeaderValue::from_static(
+            "http://127.0.0.1:1420",
+        )));
+    }
+
+    #[test]
+    fn allows_portless_localhost_subdomains() {
+        assert!(is_allowed_dev_origin(&HeaderValue::from_static(
+            "http://burrow.localhost:1355",
+        )));
+        assert!(is_allowed_dev_origin(&HeaderValue::from_static(
+            "http://add-portless-integration.burrow.localhost:1355",
+        )));
+        assert!(is_allowed_dev_origin(&HeaderValue::from_static(
+            "http://burrow.localhost:2468",
+        )));
+    }
+
+    #[test]
+    fn rejects_https_local_origins() {
+        assert!(!is_allowed_dev_origin(&HeaderValue::from_static(
+            "https://burrow.localhost:1355",
+        )));
+        assert!(!is_allowed_dev_origin(&HeaderValue::from_static(
+            "https://localhost:1420",
+        )));
+    }
+
+    #[test]
+    fn rejects_non_local_origins() {
+        assert!(!is_allowed_dev_origin(&HeaderValue::from_static(
+            "http://example.com:1355",
+        )));
+        assert!(!is_allowed_dev_origin(&HeaderValue::from_static(
+            "http://-foo.localhost:1355",
+        )));
+        assert!(!is_allowed_dev_origin(&HeaderValue::from_static(
+            "http://foo-.localhost:1355",
+        )));
+        assert!(!is_allowed_dev_origin(&HeaderValue::from_static(
+            "ftp://burrow.localhost:1355",
+        )));
+    }
+
+    #[test]
+    fn rejects_malformed_origins() {
+        let malformed = HeaderValue::from_bytes(b"http://burrow.localhost:\xff")
+            .expect("header value with invalid utf-8 is allowed");
+        assert!(!is_allowed_dev_origin(&malformed));
+    }
 }

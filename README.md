@@ -49,6 +49,7 @@ One input bar. Apps, files, AI chat, SSH, passwords, math — all at your finger
 
 - Linux with Wayland
 - [Tauri v2 prerequisites](https://v2.tauri.app/start/prerequisites/)
+- [Portless](https://github.com/vercel-labs/portless) on `PATH` for the default dev workflow
 - `wtype` and `wl-copy` for typing and clipboard
 - [Ollama](https://ollama.com/) for content search and AI chat (optional)
 - [1Password CLI](https://developer.1password.com/docs/cli/) for password integration (optional)
@@ -212,7 +213,7 @@ provider = "ollama"
 
 ## Architecture
 
-Burrow is a Tauri v2 app with a React + TypeScript frontend and a Rust backend. The frontend communicates with the backend through Tauri's IPC bridge (or an axum HTTP bridge on `localhost:3001` during development, enabling browser-based testing with Playwright).
+Burrow is a Tauri v2 app with a React + TypeScript frontend and a Rust backend. The frontend communicates with the backend through Tauri's IPC bridge (or an axum HTTP bridge on `127.0.0.1:3001` during development, enabling browser-based testing with Playwright).
 
 Input routing is prefix-based — the router inspects the first characters of a query and dispatches to the appropriate provider. Launch history is stored in SQLite (`~/.local/share/burrow/history.db`). Semantic content search uses Ollama to generate embeddings, stored as BLOBs in a separate SQLite database (`~/.local/share/burrow/vectors.db`) with brute-force cosine similarity — no HNSW index needed at the expected scale.
 
@@ -222,9 +223,17 @@ Input routing is prefix-based — the router inspects the first characters of a 
 # Full Tauri app with hot-reload (backend + frontend)
 pnpm tauri dev
 
-# Frontend dev server only (needs the Tauri backend running for HTTP bridge on :3001)
+# Frontend dev server only (served through Portless; backend bridge still listens on 127.0.0.1:3001)
 pnpm dev
+
+# Print the current worktree-aware dev URL
+pnpm dev:url
+
+# Bypass Portless and use raw Vite on http://localhost:1420
+PORTLESS=0 pnpm dev
 ```
+
+`pnpm dev` and `pnpm tauri dev` use worktree-aware Portless hostnames by default. The main checkout serves at `http://burrow.localhost:1355`; linked worktrees use `http://<branch>.burrow.localhost:1355`.
 
 ## Testing
 
@@ -232,7 +241,7 @@ pnpm dev
 # Rust unit tests
 cd src-tauri && cargo test
 
-# Playwright e2e tests (starts pnpm tauri dev automatically if needed)
+# Playwright e2e tests (starts test-server + pnpm dev automatically if needed)
 npx playwright test
 ```
 
