@@ -15,6 +15,17 @@ struct SpecialCommand {
 
 const COMMANDS: &[SpecialCommand] = &[
     SpecialCommand {
+        name: "refresh",
+        description: "Rescan application folders now",
+        icon: "",
+        // Sentinel exec: the backend action dispatcher intercepts `special-refresh`
+        // and refreshes the shared app cache without launching a shell command.
+        exec_command: "special-refresh",
+        input_spec: None,
+        output_mode: None,
+        output_format: None,
+    },
+    SpecialCommand {
         name: "cowork",
         description: "Open kitty in ~/cowork and run Codex",
         icon: "",
@@ -286,5 +297,13 @@ mod tests {
     #[test]
     fn resolve_special_by_id_unknown_returns_none() {
         assert!(resolve_special_by_id("special-unknown").is_none());
+    }
+
+    #[test]
+    fn refresh_command_present() {
+        let results = search_special("refresh").unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].id, "special-refresh");
+        assert_eq!(results[0].name, "refresh");
     }
 }

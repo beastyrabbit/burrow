@@ -1,4 +1,28 @@
 import { test, expect } from "@playwright/test";
+import { mkdirSync, writeFileSync } from "fs";
+import { join } from "path";
+
+const e2eAppDir = process.env.BURROW_E2E_APP_DIR;
+
+function writeDesktopEntry(id: string, name: string, exec = id) {
+  if (!e2eAppDir) {
+    throw new Error("Desktop fixture directory must be set for special command tests");
+  }
+
+  mkdirSync(e2eAppDir, { recursive: true });
+  writeFileSync(
+    join(e2eAppDir, `${id}.desktop`),
+    [
+      "[Desktop Entry]",
+      "Type=Application",
+      `Name=${name}`,
+      `Exec=${exec}`,
+      "Icon=",
+      "Comment=Special mode test fixture",
+      "",
+    ].join("\n"),
+  );
+}
 
 const coworkResult = (page: import("@playwright/test").Page) =>
   page
@@ -215,5 +239,42 @@ test.describe("Secondary Input Mode", () => {
     // Type in secondary mode
     await input.fill("test-topic");
     await expect(input).toHaveValue("test-topic");
+  });
+
+  test("empty Enter exits secondary mode with a fresh app search after cache updates", async ({
+    page,
+  }) => {
+    const input = page.locator(".search-input");
+    const appId = "aaa-secondary-mode-refresh-app";
+    const appName = "AAA Secondary Mode Refresh App";
+    let searchRequestsAfterExit = 0;
+    let countSearchRequests = false;
+
+    page.on("request", (request) => {
+      if (
+        countSearchRequests &&
+        request.method() === "POST" &&
+        request.url().endsWith("/api/search")
+      ) {
+        searchRequestsAfterExit += 1;
+      }
+    });
+
+    await input.fill("#cowork");
+    await expect(coworkResult(page)).toBeVisible();
+
+    await input.press("Enter");
+    await expect(page.locator(".secondary-indicator")).toBeVisible();
+
+    writeDesktopEntry(appId, appName);
+    await page.waitForTimeout(1500);
+
+    countSearchRequests = true;
+    await input.press("Enter");
+
+    await expect(input).not.toHaveClass(/secondary/);
+    await expect(input).toHaveValue("");
+    await expect.poll(() => searchRequestsAfterExit).toBeGreaterThan(0);
+    await expect(page.locator(".result-name", { hasText: appName })).toBeVisible();
   });
 });

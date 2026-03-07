@@ -38,7 +38,7 @@ test.describe("Modifier Key Actions", () => {
   // --- Basic Enter (no modifier) ---
 
   test("Enter on app result executes without error", async ({ page }) => {
-    const errors = await searchAndAct(page, "Firefox", "Enter");
+    const errors = await searchAndAct(page, "Fixture App 1", "Enter");
     expect(
       errors.filter((e) => e.includes("Execute action failed")).length,
       "execute_action should not produce console.error"
@@ -48,21 +48,21 @@ test.describe("Modifier Key Actions", () => {
   test("Shift+Enter on app result executes without error", async ({
     page,
   }) => {
-    const errors = await searchAndAct(page, "Firefox", "Shift+Enter");
+    const errors = await searchAndAct(page, "Fixture App 1", "Shift+Enter");
     expect(
       errors.filter((e) => e.includes("Execute action failed")).length
     ).toBe(0);
   });
 
   test("Ctrl+Enter on app result executes without error", async ({ page }) => {
-    const errors = await searchAndAct(page, "Firefox", "Control+Enter");
+    const errors = await searchAndAct(page, "Fixture App 1", "Control+Enter");
     expect(
       errors.filter((e) => e.includes("Execute action failed")).length
     ).toBe(0);
   });
 
   test("Alt+Enter on app result executes without error", async ({ page }) => {
-    const errors = await searchAndAct(page, "Firefox", "Alt+Enter");
+    const errors = await searchAndAct(page, "Fixture App 1", "Alt+Enter");
     expect(
       errors.filter((e) => e.includes("Execute action failed")).length
     ).toBe(0);
@@ -180,7 +180,7 @@ test.describe("Modifier Key Actions", () => {
 
   test("clicking a result executes without error", async ({ page }) => {
     const input = page.locator(".search-input");
-    await input.fill("Firefox");
+    await input.fill("Fixture App 1");
     await page.waitForTimeout(200);
 
     const errors: string[] = [];

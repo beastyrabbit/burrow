@@ -712,6 +712,46 @@ pub fn reload_config() -> AppConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::{Mutex, OnceLock};
+
+    fn env_test_lock() -> &'static Mutex<()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+    }
+
+    struct EnvVarRestore {
+        saved: Vec<(String, Option<String>)>,
+    }
+
+    impl EnvVarRestore {
+        fn capture(keys: &[&str]) -> Self {
+            Self {
+                saved: keys
+                    .iter()
+                    .map(|key| ((*key).to_string(), std::env::var(key).ok()))
+                    .collect(),
+            }
+        }
+    }
+
+    impl Drop for EnvVarRestore {
+        fn drop(&mut self) {
+            for (key, value) in &self.saved {
+                match value {
+                    Some(value) => std::env::set_var(key, value),
+                    None => std::env::remove_var(key),
+                }
+            }
+        }
+    }
+
+    fn with_env_test_scope<T>(keys: &[&str], f: impl FnOnce() -> T) -> T {
+        let _lock = env_test_lock()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let _restore = EnvVarRestore::capture(keys);
+        f()
+    }
 
     #[test]
     fn default_config_has_sane_values() {
@@ -865,92 +905,102 @@ debounce_ms = 100
 
     #[test]
     fn env_override_ollama_url() {
-        let mut cfg = AppConfig::default();
-        std::env::set_var("BURROW_OLLAMA_URL", "http://custom:11434");
-        cfg = apply_env_overrides(cfg);
-        assert_eq!(cfg.ollama.url, "http://custom:11434");
-        std::env::remove_var("BURROW_OLLAMA_URL");
+        with_env_test_scope(&["BURROW_OLLAMA_URL"], || {
+            let mut cfg = AppConfig::default();
+            std::env::set_var("BURROW_OLLAMA_URL", "http://custom:11434");
+            cfg = apply_env_overrides(cfg);
+            assert_eq!(cfg.ollama.url, "http://custom:11434");
+        });
     }
 
     #[test]
     fn env_override_embedding_model_legacy() {
-        let mut cfg = AppConfig::default();
-        std::env::set_var("BURROW_OLLAMA_EMBEDDING_MODEL", "custom-model");
-        cfg = apply_env_overrides(cfg);
-        assert_eq!(cfg.models.embedding.name, "custom-model");
-        std::env::remove_var("BURROW_OLLAMA_EMBEDDING_MODEL");
+        with_env_test_scope(&["BURROW_OLLAMA_EMBEDDING_MODEL"], || {
+            let mut cfg = AppConfig::default();
+            std::env::set_var("BURROW_OLLAMA_EMBEDDING_MODEL", "custom-model");
+            cfg = apply_env_overrides(cfg);
+            assert_eq!(cfg.models.embedding.name, "custom-model");
+        });
     }
 
     #[test]
     fn env_override_model_embedding() {
-        let mut cfg = AppConfig::default();
-        std::env::set_var("BURROW_MODEL_EMBEDDING", "nomic-embed-text");
-        cfg = apply_env_overrides(cfg);
-        assert_eq!(cfg.models.embedding.name, "nomic-embed-text");
-        std::env::remove_var("BURROW_MODEL_EMBEDDING");
+        with_env_test_scope(&["BURROW_MODEL_EMBEDDING"], || {
+            let mut cfg = AppConfig::default();
+            std::env::set_var("BURROW_MODEL_EMBEDDING", "nomic-embed-text");
+            cfg = apply_env_overrides(cfg);
+            assert_eq!(cfg.models.embedding.name, "nomic-embed-text");
+        });
     }
 
     #[test]
     fn env_override_model_chat() {
-        let mut cfg = AppConfig::default();
-        std::env::set_var("BURROW_MODEL_CHAT", "llama3:8b");
-        cfg = apply_env_overrides(cfg);
-        assert_eq!(cfg.models.chat.name, "llama3:8b");
-        std::env::remove_var("BURROW_MODEL_CHAT");
+        with_env_test_scope(&["BURROW_MODEL_CHAT"], || {
+            let mut cfg = AppConfig::default();
+            std::env::set_var("BURROW_MODEL_CHAT", "llama3:8b");
+            cfg = apply_env_overrides(cfg);
+            assert_eq!(cfg.models.chat.name, "llama3:8b");
+        });
     }
 
     #[test]
     fn env_override_model_chat_large() {
-        let mut cfg = AppConfig::default();
-        std::env::set_var("BURROW_MODEL_CHAT_LARGE", "claude-opus");
-        std::env::set_var("BURROW_MODEL_CHAT_LARGE_PROVIDER", "openrouter");
-        cfg = apply_env_overrides(cfg);
-        assert_eq!(cfg.models.chat_large.name, "claude-opus");
-        assert_eq!(cfg.models.chat_large.provider, "openrouter");
-        std::env::remove_var("BURROW_MODEL_CHAT_LARGE");
-        std::env::remove_var("BURROW_MODEL_CHAT_LARGE_PROVIDER");
+        with_env_test_scope(
+            &[
+                "BURROW_MODEL_CHAT_LARGE",
+                "BURROW_MODEL_CHAT_LARGE_PROVIDER",
+            ],
+            || {
+                let mut cfg = AppConfig::default();
+                std::env::set_var("BURROW_MODEL_CHAT_LARGE", "claude-opus");
+                std::env::set_var("BURROW_MODEL_CHAT_LARGE_PROVIDER", "openrouter");
+                cfg = apply_env_overrides(cfg);
+                assert_eq!(cfg.models.chat_large.name, "claude-opus");
+                assert_eq!(cfg.models.chat_large.provider, "openrouter");
+            },
+        );
     }
 
     #[test]
     fn env_override_index_mode() {
-        let mut cfg = AppConfig::default();
-        std::env::set_var("BURROW_INDEX_MODE", "custom");
-        cfg = apply_env_overrides(cfg);
-        assert_eq!(cfg.vector_search.index_mode, "custom");
-        std::env::remove_var("BURROW_INDEX_MODE");
+        with_env_test_scope(&["BURROW_INDEX_MODE"], || {
+            let mut cfg = AppConfig::default();
+            std::env::set_var("BURROW_INDEX_MODE", "custom");
+            cfg = apply_env_overrides(cfg);
+            assert_eq!(cfg.vector_search.index_mode, "custom");
+        });
     }
 
     #[test]
     fn env_override_openrouter_api_key() {
-        let mut cfg = AppConfig::default();
-        std::env::set_var("BURROW_OPENROUTER_API_KEY", "sk-burrow-test");
-        cfg = apply_env_overrides(cfg);
-        assert_eq!(cfg.openrouter.api_key, "sk-burrow-test");
-        std::env::remove_var("BURROW_OPENROUTER_API_KEY");
+        with_env_test_scope(&["BURROW_OPENROUTER_API_KEY", "OPENROUTER_API_KEY"], || {
+            let mut cfg = AppConfig::default();
+            std::env::set_var("BURROW_OPENROUTER_API_KEY", "sk-burrow-test");
+            std::env::remove_var("OPENROUTER_API_KEY");
+            cfg = apply_env_overrides(cfg);
+            assert_eq!(cfg.openrouter.api_key, "sk-burrow-test");
+        });
     }
 
     #[test]
     fn env_override_openrouter_fallback() {
-        let saved = std::env::var("OPENROUTER_API_KEY").ok();
-        let mut cfg = AppConfig::default();
-        std::env::remove_var("BURROW_OPENROUTER_API_KEY");
-        std::env::set_var("OPENROUTER_API_KEY", "sk-fallback-test");
-        cfg = apply_env_overrides(cfg);
-        assert_eq!(cfg.openrouter.api_key, "sk-fallback-test");
-        // Restore original value
-        match saved {
-            Some(v) => std::env::set_var("OPENROUTER_API_KEY", v),
-            None => std::env::remove_var("OPENROUTER_API_KEY"),
-        }
+        with_env_test_scope(&["BURROW_OPENROUTER_API_KEY", "OPENROUTER_API_KEY"], || {
+            let mut cfg = AppConfig::default();
+            std::env::remove_var("BURROW_OPENROUTER_API_KEY");
+            std::env::set_var("OPENROUTER_API_KEY", "sk-fallback-test");
+            cfg = apply_env_overrides(cfg);
+            assert_eq!(cfg.openrouter.api_key, "sk-fallback-test");
+        });
     }
 
     #[test]
     fn env_override_vector_enabled() {
-        let mut cfg = AppConfig::default();
-        std::env::set_var("BURROW_VECTOR_SEARCH_ENABLED", "false");
-        cfg = apply_env_overrides(cfg);
-        assert!(!cfg.vector_search.enabled);
-        std::env::remove_var("BURROW_VECTOR_SEARCH_ENABLED");
+        with_env_test_scope(&["BURROW_VECTOR_SEARCH_ENABLED"], || {
+            let mut cfg = AppConfig::default();
+            std::env::set_var("BURROW_VECTOR_SEARCH_ENABLED", "false");
+            cfg = apply_env_overrides(cfg);
+            assert!(!cfg.vector_search.enabled);
+        });
     }
 
     #[test]
@@ -970,19 +1020,19 @@ debounce_ms = 100
 
     #[test]
     fn update_config_model_creates_file() {
-        let tmp = tempfile::TempDir::new().unwrap();
-        let custom_dir = tmp.path().join("burrow");
-        std::env::set_var("BURROW_CONFIG_DIR", &custom_dir);
+        with_env_test_scope(&["BURROW_CONFIG_DIR"], || {
+            let tmp = tempfile::TempDir::new().unwrap();
+            let custom_dir = tmp.path().join("burrow");
+            std::env::set_var("BURROW_CONFIG_DIR", &custom_dir);
 
-        // Should create config file with updated model
-        update_config_model("chat_large", "openrouter", "anthropic/claude-opus").unwrap();
+            // Should create config file with updated model
+            update_config_model("chat_large", "openrouter", "anthropic/claude-opus").unwrap();
 
-        // Verify the file was created and contains the update
-        let content = std::fs::read_to_string(custom_dir.join("config.toml")).unwrap();
-        assert!(content.contains("anthropic/claude-opus"));
-        assert!(content.contains("openrouter"));
-
-        std::env::remove_var("BURROW_CONFIG_DIR");
+            // Verify the file was created and contains the update
+            let content = std::fs::read_to_string(custom_dir.join("config.toml")).unwrap();
+            assert!(content.contains("anthropic/claude-opus"));
+            assert!(content.contains("openrouter"));
+        });
     }
 
     #[test]
@@ -1105,13 +1155,14 @@ startup_timeout_secs = 10
 
     #[test]
     fn env_override_config_dir() {
-        let tmp = tempfile::TempDir::new().unwrap();
-        let custom_dir = tmp.path().join("custom-burrow");
+        with_env_test_scope(&["BURROW_CONFIG_DIR"], || {
+            let tmp = tempfile::TempDir::new().unwrap();
+            let custom_dir = tmp.path().join("custom-burrow");
 
-        std::env::set_var("BURROW_CONFIG_DIR", &custom_dir);
-        let dir = config_dir();
-        assert_eq!(dir, custom_dir);
-        std::env::remove_var("BURROW_CONFIG_DIR");
+            std::env::set_var("BURROW_CONFIG_DIR", &custom_dir);
+            let dir = config_dir();
+            assert_eq!(dir, custom_dir);
+        });
     }
 
     // ── Config validation tests ──────────────────────────────────────
@@ -1550,22 +1601,22 @@ startup_timeout_secs = 10
 
     #[test]
     fn test_update_config_model_trims_whitespace() {
-        let tmp = tempfile::TempDir::new().unwrap();
-        let custom_dir = tmp.path().join("burrow");
-        std::env::set_var("BURROW_CONFIG_DIR", &custom_dir);
+        with_env_test_scope(&["BURROW_CONFIG_DIR"], || {
+            let tmp = tempfile::TempDir::new().unwrap();
+            let custom_dir = tmp.path().join("burrow");
+            std::env::set_var("BURROW_CONFIG_DIR", &custom_dir);
 
-        update_config_model("chat", "ollama", "  llama3:8b  ").unwrap();
+            update_config_model("chat", "ollama", "  llama3:8b  ").unwrap();
 
-        let content = std::fs::read_to_string(custom_dir.join("config.toml")).unwrap();
-        assert!(
-            content.contains("llama3:8b"),
-            "model name should be trimmed in config file"
-        );
-        assert!(
-            !content.contains("  llama3:8b  "),
-            "untrimmed model name should not appear"
-        );
-
-        std::env::remove_var("BURROW_CONFIG_DIR");
+            let content = std::fs::read_to_string(custom_dir.join("config.toml")).unwrap();
+            assert!(
+                content.contains("llama3:8b"),
+                "model name should be trimmed in config file"
+            );
+            assert!(
+                !content.contains("  llama3:8b  "),
+                "untrimmed model name should not appear"
+            );
+        });
     }
 }
