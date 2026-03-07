@@ -288,7 +288,7 @@ fn desktop_dirs() -> Vec<PathBuf> {
     }
 
     // Explicit Flatpak/Snap dirs ensure coverage on systems where
-    // XDG_DATA_DIRS doesn't include them. Dedup in load_desktop_entries() handles overlap.
+    // XDG_DATA_DIRS doesn't include them. Duplicate desktop IDs are deduped during loading.
     if let Some(home) = dirs::home_dir() {
         dirs.push(home.join(".local/share/flatpak/exports/share/applications"));
     }
@@ -298,11 +298,6 @@ fn desktop_dirs() -> Vec<PathBuf> {
     dirs.push(PathBuf::from("/var/lib/snapd/desktop/applications"));
 
     dirs
-}
-
-#[cfg(test)]
-fn load_desktop_entries() -> Vec<DesktopEntry> {
-    load_desktop_entries_from_dirs(&desktop_dirs())
 }
 
 fn load_desktop_entries_from_dirs(dirs: &[PathBuf]) -> Vec<DesktopEntry> {
@@ -571,6 +566,10 @@ mod tests {
             comment: "".into(),
             no_display: false,
         }
+    }
+
+    fn load_desktop_entries() -> Vec<DesktopEntry> {
+        load_desktop_entries_from_dirs(&desktop_dirs())
     }
 
     // --- strip_field_codes ---

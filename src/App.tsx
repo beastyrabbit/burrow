@@ -205,6 +205,7 @@ function App() {
   useEffect(() => {
     let cancelled = false;
     const pageIsVisible = () => !document.hidden || navigator.webdriver;
+    appCacheRevisionRef.current = null;
 
     const syncAppCacheStatus = async (refreshResults: boolean) => {
       if (!pageIsVisible() || appCachePollInFlightRef.current) {
